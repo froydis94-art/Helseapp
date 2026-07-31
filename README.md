@@ -20,9 +20,9 @@ Vi kjører **uten lokal Node**: webapp + API på Vercel, bildegenerering via Rep
 
 ## Neste i planen
 
-- Finpusse Tempo + varsler
-- Terra/Vital for Garmin/Strava/Oura (senere)
-- Valgfri Expo-app som snakker med samme Vercel-API når IT godkjenner Node
+- Kosthold manuelt i Tempo (kcal/protein) — klart
+- Enheter-skjelett for Terra — klart
+- Terra OAuth + webhook → auto-tempo (aktivitet + kost der støttet)
 
 ## Tips (E005)
 
