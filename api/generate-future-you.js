@@ -18,18 +18,17 @@ async function handler(req, res) {
   }
 
   try {
-    const maal = String(req.body?.maal || "").trim();
+    const maal = String(req.body?.maal || "").trim() || "visible athletic body transformation";
     const intensity = String(req.body?.intensity || "moderate").trim();
     const horizon = String(req.body?.horizon || "8w").trim();
     const focus = String(req.body?.focus || "overall").trim();
+    const zone = String(req.body?.zone || "").trim();
+    const fat = String(req.body?.fat || "decrease").trim();
+    const muscle = String(req.body?.muscle || "toned").trim();
     const paceLabel = String(req.body?.paceLabel || "").trim();
     const goalTitle = String(req.body?.goalTitle || "").trim();
     const horizonDate = String(req.body?.horizonDate || "").trim();
     const occasionLabel = String(req.body?.occasionLabel || "").trim();
-
-    if (!maal) {
-      return res.status(400).json({ error: "Mangler mål (maal)." });
-    }
 
     const imageBase64 = req.body?.imageBase64;
     if (!imageBase64) {
@@ -53,6 +52,9 @@ async function handler(req, res) {
       intensity,
       horizon,
       focus,
+      zone,
+      fat,
+      muscle,
       paceLabel,
       goalTitle,
       horizonDate,

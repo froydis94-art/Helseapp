@@ -585,8 +585,8 @@
         </p>
 
         <label>
-          <span data-i18n="labelGoalPrompt">Ditt mål</span>
-          <input id="maal" type="text" />
+          <span data-i18n="labelGoalPrompt">Egne merknader (valgfritt)</span>
+          <input id="maal" type="text" data-i18n-placeholder="maalPlaceholder" placeholder="F.eks. mer definerte skuldre" />
         </label>
 
         <div class="choice-block">
@@ -612,24 +612,46 @@
         </div>
 
         <div class="choice-block">
-          <span class="choice-label" data-i18n="labelFocus">Fokusområde</span>
-          <div class="choices" id="focusChoices">
-            <button type="button" class="choice active" data-focus="overall" data-i18n="focusOverall">Helhet</button>
-            <button type="button" class="choice" data-focus="cardio" data-i18n="focusCardio">Kondisjon</button>
-            <button type="button" class="choice" data-focus="core" data-i18n="focusCore">Kjerne/mage</button>
-            <button type="button" class="choice" data-focus="strength" data-i18n="focusStrength">Styrke</button>
-            <button type="button" class="choice" data-focus="posture" data-i18n="focusPosture">Holdning</button>
+          <span class="choice-label" data-i18n="labelFat">Fettprosent</span>
+          <div class="choices" id="fatChoices">
+            <button type="button" class="choice active" data-fat="decrease" data-i18n="fatDecrease">Minske</button>
+            <button type="button" class="choice" data-fat="maintain" data-i18n="fatMaintain">Beholde</button>
+            <button type="button" class="choice" data-fat="increase" data-i18n="fatIncrease">Øke (masse)</button>
           </div>
         </div>
 
-        <label>
-          <span data-i18n="labelIntensity">Intensitet</span>
-          <select id="intensity">
-            <option value="subtle" data-i18n="intensitySubtle">Mild</option>
-            <option value="moderate" data-i18n="intensityModerate">Moderat</option>
-            <option value="strong" selected data-i18n="intensityStrong">Sterk</option>
+        <div class="choice-block">
+          <span class="choice-label" data-i18n="labelMuscle">Muskelstruktur</span>
+          <div class="choices" id="muscleChoices">
+            <button type="button" class="choice active" data-muscle="toned" data-i18n="muscleToned">Slank / tonet</button>
+            <button type="button" class="choice" data-muscle="volume" data-i18n="muscleVolume">Øke volum</button>
+          </div>
+        </div>
+
+        <div class="choice-block">
+          <span class="choice-label" data-i18n="labelZone">Fokus / kroppsdel</span>
+          <div class="choices" id="zoneChoices">
+            <button type="button" class="choice" data-zone="overall" data-i18n="zoneOverall">Helhet</button>
+            <button type="button" class="choice active" data-zone="abs" data-i18n="zoneAbs">Mage</button>
+            <button type="button" class="choice" data-zone="upper" data-i18n="zoneUpper">Overkropp / armer</button>
+            <button type="button" class="choice" data-zone="lower" data-i18n="zoneLower">Rumpe / bein</button>
+            <button type="button" class="choice" data-zone="posture" data-i18n="zonePosture">Holdning</button>
+          </div>
+        </div>
+
+        <div class="choice-block">
+          <span class="choice-label" data-i18n="labelIntensity">Innsatsnivå</span>
+          <div class="choices" id="intensityChoices">
+            <button type="button" class="choice" data-intensity="subtle" data-i18n="intensitySubtle">Moderat</button>
+            <button type="button" class="choice" data-intensity="moderate" data-i18n="intensityModerate">Hard</button>
+            <button type="button" class="choice active" data-intensity="strong" data-i18n="intensityStrong">Strikt / maks</button>
+          </div>
+          <select id="intensity" hidden>
+            <option value="subtle">subtle</option>
+            <option value="moderate">moderate</option>
+            <option value="strong" selected>strong</option>
           </select>
-        </label>
+        </div>
         <p class="hint" id="intensityHint"></p>
 
         <div class="prompt-preview" id="promptPreview"></div>
@@ -883,7 +905,8 @@
           tabPace: "Tempo",
           tabDevices: "Enheter",
           futureHint: "Tips: tydelig kroppsbilde fungerer best — synlig hud/overkropp er helt greit for fremgangsvisualisering.",
-          labelGoalPrompt: "Ditt mål",
+          labelGoalPrompt: "Egne merknader (valgfritt)",
+          maalPlaceholder: "F.eks. mer definerte skuldre",
           labelHorizon: "Tidshorisont",
           horizon4w: "Om 4 uker",
           horizon8w: "Om 8 uker",
@@ -895,24 +918,39 @@
           labelOccasion: "Anledning (valgfritt)",
           occasionPlaceholder: "Bryllup, ferie, konkurranse…",
           needCustomDate: "Velg en måldato for egen tidshorisont.",
+          labelFat: "Fettprosent",
+          fatDecrease: "Minske",
+          fatMaintain: "Beholde",
+          fatIncrease: "Øke (masse)",
+          labelMuscle: "Muskelstruktur",
+          muscleToned: "Slank / tonet",
+          muscleVolume: "Øke volum",
+          labelZone: "Fokus / kroppsdel",
+          zoneOverall: "Helhet",
+          zoneAbs: "Mage",
+          zoneUpper: "Overkropp / armer",
+          zoneLower: "Rumpe / bein",
+          zonePosture: "Holdning",
           labelFocus: "Fokusområde",
           focusOverall: "Helhet",
           focusCardio: "Kondisjon",
           focusCore: "Kjerne/mage",
           focusStrength: "Styrke",
           focusPosture: "Holdning",
-          labelIntensity: "Intensitet",
-          intensitySubtle: "Mild",
-          intensityModerate: "Moderat",
-          intensityStrong: "Sterk",
-          promptPreview: (goal, horizon, focus, intensity) =>
-            `AI-brief: <b>${goal || "…"}</b> · ${horizon} · ${focus} · ${intensity}`,
-          hintHorizon4w: "Forslag: Moderat intensitet — tidlig, synlig fremgang.",
-          hintHorizon8w: "Forslag: Sterk intensitet — tydelig midtveis-endring.",
-          hintHorizon12w: "Forslag: Sterk intensitet — merkbart fittere kropp.",
-          hintHorizon24w: "Forslag: Sterk intensitet — stor, synlig transformasjon.",
-          hintHorizon18m: "Forslag: Sterk intensitet — langsiktig toppform.",
-          hintHorizonCustom: "Forslag: Sterk intensitet — tilpasset din anledning.",
+          labelIntensity: "Innsatsnivå",
+          intensitySubtle: "Moderat",
+          intensityModerate: "Hard",
+          intensityStrong: "Strikt / maks",
+          promptPreview: (goal, horizon, fat, muscle, zone, intensity) =>
+            `AI-brief: ${horizon} · ${fat} · ${muscle} · ${zone} · ${intensity}${goal ? ` · <b>${goal}</b>` : ""}`,
+          hintHorizon4w: "Forslag: Hard innsats — tidlig, synlig fremgang.",
+          hintHorizon8w: "Forslag: Strikt / maks — tydelig midtveis-endring.",
+          hintHorizon12w: "Forslag: Strikt / maks — merkbart fittere kropp.",
+          hintHorizon24w: "Forslag: Strikt / maks — stor, synlig transformasjon.",
+          hintHorizon18m: "Forslag: Strikt / maks — langsiktig toppform.",
+          hintHorizonCustom: "Forslag: Strikt / maks — tilpasset din anledning.",
+          maalDefault: "",
+          goalTitleDefault: "Atletisk form",
           labelSourceImage: "Utgangsbilde",
           btnGenerate: "Generer visualisering",
           btnSyncPace: "Hent motivasjonstekst fra Tempo",
@@ -984,8 +1022,6 @@
           onboardLang: "Språk",
           onboardUnits: "Målesystem",
           onboardContinue: "Fortsett",
-          maalDefault: "merkebar atletisk fremgang — mer muskuløs, strammere midje, tydeligere form",
-          goalTitleDefault: "Atletisk form",
           presetSessions: "Økter/uke",
           presetSteps: "Skritt",
           presetWeight: "Vekt",
@@ -1011,26 +1047,26 @@
           foodOk: "Ok",
           bannerMeta: (metric, pct, days, food, kcalC, kcalT, protein) =>
             `${metric || "Metrikk"} · ${pct}% · ${days} dager igjen · Kost: ${food} (${kcalC}/${kcalT} kcal, ${protein}g protein)`,
-          hintBehind: "Forslag: Sterk intensitet — aktivitet eller kost er bak.",
-          hintAhead: "Forslag: Moderat intensitet — du er foran / i mål, men endringen skal fortsatt synes.",
-          hintOnTrack: "Forslag: Sterk intensitet — synlig fremgang mot målet.",
+          hintBehind: "Forslag: Strikt / maks — aktivitet eller kost er bak.",
+          hintAhead: "Forslag: Hard innsats — du er foran / i mål, men endringen skal synes.",
+          hintOnTrack: "Forslag: Strikt / maks — synlig fremgang mot målet.",
           historyEmpty: "<li><b>Ingen sjekk-inn ennå</b><span>Bruk +1 / Lagre sjekk-inn</span></li>",
           toastMeal: "Måltid lagt til (+400 kcal / +30 g protein)",
           toastNutritionReset: "Kosthold for i dag er nullstilt",
           toastPlanSaved: (label) => `Plan lagret. ${label}`,
           toastPaceCopied: "Motivasjonstekst hentet fra Tempo",
           toastPaceUpdated: "Motivasjonstekst oppdatert",
-          needImageGoal: "Velg bilde og skriv inn mål.",
+          needImageGoal: "Velg bilde først.",
           generating: "Genererer via Replicate… dette kan ta 20–60 sek.",
           doneFallback: "Ferdig (brukte reservedriftsmodell pga. sikkerhetsfilter).",
+          doneSdxl: "Ferdig (sterk kroppsendring via reservedrift).",
           done: "Ferdig.",
           focusBehind: "sterkere motivasjon for å ta igjen planen",
           focusAhead: "tydelig videre atletisk utvikling",
           focusOnTrack: "tydelig atletisk fremgang",
           motivation: (goal, pace, focus) =>
             `${goal.title}: ${pace.label}. Vis tydelig ${focus} mot ${goal.targetValue} ${goal.metricLabel}. ` +
-            `Kost i dag: ${goal.kcalCurrent}/${goal.kcalTarget} kcal, ${goal.proteinCurrent}/${goal.proteinTarget} g protein. ` +
-            `Samme person, mer muskuløs og strammere kropp, naturlig belysning.`,
+            `Kost i dag: ${goal.kcalCurrent}/${goal.kcalTarget} kcal, ${goal.proteinCurrent}/${goal.proteinTarget} g protein.`,
           localeDate: "nb-NO",
         },
         en: {
@@ -1044,7 +1080,8 @@
           tabPace: "Pace",
           tabDevices: "Devices",
           futureHint: "Tip: a clear physique photo works best — visible skin/torso is fine for progress visualization.",
-          labelGoalPrompt: "Your goal",
+          labelGoalPrompt: "Optional notes",
+          maalPlaceholder: "E.g. more defined shoulders",
           labelHorizon: "Time horizon",
           horizon4w: "In 4 weeks",
           horizon8w: "In 8 weeks",
@@ -1056,24 +1093,37 @@
           labelOccasion: "Occasion (optional)",
           occasionPlaceholder: "Wedding, holiday, competition…",
           needCustomDate: "Pick a target date for your custom horizon.",
+          labelFat: "Body fat",
+          fatDecrease: "Decrease",
+          fatMaintain: "Maintain",
+          fatIncrease: "Increase (bulk)",
+          labelMuscle: "Muscle style",
+          muscleToned: "Lean / toned",
+          muscleVolume: "Add volume",
+          labelZone: "Focus / body zone",
+          zoneOverall: "Overall",
+          zoneAbs: "Core / abs",
+          zoneUpper: "Upper body / arms",
+          zoneLower: "Glutes / legs",
+          zonePosture: "Posture",
           labelFocus: "Focus area",
           focusOverall: "Overall",
           focusCardio: "Cardio",
           focusCore: "Core",
           focusStrength: "Strength",
           focusPosture: "Posture",
-          labelIntensity: "Intensity",
-          intensitySubtle: "Subtle",
-          intensityModerate: "Moderate",
-          intensityStrong: "Strong",
-          promptPreview: (goal, horizon, focus, intensity) =>
-            `AI brief: <b>${goal || "…"}</b> · ${horizon} · ${focus} · ${intensity}`,
-          hintHorizon4w: "Suggestion: Moderate intensity — early, visible progress.",
-          hintHorizon8w: "Suggestion: Strong intensity — clear mid-plan change.",
-          hintHorizon12w: "Suggestion: Strong intensity — noticeably fitter body.",
-          hintHorizon24w: "Suggestion: Strong intensity — major visible transformation.",
-          hintHorizon18m: "Suggestion: Strong intensity — peak long-term physique.",
-          hintHorizonCustom: "Suggestion: Strong intensity — tailored to your occasion.",
+          labelIntensity: "Effort level",
+          intensitySubtle: "Moderate",
+          intensityModerate: "Hard",
+          intensityStrong: "Strict / max",
+          promptPreview: (goal, horizon, fat, muscle, zone, intensity) =>
+            `AI brief: ${horizon} · ${fat} · ${muscle} · ${zone} · ${intensity}${goal ? ` · <b>${goal}</b>` : ""}`,
+          hintHorizon4w: "Suggestion: Hard effort — early, visible progress.",
+          hintHorizon8w: "Suggestion: Strict / max — clear mid-plan change.",
+          hintHorizon12w: "Suggestion: Strict / max — noticeably fitter body.",
+          hintHorizon24w: "Suggestion: Strict / max — major visible transformation.",
+          hintHorizon18m: "Suggestion: Strict / max — peak long-term physique.",
+          hintHorizonCustom: "Suggestion: Strict / max — tailored to your occasion.",
           labelSourceImage: "Source photo",
           btnGenerate: "Generate visualization",
           btnSyncPace: "Pull motivation text from Pace",
@@ -1146,7 +1196,7 @@
           onboardUnits: "Units",
           onboardContinue: "Continue",
           goalTitleDefault: "Athletic shape",
-          maalDefault: "noticeable athletic progress — more muscle, tighter waist, clearer shape",
+          maalDefault: "",
           presetSessions: "Sessions/week",
           presetSteps: "Steps",
           presetWeight: "Weight",
@@ -1172,26 +1222,26 @@
           foodOk: "Ok",
           bannerMeta: (metric, pct, days, food, kcalC, kcalT, protein) =>
             `${metric || "Metric"} · ${pct}% · ${days} days left · Nutrition: ${food} (${kcalC}/${kcalT} kcal, ${protein}g protein)`,
-          hintBehind: "Suggestion: Strong intensity — activity or nutrition is behind.",
-          hintAhead: "Suggestion: Moderate intensity — you are ahead / at goal, but change should still be visible.",
-          hintOnTrack: "Suggestion: Strong intensity — visible progress toward the goal.",
+          hintBehind: "Suggestion: Strict / max — activity or nutrition is behind.",
+          hintAhead: "Suggestion: Hard effort — you are ahead / at goal, but change should still be visible.",
+          hintOnTrack: "Suggestion: Strict / max — visible progress toward the goal.",
           historyEmpty: "<li><b>No check-ins yet</b><span>Use +1 / Save check-in</span></li>",
           toastMeal: "Meal added (+400 kcal / +30 g protein)",
           toastNutritionReset: "Nutrition for today reset",
           toastPlanSaved: (label) => `Plan saved. ${label}`,
           toastPaceCopied: "Motivation text pulled from Pace",
           toastPaceUpdated: "Motivation text updated",
-          needImageGoal: "Choose a photo and enter a goal.",
+          needImageGoal: "Choose a photo first.",
           generating: "Generating via Replicate… this can take 20–60 sec.",
           doneFallback: "Done (used fallback model due to safety filter).",
+          doneSdxl: "Done (strong body morph via fallback).",
           done: "Done.",
           focusBehind: "stronger motivation to catch up to the plan",
           focusAhead: "clear continued athletic development",
           focusOnTrack: "clear athletic progress",
           motivation: (goal, pace, focus) =>
             `${goal.title}: ${pace.label}. Show clear ${focus} toward ${goal.targetValue} ${goal.metricLabel}. ` +
-            `Nutrition today: ${goal.kcalCurrent}/${goal.kcalTarget} kcal, ${goal.proteinCurrent}/${goal.proteinTarget} g protein. ` +
-            `Same person, more muscular and leaner body, natural lighting.`,
+            `Nutrition today: ${goal.kcalCurrent}/${goal.kcalTarget} kcal, ${goal.proteinCurrent}/${goal.proteinTarget} g protein.`,
           localeDate: "en-US",
         },
       };
@@ -1283,6 +1333,7 @@
         ];
         if (!maal.dataset.touched || staleMaalDefaults.includes(maal.value.trim())) {
           maal.value = t("maalDefault");
+          delete maal.dataset.touched;
         }
         const goalTitle = document.getElementById("goalTitle");
         if (!goalTitle.dataset.touched && !localStorage.getItem(GOAL_KEY)) {
@@ -1409,9 +1460,40 @@
       }
 
       function getSelectedFocus() {
+        return getSelectedZone();
+      }
+
+      function getSelectedZone() {
         return (
-          document.querySelector("#focusChoices .choice.active")?.dataset.focus || "overall"
+          document.querySelector("#zoneChoices .choice.active")?.dataset.zone || "abs"
         );
+      }
+
+      function getSelectedFat() {
+        return (
+          document.querySelector("#fatChoices .choice.active")?.dataset.fat || "decrease"
+        );
+      }
+
+      function getSelectedMuscle() {
+        return (
+          document.querySelector("#muscleChoices .choice.active")?.dataset.muscle ||
+          "toned"
+        );
+      }
+
+      function syncIntensityChips() {
+        const value = document.getElementById("intensity").value;
+        document.querySelectorAll("#intensityChoices .choice").forEach((btn) => {
+          btn.classList.toggle("active", btn.dataset.intensity === value);
+        });
+      }
+
+      function setIntensityValue(value, { lock } = {}) {
+        const intensityEl = document.getElementById("intensity");
+        intensityEl.value = value;
+        if (lock) intensityEl.dataset.userLocked = "1";
+        syncIntensityChips();
       }
 
       function getCustomHorizonMeta() {
@@ -1459,14 +1541,35 @@
       }
 
       function focusLabel(focus) {
+        return zoneLabel(focus);
+      }
+
+      function zoneLabel(zone) {
         const map = {
-          overall: t("focusOverall"),
-          cardio: t("focusCardio"),
-          core: t("focusCore"),
-          strength: t("focusStrength"),
-          posture: t("focusPosture"),
+          overall: t("zoneOverall"),
+          abs: t("zoneAbs"),
+          upper: t("zoneUpper"),
+          lower: t("zoneLower"),
+          posture: t("zonePosture"),
         };
-        return map[focus] || map.overall;
+        return map[zone] || map.overall;
+      }
+
+      function fatLabel(fat) {
+        const map = {
+          decrease: t("fatDecrease"),
+          maintain: t("fatMaintain"),
+          increase: t("fatIncrease"),
+        };
+        return map[fat] || map.decrease;
+      }
+
+      function muscleLabel(muscle) {
+        const map = {
+          toned: t("muscleToned"),
+          volume: t("muscleVolume"),
+        };
+        return map[muscle] || map.toned;
       }
 
       function intensityLabel(value) {
@@ -1479,30 +1582,32 @@
         const preview = document.getElementById("promptPreview");
         if (!preview) return;
         const maal = document.getElementById("maal").value.trim();
-        const horizon = getSelectedHorizon();
-        const focus = getSelectedFocus();
-        const intensity = document.getElementById("intensity").value;
         preview.innerHTML = t(
           "promptPreview",
           maal,
-          horizonLabel(horizon),
-          focusLabel(focus),
-          intensityLabel(intensity)
+          horizonLabel(getSelectedHorizon()),
+          fatLabel(getSelectedFat()),
+          muscleLabel(getSelectedMuscle()),
+          zoneLabel(getSelectedZone()),
+          intensityLabel(document.getElementById("intensity").value)
         );
       }
 
       function suggestIntensity({ paceStatus, forceHorizon } = {}) {
         const intensityEl = document.getElementById("intensity");
-        if (intensityEl.dataset.userLocked) return;
+        if (intensityEl.dataset.userLocked) {
+          syncIntensityChips();
+          return;
+        }
         const horizon = getSelectedHorizon();
         if (forceHorizon) {
-          intensityEl.value = intensityFromHorizon(horizon);
+          setIntensityValue(intensityFromHorizon(horizon));
           return;
         }
         if (paceStatus === "behind" || paceStatus === "ahead" || paceStatus === "completed") {
-          intensityEl.value = intensityFromPace(paceStatus);
+          setIntensityValue(intensityFromPace(paceStatus));
         } else {
-          intensityEl.value = intensityFromHorizon(horizon);
+          setIntensityValue(intensityFromHorizon(horizon));
         }
       }
 
@@ -1717,6 +1822,7 @@
 
       document.getElementById("intensity").addEventListener("change", () => {
         document.getElementById("intensity").dataset.userLocked = "1";
+        syncIntensityChips();
         updatePromptPreview();
       });
 
@@ -1739,14 +1845,22 @@
       });
       document.getElementById("occasionLabel").addEventListener("input", updatePromptPreview);
 
-      document.querySelectorAll("#focusChoices .choice").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          document
-            .querySelectorAll("#focusChoices .choice")
-            .forEach((b) => b.classList.remove("active"));
-          btn.classList.add("active");
-          updatePromptPreview();
+      function bindChoiceGroup(selector, onPick) {
+        document.querySelectorAll(selector).forEach((btn) => {
+          btn.addEventListener("click", () => {
+            document.querySelectorAll(selector).forEach((b) => b.classList.remove("active"));
+            btn.classList.add("active");
+            if (onPick) onPick(btn);
+            updatePromptPreview();
+          });
         });
+      }
+
+      bindChoiceGroup("#fatChoices .choice");
+      bindChoiceGroup("#muscleChoices .choice");
+      bindChoiceGroup("#zoneChoices .choice");
+      bindChoiceGroup("#intensityChoices .choice", (btn) => {
+        setIntensityValue(btn.dataset.intensity, { lock: true });
       });
 
       document.querySelectorAll(".tab").forEach((tab) => {
@@ -1809,12 +1923,14 @@
         const maal = document.getElementById("maal").value.trim();
         const intensity = document.getElementById("intensity").value;
         const horizon = getSelectedHorizon();
-        const focus = getSelectedFocus();
+        const zone = getSelectedZone();
+        const fat = getSelectedFat();
+        const muscle = getSelectedMuscle();
         const { goal, pace } = renderPace();
         const { horizonDate, occasionLabel } = getCustomHorizonMeta();
         localStorage.setItem("helseappApiBase", apiBase);
 
-        if (!imageBase64 || !maal) {
+        if (!imageBase64) {
           statusEl.textContent = t("needImageGoal");
           statusEl.className = "status error";
           return;
@@ -1840,7 +1956,10 @@
               maal,
               intensity,
               horizon,
-              focus,
+              focus: zone,
+              zone,
+              fat,
+              muscle,
               paceLabel: pace?.label || "",
               goalTitle: goal?.title || "",
               horizonDate: horizon === "custom" ? horizonDate : "",
@@ -1850,11 +1969,15 @@
           const result = await response.json();
           if (!response.ok) throw new Error(result.error || "Error");
           after.src = result.imageUrl;
-          statusEl.textContent = result.usedFallback
-            ? result.attempt && String(result.attempt).includes("flux")
-              ? t("done") + " (Flux reservedrift)."
-              : t("doneFallback")
-            : t("done");
+          if (!result.usedFallback) {
+            statusEl.textContent = t("done");
+          } else if (String(result.attempt || "").includes("sdxl")) {
+            statusEl.textContent = t("doneSdxl");
+          } else if (String(result.attempt || "").includes("flux")) {
+            statusEl.textContent = t("done") + " (Flux reservedrift).";
+          } else {
+            statusEl.textContent = t("doneFallback");
+          }
         } catch (error) {
           statusEl.textContent = error.message;
           statusEl.className = "status error";
