@@ -575,9 +575,10 @@
           <span class="choice-label" data-i18n="labelHorizon">Tidshorisont</span>
           <div class="choices" id="horizonChoices">
             <button type="button" class="choice" data-horizon="4w" data-i18n="horizon4w">Om 4 uker</button>
-            <button type="button" class="choice active" data-horizon="8w" data-i18n="horizon8w">Om 8 uker</button>
-            <button type="button" class="choice" data-horizon="12w" data-i18n="horizon12w">Om 3 måneder</button>
+            <button type="button" class="choice" data-horizon="8w" data-i18n="horizon8w">Om 8 uker</button>
+            <button type="button" class="choice active" data-horizon="12w" data-i18n="horizon12w">Om 3 måneder</button>
             <button type="button" class="choice" data-horizon="24w" data-i18n="horizon24w">Om 6 måneder</button>
+            <button type="button" class="choice" data-horizon="18m" data-i18n="horizon18m">Om 1,5 år</button>
           </div>
         </div>
 
@@ -596,8 +597,8 @@
           <span data-i18n="labelIntensity">Intensitet</span>
           <select id="intensity">
             <option value="subtle" data-i18n="intensitySubtle">Mild</option>
-            <option value="moderate" selected data-i18n="intensityModerate">Moderat</option>
-            <option value="strong" data-i18n="intensityStrong">Sterk</option>
+            <option value="moderate" data-i18n="intensityModerate">Moderat</option>
+            <option value="strong" selected data-i18n="intensityStrong">Sterk</option>
           </select>
         </label>
         <p class="hint" id="intensityHint"></p>
@@ -859,6 +860,7 @@
           horizon8w: "Om 8 uker",
           horizon12w: "Om 3 måneder",
           horizon24w: "Om 6 måneder",
+          horizon18m: "Om 1,5 år",
           labelFocus: "Fokusområde",
           focusOverall: "Helhet",
           focusCardio: "Kondisjon",
@@ -871,10 +873,11 @@
           intensityStrong: "Sterk",
           promptPreview: (goal, horizon, focus, intensity) =>
             `AI-brief: <b>${goal || "…"}</b> · ${horizon} · ${focus} · ${intensity}`,
-          hintHorizon4w: "Forslag: Mild intensitet — tidlig, troverdig fremgang.",
-          hintHorizon8w: "Forslag: Moderat intensitet — tydelig midtveis-fremgang.",
-          hintHorizon12w: "Forslag: Moderat/sterk — merkbart fittere, fortsatt realistisk.",
-          hintHorizon24w: "Forslag: Sterk intensitet — moden, langsiktig transformasjon.",
+          hintHorizon4w: "Forslag: Moderat intensitet — tidlig, synlig fremgang.",
+          hintHorizon8w: "Forslag: Sterk intensitet — tydelig midtveis-endring.",
+          hintHorizon12w: "Forslag: Sterk intensitet — merkbart fittere kropp.",
+          hintHorizon24w: "Forslag: Sterk intensitet — stor, synlig transformasjon.",
+          hintHorizon18m: "Forslag: Sterk intensitet — langsiktig toppform.",
           labelSourceImage: "Utgangsbilde",
           btnGenerate: "Generer visualisering",
           btnSyncPace: "Hent motivasjonstekst fra Tempo",
@@ -974,8 +977,8 @@
           bannerMeta: (metric, pct, days, food, kcalC, kcalT, protein) =>
             `${metric || "Metrikk"} · ${pct}% · ${days} dager igjen · Kost: ${food} (${kcalC}/${kcalT} kcal, ${protein}g protein)`,
           hintBehind: "Forslag: Sterk intensitet — aktivitet eller kost er bak.",
-          hintAhead: "Forslag: Mild intensitet — du er foran / i mål.",
-          hintOnTrack: "Forslag: Moderat intensitet — du er i rute.",
+          hintAhead: "Forslag: Moderat intensitet — du er foran / i mål, men endringen skal fortsatt synes.",
+          hintOnTrack: "Forslag: Sterk intensitet — synlig fremgang mot målet.",
           historyEmpty: "<li><b>Ingen sjekk-inn ennå</b><span>Bruk +1 / Lagre sjekk-inn</span></li>",
           toastMeal: "Måltid lagt til (+400 kcal / +30 g protein)",
           toastNutritionReset: "Kosthold for i dag er nullstilt",
@@ -1012,6 +1015,7 @@
           horizon8w: "In 8 weeks",
           horizon12w: "In 3 months",
           horizon24w: "In 6 months",
+          horizon18m: "In 1.5 years",
           labelFocus: "Focus area",
           focusOverall: "Overall",
           focusCardio: "Cardio",
@@ -1024,10 +1028,11 @@
           intensityStrong: "Strong",
           promptPreview: (goal, horizon, focus, intensity) =>
             `AI brief: <b>${goal || "…"}</b> · ${horizon} · ${focus} · ${intensity}`,
-          hintHorizon4w: "Suggestion: Subtle intensity — early, believable progress.",
-          hintHorizon8w: "Suggestion: Moderate intensity — clear mid-plan progress.",
-          hintHorizon12w: "Suggestion: Moderate/strong — noticeably fitter, still realistic.",
-          hintHorizon24w: "Suggestion: Strong intensity — mature long-term transformation.",
+          hintHorizon4w: "Suggestion: Moderate intensity — early, visible progress.",
+          hintHorizon8w: "Suggestion: Strong intensity — clear mid-plan change.",
+          hintHorizon12w: "Suggestion: Strong intensity — noticeably fitter body.",
+          hintHorizon24w: "Suggestion: Strong intensity — major visible transformation.",
+          hintHorizon18m: "Suggestion: Strong intensity — peak long-term physique.",
           labelSourceImage: "Source photo",
           btnGenerate: "Generate visualization",
           btnSyncPace: "Pull motivation text from Pace",
@@ -1127,8 +1132,8 @@
           bannerMeta: (metric, pct, days, food, kcalC, kcalT, protein) =>
             `${metric || "Metric"} · ${pct}% · ${days} days left · Nutrition: ${food} (${kcalC}/${kcalT} kcal, ${protein}g protein)`,
           hintBehind: "Suggestion: Strong intensity — activity or nutrition is behind.",
-          hintAhead: "Suggestion: Subtle intensity — you are ahead / at goal.",
-          hintOnTrack: "Suggestion: Moderate intensity — you are on track.",
+          hintAhead: "Suggestion: Moderate intensity — you are ahead / at goal, but change should still be visible.",
+          hintOnTrack: "Suggestion: Strong intensity — visible progress toward the goal.",
           historyEmpty: "<li><b>No check-ins yet</b><span>Use +1 / Save check-in</span></li>",
           toastMeal: "Meal added (+400 kcal / +30 g protein)",
           toastNutritionReset: "Nutrition for today reset",
@@ -1339,19 +1344,18 @@
 
       function intensityFromPace(status) {
         if (status === "behind") return "strong";
-        if (status === "ahead" || status === "completed") return "subtle";
-        return "moderate";
+        if (status === "ahead" || status === "completed") return "moderate";
+        return "strong";
       }
 
       function intensityFromHorizon(horizon) {
-        if (horizon === "4w") return "subtle";
-        if (horizon === "24w") return "strong";
-        return "moderate";
+        if (horizon === "4w") return "moderate";
+        return "strong";
       }
 
       function getSelectedHorizon() {
         return (
-          document.querySelector("#horizonChoices .choice.active")?.dataset.horizon || "8w"
+          document.querySelector("#horizonChoices .choice.active")?.dataset.horizon || "12w"
         );
       }
 
@@ -1367,8 +1371,9 @@
           "8w": t("horizon8w"),
           "12w": t("horizon12w"),
           "24w": t("horizon24w"),
+          "18m": t("horizon18m"),
         };
-        return map[horizon] || map["8w"];
+        return map[horizon] || map["12w"];
       }
 
       function focusLabel(focus) {
@@ -1565,6 +1570,7 @@
             "8w": t("hintHorizon8w"),
             "12w": t("hintHorizon12w"),
             "24w": t("hintHorizon24w"),
+            "18m": t("hintHorizon18m"),
           };
           hint.textContent = horizonHints[horizon] || t("hintOnTrack");
         }
