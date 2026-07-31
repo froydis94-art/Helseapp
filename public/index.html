@@ -163,8 +163,9 @@
 
       <section id="panel-future" class="panel active">
         <p class="hint">
-          Tips ved filterfeil (E005): bilde i t-skjorte/shorts og mildere måltekst.
-          Intensitet justeres automatisk etter om du er foran eller bak planen.
+          Tips ved filterfeil (E005): bilde i t-skjorte/shorts fungerer best med Flux.
+        Ved bar overkropp prøver serveren automatisk en reservedriftsmodell.
+        Intensitet justeres etter om du er foran eller bak planen.
         </p>
 
         <label>
@@ -544,7 +545,9 @@
           const result = await response.json();
           if (!response.ok) throw new Error(result.error || "Ukjent feil");
           after.src = result.imageUrl;
-          statusEl.textContent = "Ferdig.";
+          statusEl.textContent = result.usedFallback
+            ? "Ferdig (brukte reservedriftsmodell pga. sikkerhetsfilter)."
+            : "Ferdig.";
         } catch (error) {
           statusEl.textContent = error.message;
           statusEl.className = "status error";
