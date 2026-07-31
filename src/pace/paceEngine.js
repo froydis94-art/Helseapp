@@ -58,21 +58,26 @@ export function computePace({
     Math.min(100, (actualChange / (totalChange || 1)) * 100)
   );
 
+  const reached =
+    (lowerIsBetter && currentValue <= targetValue) ||
+    (!lowerIsBetter && currentValue >= targetValue);
+
   let status = "on_track";
   let label = "Du er omtrent i rute";
 
-  if (daysDelta >= 2) {
+  if (reached) {
+    status = "completed";
+    label = "Målet er nådd — flott jobbet";
+  } else if (now > end) {
+    status = "missed";
+    label = "Fristen er passert uten at målet er nådd";
+  } else if (daysDelta >= 2) {
     status = "ahead";
-    label = `Du er ca. ${Math.round(daysDelta)} dager foran planen`;
+    const capped = Math.min(Math.round(daysDelta), Math.ceil(remainingDays) + 7);
+    label = `Du er ca. ${capped} dager foran planen`;
   } else if (daysDelta <= -2) {
     status = "behind";
     label = `Du er ca. ${Math.abs(Math.round(daysDelta))} dager bak planen`;
-  } else if (now > end) {
-    const done =
-      (lowerIsBetter && currentValue <= targetValue) ||
-      (!lowerIsBetter && currentValue >= targetValue);
-    status = done ? "completed" : "missed";
-    label = done ? "Målet er nådd" : "Fristen er passert uten at målet er nådd";
   }
 
   return {

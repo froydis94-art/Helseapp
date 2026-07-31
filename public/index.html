@@ -4,43 +4,103 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Helseapp</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=Syne:wght@700;800&display=swap"
+      rel="stylesheet"
+    />
     <style>
       :root {
-        --bg: #10140f;
-        --panel: #1a2119;
-        --text: #eef5e8;
+        --bg: #0e130e;
+        --panel: #171d16;
+        --panel-2: #1f281e;
+        --text: #f1f6ec;
         --muted: #9aab92;
         --accent: #c6f26d;
         --warn: #e3a15c;
-        --line: #2a3528;
+        --line: #2b3529;
+        --ok: #8fd39a;
       }
       * { box-sizing: border-box; }
       body {
         margin: 0;
-        font-family: Georgia, "Times New Roman", serif;
-        background:
-          radial-gradient(circle at top left, #243022, transparent 42%),
-          linear-gradient(160deg, #10140f, #161c15 52%, #0c100c);
+        font-family: "Sora", sans-serif;
         color: var(--text);
         min-height: 100vh;
+        background:
+          radial-gradient(ellipse 80% 50% at 10% -10%, rgba(198, 242, 109, 0.12), transparent 55%),
+          radial-gradient(ellipse 60% 40% at 100% 0%, rgba(36, 48, 34, 0.9), transparent 50%),
+          linear-gradient(165deg, #0e130e 0%, #141a13 45%, #0c100c 100%);
       }
-      .wrap { max-width: 760px; margin: 0 auto; padding: 28px 20px 72px; }
-      .brand { font-size: 2rem; letter-spacing: 0.1em; margin: 0; }
-      .tagline { color: var(--muted); margin: 6px 0 18px; }
+      .wrap { max-width: 780px; margin: 0 auto; padding: 28px 20px 80px; }
+      .brand {
+        font-family: "Syne", sans-serif;
+        font-size: clamp(2rem, 5vw, 2.6rem);
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        margin: 0;
+        animation: rise 0.6s ease both;
+      }
+      .tagline {
+        color: var(--muted);
+        margin: 6px 0 20px;
+        font-size: 0.95rem;
+        animation: rise 0.7s ease both;
+      }
+      @keyframes rise {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: none; }
+      }
+      @keyframes toastIn {
+        from { opacity: 0; transform: translateY(12px); }
+        to { opacity: 1; transform: none; }
+      }
+
       .banner {
-        padding: 14px 16px;
-        border-radius: 14px;
+        padding: 16px 18px;
+        border-radius: 16px;
         border: 1px solid var(--line);
-        background: var(--panel);
+        background: linear-gradient(145deg, var(--panel), var(--panel-2));
         margin-bottom: 16px;
+        transition: border-color 0.25s ease, background 0.25s ease;
+        animation: rise 0.75s ease both;
       }
-      .banner.ahead { border-color: var(--accent); background: #1d2a16; }
-      .banner.behind { border-color: var(--warn); background: #2a2116; }
-      .banner strong { display: block; font-size: 1.1rem; margin-bottom: 4px; }
-      .banner span { color: var(--muted); font-size: 0.9rem; line-height: 1.4; }
+      .banner.ahead { border-color: rgba(198, 242, 109, 0.55); }
+      .banner.behind { border-color: rgba(227, 161, 92, 0.65); }
+      .banner.completed { border-color: rgba(143, 211, 154, 0.7); }
+      .banner-top {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: flex-start;
+      }
+      .banner strong {
+        display: block;
+        font-family: "Syne", sans-serif;
+        font-size: 1.2rem;
+        margin-bottom: 4px;
+      }
+      .banner .meta { color: var(--muted); font-size: 0.88rem; line-height: 1.45; }
+      .badge {
+        flex-shrink: 0;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        color: var(--muted);
+        background: rgba(0, 0, 0, 0.2);
+      }
+      .badge.ahead { color: var(--accent); border-color: rgba(198, 242, 109, 0.4); }
+      .badge.behind { color: var(--warn); border-color: rgba(227, 161, 92, 0.45); }
+      .badge.completed { color: var(--ok); border-color: rgba(143, 211, 154, 0.45); }
+
       .progress {
-        margin-top: 10px;
-        height: 8px;
+        margin-top: 12px;
+        height: 9px;
         border-radius: 99px;
         background: #243022;
         overflow: hidden;
@@ -49,46 +109,107 @@
         display: block;
         height: 100%;
         width: 0;
-        background: var(--accent);
+        background: linear-gradient(90deg, #9ad94a, var(--accent));
         border-radius: 99px;
+        transition: width 0.45s ease;
       }
-      .banner.behind .progress > i { background: var(--warn); }
-      .tabs { display: flex; gap: 8px; margin-bottom: 18px; }
+      .banner.behind .progress > i {
+        background: linear-gradient(90deg, #c9843d, var(--warn));
+      }
+
+      .timeline {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+        margin-top: 14px;
+      }
+      .timeline div {
+        background: rgba(0, 0, 0, 0.18);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 10px;
+        text-align: center;
+      }
+      .timeline small {
+        display: block;
+        color: var(--muted);
+        font-size: 0.72rem;
+        margin-bottom: 4px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .timeline b { font-size: 0.95rem; }
+
+      .tabs {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 18px;
+        padding: 4px;
+        border-radius: 14px;
+        background: rgba(23, 29, 22, 0.8);
+        border: 1px solid var(--line);
+      }
       .tab {
         flex: 1;
-        border: 1px solid var(--line);
-        background: var(--panel);
+        border: 0;
+        background: transparent;
         color: var(--muted);
         padding: 12px;
-        border-radius: 12px;
+        border-radius: 10px;
         cursor: pointer;
         font-weight: 700;
+        font-family: inherit;
+        transition: background 0.2s ease, color 0.2s ease, transform 0.15s ease;
       }
-      .tab.active { background: var(--accent); color: #10140f; border-color: var(--accent); }
-      .panel { display: none; }
+      .tab:hover { color: var(--text); }
+      .tab.active {
+        background: var(--accent);
+        color: #10140f;
+        transform: translateY(-1px);
+      }
+      .panel { display: none; animation: rise 0.35s ease both; }
       .panel.active { display: block; }
-      label { display: block; margin-top: 14px; font-size: 0.9rem; color: var(--muted); }
+
+      .section-title {
+        font-family: "Syne", sans-serif;
+        font-size: 1.15rem;
+        margin: 8px 0 4px;
+      }
+      .hint { color: var(--muted); font-size: 0.84rem; line-height: 1.5; margin: 0 0 8px; }
+
+      label { display: block; margin-top: 14px; font-size: 0.84rem; color: var(--muted); }
       input, select {
         width: 100%;
         margin-top: 6px;
         padding: 12px 14px;
-        border-radius: 10px;
+        border-radius: 12px;
         border: 1px solid var(--line);
         background: var(--panel);
         color: var(--text);
+        font-family: inherit;
+        font-size: 0.95rem;
+      }
+      input:focus, select:focus {
+        outline: 2px solid rgba(198, 242, 109, 0.35);
+        border-color: rgba(198, 242, 109, 0.5);
       }
       .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
       .quick { display: flex; gap: 8px; margin-top: 8px; }
+      .quick button, .presets button, button.secondary, button.primary {
+        font-family: inherit;
+      }
       .quick button {
         flex: 1;
-        padding: 10px;
-        border-radius: 10px;
+        padding: 11px;
+        border-radius: 12px;
         border: 1px solid var(--line);
-        background: #243022;
+        background: var(--panel-2);
         color: var(--text);
         font-weight: 700;
         cursor: pointer;
+        transition: transform 0.12s ease, background 0.2s ease;
       }
+      .quick button:hover { background: #2a3528; transform: translateY(-1px); }
       .presets { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
       .presets button {
         padding: 8px 12px;
@@ -97,51 +218,117 @@
         background: var(--panel);
         color: var(--muted);
         cursor: pointer;
-        font-size: 0.85rem;
+        font-size: 0.82rem;
+        transition: border-color 0.2s ease, color 0.2s ease;
       }
+      .presets button:hover, .presets button.active {
+        border-color: rgba(198, 242, 109, 0.5);
+        color: var(--accent);
+      }
+
       button.primary {
         margin-top: 18px;
         width: 100%;
         padding: 14px;
         border: 0;
-        border-radius: 12px;
+        border-radius: 14px;
         background: var(--accent);
         color: #10140f;
         font-weight: 800;
         font-size: 1rem;
         cursor: pointer;
+        transition: transform 0.12s ease, filter 0.2s ease;
       }
-      button.primary:disabled { opacity: 0.6; cursor: wait; }
+      button.primary:hover { transform: translateY(-1px); filter: brightness(1.05); }
+      button.primary:disabled { opacity: 0.6; cursor: wait; transform: none; }
       button.secondary {
         margin-top: 10px;
         width: 100%;
         padding: 12px;
-        border-radius: 12px;
+        border-radius: 14px;
         border: 1px solid var(--line);
-        background: #243022;
+        background: var(--panel-2);
         color: var(--text);
         font-weight: 700;
         cursor: pointer;
       }
+
       .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 22px; }
+      .shot-label {
+        color: var(--muted);
+        font-size: 0.8rem;
+        margin: 0 0 6px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
       img {
         width: 100%;
+        border-radius: 14px;
+        background: var(--panel);
+        min-height: 200px;
+        object-fit: cover;
+        border: 1px solid var(--line);
+      }
+      .status { margin-top: 12px; color: var(--muted); font-size: 0.9rem; line-height: 1.45; }
+      .error { color: var(--warn); }
+
+      .history {
+        margin-top: 18px;
+        border-top: 1px solid var(--line);
+        padding-top: 14px;
+      }
+      .history h3 {
+        margin: 0 0 10px;
+        font-size: 0.9rem;
+        color: var(--muted);
+        font-weight: 600;
+      }
+      .history ul {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 8px;
+      }
+      .history li {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 10px 12px;
         border-radius: 12px;
         background: var(--panel);
-        min-height: 180px;
-        object-fit: cover;
+        border: 1px solid var(--line);
+        font-size: 0.88rem;
       }
-      .status { margin-top: 12px; color: var(--muted); font-size: 0.92rem; line-height: 1.45; }
-      .error { color: var(--warn); }
-      .hint { color: var(--muted); font-size: 0.85rem; margin-top: 10px; line-height: 1.45; }
+      .history li span { color: var(--muted); }
+
+      .toast {
+        position: fixed;
+        left: 50%;
+        bottom: 24px;
+        transform: translateX(-50%);
+        background: #1d2a16;
+        color: var(--text);
+        border: 1px solid rgba(198, 242, 109, 0.45);
+        padding: 12px 16px;
+        border-radius: 12px;
+        font-size: 0.9rem;
+        z-index: 40;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+        animation: toastIn 0.25s ease both;
+        max-width: min(90vw, 420px);
+      }
+
       details.advanced {
-        margin-top: 16px;
+        margin-top: 18px;
         color: var(--muted);
-        font-size: 0.85rem;
+        font-size: 0.84rem;
       }
       details.advanced summary { cursor: pointer; }
+
       @media (max-width: 640px) {
-        .row, .grid2 { grid-template-columns: 1fr; }
+        .row, .grid2, .timeline { grid-template-columns: 1fr; }
+        .banner-top { flex-direction: column; }
       }
     </style>
   </head>
@@ -151,9 +338,19 @@
       <p class="tagline">Se resultatet. Hold tempoet.</p>
 
       <div id="paceBanner" class="banner">
-        <strong id="bannerLabel">Sett et mål under Tempo</strong>
-        <span id="bannerMeta"></span>
+        <div class="banner-top">
+          <div>
+            <strong id="bannerLabel">Sett et mål under Tempo</strong>
+            <div class="meta" id="bannerMeta"></div>
+          </div>
+          <div class="badge" id="bannerBadge">Tempo</div>
+        </div>
         <div class="progress"><i id="bannerProgress"></i></div>
+        <div class="timeline">
+          <div><small>Start</small><b id="tlStart">–</b></div>
+          <div><small>Forventet nå</small><b id="tlExpected">–</b></div>
+          <div><small>Faktisk</small><b id="tlCurrent">–</b></div>
+        </div>
       </div>
 
       <div class="tabs">
@@ -163,9 +360,7 @@
 
       <section id="panel-future" class="panel active">
         <p class="hint">
-          Tips ved filterfeil (E005): bilde i t-skjorte/shorts fungerer best med Flux.
-        Ved bar overkropp prøver serveren automatisk en reservedriftsmodell.
-        Intensitet justeres etter om du er foran eller bak planen.
+          Tips: bilde i t-skjorte/shorts fungerer best med Flux. Ved bar overkropp prøves reservedrift automatisk.
         </p>
 
         <label>
@@ -196,11 +391,11 @@
 
         <div class="row">
           <div>
-            <p>Nå</p>
+            <p class="shot-label">Nå</p>
             <img id="before" alt="Før" />
           </div>
           <div>
-            <p>Målbilde</p>
+            <p class="shot-label">Målbilde</p>
             <img id="after" alt="Etter" />
           </div>
         </div>
@@ -215,9 +410,9 @@
       </section>
 
       <section id="panel-pace" class="panel">
+        <h2 class="section-title">Plan og tempo</h2>
         <p class="hint">
-          Oppdater «nåværende verdi» jevnlig. Appen sier ifra om du er dager foran eller bak.
-          Lagres i nettleseren din.
+          Oppdater verdien når du har trent eller målt. Banneret øverst sier om du er foran eller bak.
         </p>
 
         <label>
@@ -253,6 +448,7 @@
         <div class="quick">
           <button type="button" id="decCurrent">− 1</button>
           <button type="button" id="incCurrent">+ 1</button>
+          <button type="button" id="logCurrent">Lagre sjekk-inn</button>
         </div>
 
         <div class="grid2">
@@ -266,21 +462,39 @@
           </label>
         </div>
 
-        <button class="primary" id="saveGoal" type="button">Lagre og oppdater tempo</button>
+        <button class="primary" id="saveGoal" type="button">Lagre plan</button>
         <button class="secondary" id="usePaceInFuture" type="button">
-          Bruk tempo som AI-mål og gå til Fremtid
+          Bruk tempo som AI-mål
         </button>
+
+        <div class="history">
+          <h3>Siste sjekk-inn</h3>
+          <ul id="historyList"></ul>
+        </div>
       </section>
     </div>
+
+    <div id="toast" class="toast" hidden></div>
 
     <script>
       const DAY_MS = 24 * 60 * 60 * 1000;
       const GOAL_KEY = "helseapp.goal.v1";
+      const HISTORY_KEY = "helseapp.history.v1";
 
       function daysFromNow(days) {
         const d = new Date();
         d.setDate(d.getDate() + days);
         return d.toISOString().slice(0, 10);
+      }
+
+      function showToast(message) {
+        const el = document.getElementById("toast");
+        el.hidden = false;
+        el.textContent = message;
+        clearTimeout(showToast._t);
+        showToast._t = setTimeout(() => {
+          el.hidden = true;
+        }, 2600);
       }
 
       function computePace({
@@ -294,11 +508,13 @@
         const start = new Date(startDate);
         const end = new Date(endDate);
         const now = asOf instanceof Date ? asOf : new Date(asOf);
+        const lowerIsBetter = targetValue < startValue;
 
         if (Number.isNaN(+start) || Number.isNaN(+end) || now < start) {
           return {
             status: "not_started",
             label: "Planen har ikke startet ennå",
+            badge: "Venter",
             daysDelta: 0,
             expectedValue: startValue,
             progressPct: 0,
@@ -315,7 +531,6 @@
         const expectedChange = expectedValue - startValue;
         const dailyRate = totalChange / totalDays;
         let daysDelta = Math.abs(dailyRate) > 1e-9 ? (actualChange - expectedChange) / dailyRate : 0;
-        const lowerIsBetter = targetValue < startValue;
         if (lowerIsBetter) daysDelta = -daysDelta;
 
         const progressPct = Math.max(
@@ -323,29 +538,42 @@
           Math.min(100, (actualChange / (totalChange || 1)) * 100)
         );
 
+        const reached =
+          (lowerIsBetter && currentValue <= targetValue) ||
+          (!lowerIsBetter && currentValue >= targetValue);
+
         let status = "on_track";
         let label = "Du er omtrent i rute";
-        if (daysDelta >= 2) {
+        let badge = "I rute";
+
+        if (reached) {
+          status = "completed";
+          label = "Målet er nådd — flott jobbet";
+          badge = "Nådd";
+        } else if (now > end) {
+          status = "missed";
+          label = "Fristen er passert uten at målet er nådd";
+          badge = "Passert";
+        } else if (daysDelta >= 2) {
           status = "ahead";
-          label = `Du er ca. ${Math.round(daysDelta)} dager foran planen`;
+          const days = Math.min(Math.round(daysDelta), Math.ceil(remainingDays) + 7);
+          label = `Du er ca. ${days} dager foran planen`;
+          badge = "Foran";
         } else if (daysDelta <= -2) {
           status = "behind";
           label = `Du er ca. ${Math.abs(Math.round(daysDelta))} dager bak planen`;
-        } else if (now > end) {
-          const done =
-            (lowerIsBetter && currentValue <= targetValue) ||
-            (!lowerIsBetter && currentValue >= targetValue);
-          status = done ? "completed" : "missed";
-          label = done ? "Målet er nådd" : "Fristen er passert uten at målet er nådd";
+          badge = "Bak";
         }
 
         return {
           status,
           label,
+          badge,
           daysDelta: Math.round(daysDelta * 10) / 10,
           expectedValue: Math.round(expectedValue * 10) / 10,
           currentValue,
           targetValue,
+          startValue,
           progressPct: Math.round(progressPct),
           remainingDays: Math.ceil(remainingDays),
         };
@@ -353,7 +581,7 @@
 
       function intensityFromPace(status) {
         if (status === "behind") return "strong";
-        if (status === "ahead") return "subtle";
+        if (status === "ahead" || status === "completed") return "subtle";
         return "moderate";
       }
 
@@ -361,8 +589,8 @@
         const focus =
           pace.status === "behind"
             ? "sterkere motivasjon for å ta igjen planen"
-            : pace.status === "ahead"
-              ? "rolig videreutvikling siden du er foran"
+            : pace.status === "ahead" || pace.status === "completed"
+              ? "rolig videreutvikling"
               : "jevn atletisk fremgang";
         return (
           `${goal.title}: ${pace.label}. Vis ${focus} mot ${goal.targetValue} ${goal.metricLabel}, ` +
@@ -392,33 +620,64 @@
         document.getElementById("endDate").value = goal.endDate;
       }
 
+      function loadHistory() {
+        try {
+          return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+        } catch {
+          return [];
+        }
+      }
+
+      function saveHistory(items) {
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(items.slice(0, 8)));
+      }
+
+      function renderHistory() {
+        const list = document.getElementById("historyList");
+        const items = loadHistory();
+        if (!items.length) {
+          list.innerHTML = "<li><b>Ingen sjekk-inn ennå</b><span>Bruk +1 / Lagre sjekk-inn</span></li>";
+          return;
+        }
+        list.innerHTML = items
+          .map(
+            (item) =>
+              `<li><b>${item.value} ${item.metric || ""}</b><span>${item.when}</span></li>`
+          )
+          .join("");
+      }
+
       function renderPace() {
         const goal = readGoalFromForm();
         const pace = computePace(goal);
         const banner = document.getElementById("paceBanner");
-        banner.className =
-          "banner " + (pace.status === "ahead" || pace.status === "behind" ? pace.status : "");
+        const tone =
+          pace.status === "ahead" || pace.status === "behind" || pace.status === "completed"
+            ? pace.status
+            : "";
+        banner.className = "banner " + tone;
         document.getElementById("bannerLabel").textContent = pace.label;
         document.getElementById("bannerMeta").textContent =
-          `${goal.metricLabel || "Metrikk"}: forventet ${pace.expectedValue} · faktisk ${goal.currentValue} · mål ${goal.targetValue}. ` +
-          `Fremgang ${pace.progressPct}% · ${pace.remainingDays} dager igjen.`;
+          `${goal.metricLabel || "Metrikk"} · fremgang ${pace.progressPct}% · ${pace.remainingDays} dager igjen til frist`;
+        document.getElementById("bannerBadge").textContent = pace.badge;
+        document.getElementById("bannerBadge").className = "badge " + tone;
         document.getElementById("bannerProgress").style.width = `${pace.progressPct}%`;
+        document.getElementById("tlStart").textContent = String(goal.startValue);
+        document.getElementById("tlExpected").textContent = String(pace.expectedValue);
+        document.getElementById("tlCurrent").textContent = String(goal.currentValue);
 
-        const suggested = intensityFromPace(pace.status);
         const intensityEl = document.getElementById("intensity");
         const hint = document.getElementById("intensityHint");
         if (pace.status === "behind") {
           hint.textContent = "Forslag: Sterk intensitet — du er bak planen.";
-        } else if (pace.status === "ahead") {
-          hint.textContent = "Forslag: Mild intensitet — du er foran planen.";
+        } else if (pace.status === "ahead" || pace.status === "completed") {
+          hint.textContent = "Forslag: Mild intensitet — du er foran / i mål.";
         } else {
           hint.textContent = "Forslag: Moderat intensitet — du er i rute.";
         }
-        // Soft-suggest without forcing if user already chose differently after save
         if (!intensityEl.dataset.userLocked) {
-          intensityEl.value = suggested;
+          intensityEl.value = intensityFromPace(pace.status);
         }
-
         return { goal, pace };
       }
 
@@ -433,6 +692,7 @@
           tab.classList.add("active");
           document.getElementById("panel-" + tab.dataset.tab).classList.add("active");
           renderPace();
+          renderHistory();
         });
       });
 
@@ -449,24 +709,44 @@
         document.getElementById("endDate").value = daysFromNow(84);
       }
       renderPace();
+      renderHistory();
 
       ["startValue", "targetValue", "currentValue", "startDate", "endDate", "metricLabel", "goalTitle"].forEach(
         (id) => document.getElementById(id).addEventListener("input", renderPace)
       );
 
-      document.getElementById("incCurrent").addEventListener("click", () => {
+      function bumpCurrent(delta) {
         const el = document.getElementById("currentValue");
-        el.value = Number(el.value || 0) + 1;
+        el.value = Number(el.value || 0) + delta;
         renderPace();
-      });
-      document.getElementById("decCurrent").addEventListener("click", () => {
-        const el = document.getElementById("currentValue");
-        el.value = Number(el.value || 0) - 1;
-        renderPace();
+      }
+
+      document.getElementById("incCurrent").addEventListener("click", () => bumpCurrent(1));
+      document.getElementById("decCurrent").addEventListener("click", () => bumpCurrent(-1));
+
+      document.getElementById("logCurrent").addEventListener("click", () => {
+        const { goal, pace } = renderPace();
+        const items = loadHistory();
+        items.unshift({
+          value: goal.currentValue,
+          metric: goal.metricLabel,
+          when: new Date().toLocaleString("nb-NO", {
+            day: "2-digit",
+            month: "short",
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+        });
+        saveHistory(items);
+        localStorage.setItem(GOAL_KEY, JSON.stringify(goal));
+        renderHistory();
+        showToast(pace.label);
       });
 
       document.querySelectorAll(".presets button").forEach((btn) => {
         btn.addEventListener("click", () => {
+          document.querySelectorAll(".presets button").forEach((b) => b.classList.remove("active"));
+          btn.classList.add("active");
           document.getElementById("metricLabel").value = btn.dataset.metric;
           document.getElementById("startValue").value = btn.dataset.start;
           document.getElementById("targetValue").value = btn.dataset.target;
@@ -487,15 +767,19 @@
       document.getElementById("saveGoal").addEventListener("click", () => {
         const { goal, pace } = renderPace();
         localStorage.setItem(GOAL_KEY, JSON.stringify(goal));
-        alert(pace.label + "\nMålet er lagret i nettleseren.");
+        showToast("Plan lagret. " + pace.label);
       });
 
       document.getElementById("usePaceInFuture").addEventListener("click", () => {
         applyPaceToFuture();
         document.querySelector('.tab[data-tab="future"]').click();
+        showToast("Motivasjonstekst hentet fra Tempo");
       });
 
-      document.getElementById("syncFromPace").addEventListener("click", applyPaceToFuture);
+      document.getElementById("syncFromPace").addEventListener("click", () => {
+        applyPaceToFuture();
+        showToast("Motivasjonstekst oppdatert");
+      });
 
       const fileInput = document.getElementById("file");
       const before = document.getElementById("before");
