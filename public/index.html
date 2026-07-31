@@ -1526,7 +1526,11 @@
           const result = await response.json();
           if (!response.ok) throw new Error(result.error || "Error");
           after.src = result.imageUrl;
-          statusEl.textContent = result.usedFallback ? t("doneFallback") : t("done");
+          statusEl.textContent = result.usedFallback
+            ? result.attempt && String(result.attempt).includes("flux")
+              ? t("done") + " (Flux reservedrift)."
+              : t("doneFallback")
+            : t("done");
         } catch (error) {
           statusEl.textContent = error.message;
           statusEl.className = "status error";
