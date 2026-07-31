@@ -29,20 +29,14 @@ NO / EN og Metric / US øverst til høyre (første besøk får onboarding).
 
 ## Terra-oppsett
 
-1. Opprett konto på [dashboard.tryterra.co](https://dashboard.tryterra.co)
-2. Aktiver datakilder (Garmin, Strava, Oura, …)
-3. Sett **webhook destination** til:  
-   `https://helseapp-2.vercel.app/api/terra/webhook`
-4. Legg `TERRA_DEV_ID` + `TERRA_API_KEY` (+ gjerne `TERRA_WEBHOOK_SECRET`) i Vercel → Settings → Environment Variables
-5. Redeploy
-6. I appen: **Enheter → Koble enhet via Terra** → etter OAuth: **Synk til Tempo**
+Terra er **pauset** til abonnement er aktuelt (`TERRA_LIVE = false` i `public/index.html`).
+Kode for widget/sync/webhook ligger klar under `api/terra/`.
 
-API-er:
-
-- `POST /api/terra/widget-session` — starter Terra-widget
-- `POST /api/terra/sync` — henter daily/activity/body/nutrition
-- `POST /api/terra/webhook` — mottar Terra-events
-- `GET /api/terra/status` — om servernøkler er satt
+Når dere er klare:
+1. Sett `TERRA_LIVE = true`
+2. Legg `TERRA_DEV_ID` + `TERRA_API_KEY` i Vercel
+3. Webhook: `https://helseapp-2.vercel.app/api/terra/webhook`
+4. Redeploy
 
 ## Lokal Expo (valgfritt)
 

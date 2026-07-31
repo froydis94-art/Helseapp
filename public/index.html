@@ -440,6 +440,32 @@
         text-transform: uppercase;
         margin: 4px 0 8px;
       }
+      .soon-banner {
+        margin: 12px 0 16px;
+        padding: 16px 18px;
+        border-radius: 16px;
+        border: 1px solid rgba(198, 242, 109, 0.35);
+        background: linear-gradient(145deg, rgba(198, 242, 109, 0.08), rgba(23, 29, 22, 0.9));
+      }
+      .soon-banner strong {
+        display: block;
+        font-family: "Syne", sans-serif;
+        font-size: 1.05rem;
+        margin-bottom: 6px;
+      }
+      .soon-banner p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.88rem;
+        line-height: 1.45;
+      }
+      button.primary:disabled,
+      button.secondary:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+        transform: none;
+        filter: none;
+      }
 
       @media (max-width: 640px) {
         .row, .grid2, .timeline { grid-template-columns: 1fr; }
@@ -651,9 +677,17 @@
 
       <section id="panel-devices" class="panel">
         <h2 class="section-title" data-i18n="devicesTitle">Enheter og apper</h2>
+
+        <div class="soon-banner">
+          <strong data-i18n="devicesSoonTitle">Kommer snart</strong>
+          <p data-i18n="devicesSoonBody">
+            Wearable-sync via Terra er bygget inn, men vi venter med betalt Terra-lisens til senere.
+            Bruk Tempo manuelt for aktivitet og kosthold inntil videre.
+          </p>
+        </div>
+
         <p class="hint" data-i18n-html="devicesHint">
-          Vi kobler via <b>Terra</b> (én lisens) i stedet for hver SDK. Mens du setter opp Terra-konto,
-          ligger skjelettet klart her. Aktivitet og (der det støttes) kosthold synces inn i Tempo.
+          Vi kobler via <b>Terra</b> (én lisens) i stedet for hver SDK — Garmin, Strava, Oura, Health Connect og mer.
         </p>
 
         <div id="terraStatusBox" class="device">
@@ -661,56 +695,54 @@
             <b>Terra</b>
             <small id="terraStatusText" data-i18n="deviceTerra">Aggregator for Garmin, Strava, Oura, Health Connect, Samsung Health m.fl.</small>
           </div>
-          <span class="pill soon" id="terraStatusPill" data-i18n="pillReady">Klar for nøkler</span>
+          <span class="pill soon" id="terraStatusPill" data-i18n="pillComingSoon">Kommer snart</span>
         </div>
 
-        <button class="primary" id="connectTerra" type="button" data-i18n="btnConnectTerra" style="margin-top: 14px">
+        <button class="primary" id="connectTerra" type="button" data-i18n="btnConnectTerra" style="margin-top: 14px" disabled>
           Koble enhet via Terra
         </button>
         <button class="secondary" id="syncTerra" type="button" data-i18n="btnSyncTerra" disabled>
           Synk til Tempo
         </button>
-        <p class="hint" id="terraConnectionMeta"></p>
+        <p class="hint" id="terraConnectionMeta" data-i18n="terraPausedHint">
+          Koden er klar. Aktiveres når Terra-abonnement er på plass.
+        </p>
 
         <div class="device">
           <div>
             <b>Garmin</b>
             <small data-i18n="deviceGarmin">Aktivitet, søvn, puls — via Terra</small>
           </div>
-          <span class="pill" data-provider-pill="GARMIN" data-i18n="pillWaiting">Venter</span>
+          <span class="pill" data-provider-pill="GARMIN" data-i18n="pillComingSoon">Kommer snart</span>
         </div>
         <div class="device">
           <div>
             <b>Strava</b>
             <small data-i18n="deviceStrava">Økter og trening — via Terra</small>
           </div>
-          <span class="pill" data-provider-pill="STRAVA" data-i18n="pillWaiting">Venter</span>
+          <span class="pill" data-provider-pill="STRAVA" data-i18n="pillComingSoon">Kommer snart</span>
         </div>
         <div class="device">
           <div>
             <b>Oura</b>
             <small data-i18n="deviceOura">Søvn og restitusjon — via Terra</small>
           </div>
-          <span class="pill" data-provider-pill="OURA" data-i18n="pillWaiting">Venter</span>
+          <span class="pill" data-provider-pill="OURA" data-i18n="pillComingSoon">Kommer snart</span>
         </div>
         <div class="device">
           <div>
             <b>Health Connect / Samsung Health</b>
             <small data-i18n="deviceHealth">Aktivitet + ofte kostholdsdata — via Terra</small>
           </div>
-          <span class="pill" data-provider-pill="HEALTH_CONNECT" data-i18n="pillWaiting">Venter</span>
+          <span class="pill" data-provider-pill="HEALTH_CONNECT" data-i18n="pillComingSoon">Kommer snart</span>
         </div>
         <div class="device">
           <div>
             <b data-i18n="deviceNutritionTitle">Kostholdsapper</b>
             <small data-i18n="deviceNutrition">MyFitnessPal / Cronometer der Terra støtter det — ellers manuelt i Tempo</small>
           </div>
-          <span class="pill" data-i18n="pillPartial">Delvis</span>
+          <span class="pill" data-i18n="pillManual">Manuelt nå</span>
         </div>
-
-        <p class="hint" data-i18n="terraSetupHint" style="margin-top: 18px">
-          Servertrinn: legg TERRA_DEV_ID + TERRA_API_KEY i Vercel. I Terra Dashboard: aktiver kilder og sett webhook til /api/terra/webhook.
-        </p>
       </section>
     </div>
 
@@ -735,7 +767,8 @@
     <div id="toast" class="toast" hidden></div>
 
     <script>
-      const DAY_MS = 24 * 60 * 60 * 1000;
+      const TERRA_LIVE = false; // set true when Terra subscription is active
+
       const GOAL_KEY = "helseapp.goal.v1";
       const HISTORY_KEY = "helseapp.history.v1";
       const TERRA_CONN_KEY = "helseapp.terra.connection.v1";
@@ -792,8 +825,12 @@
           btnUsePaceAi: "Bruk tempo + kost som AI-mål",
           historyTitle: "Siste sjekk-inn",
           devicesTitle: "Enheter og apper",
-          devicesHint: "Vi kobler via <b>Terra</b> (én lisens) i stedet for hver SDK. Koble en wearable, og synk aktivitet + kost inn i Tempo.",
+          devicesSoonTitle: "Kommer snart",
+          devicesSoonBody: "Wearable-sync via Terra er bygget inn, men vi venter med betalt Terra-lisens til senere. Bruk Tempo manuelt for aktivitet og kosthold inntil videre.",
+          devicesHint: "Vi kobler via <b>Terra</b> (én lisens) i stedet for hver SDK — Garmin, Strava, Oura, Health Connect og mer.",
           deviceTerra: "Aggregator for Garmin, Strava, Oura, Health Connect, Samsung Health m.fl.",
+          pillComingSoon: "Kommer snart",
+          pillManual: "Manuelt nå",
           pillReady: "Klar for nøkler",
           pillConnected: "Koblet",
           pillServerOk: "Server klar",
@@ -808,12 +845,14 @@
           pillPartial: "Delvis",
           btnConnectTerra: "Koble enhet via Terra",
           btnSyncTerra: "Synk til Tempo",
+          terraPausedHint: "Koden er klar. Aktiveres når Terra-abonnement er på plass.",
           terraSetupHint: "Servertrinn: legg TERRA_DEV_ID + TERRA_API_KEY i Vercel. I Terra Dashboard: aktiver kilder og sett webhook til /api/terra/webhook.",
-          terraNotConfigured: "Terra-nøkler mangler på serveren (Vercel env).",
+          terraNotConfigured: "Terra er planlagt senere — bruk Tempo manuelt nå.",
           terraReady: "Server klar — koble Garmin, Strava, Oura m.fl. via widget.",
           terraConnectedMeta: (provider, userId) =>
             `Koblet${provider ? `: ${provider}` : ""}${userId ? ` · ${userId.slice(0, 8)}…` : ""}`,
           terraConnectFailed: "Kunne ikke starte Terra-kobling",
+          terraSoonToast: "Terra kommer snart — bruk Tempo manuelt inntil videre.",
           terraSyncOk: "Synket fra Terra til Tempo",
           terraSyncEmpty: "Koblet, men fant ingen tall å synke ennå",
           terraSyncNeedUser: "Koble en enhet først",
@@ -922,8 +961,12 @@
           btnUsePaceAi: "Use pace + nutrition as AI goal",
           historyTitle: "Recent check-ins",
           devicesTitle: "Devices and apps",
-          devicesHint: "We connect through <b>Terra</b> (one license) instead of each SDK. Connect a wearable, then sync activity and nutrition into Pace.",
+          devicesSoonTitle: "Coming soon",
+          devicesSoonBody: "Wearable sync via Terra is built in, but we are waiting on a paid Terra plan. Use Pace manually for activity and nutrition for now.",
+          devicesHint: "We connect through <b>Terra</b> (one license) instead of each SDK — Garmin, Strava, Oura, Health Connect and more.",
           deviceTerra: "Aggregator for Garmin, Strava, Oura, Health Connect, Samsung Health and more.",
+          pillComingSoon: "Coming soon",
+          pillManual: "Manual for now",
           pillReady: "Ready for keys",
           pillConnected: "Connected",
           pillServerOk: "Server ready",
@@ -938,12 +981,14 @@
           pillPartial: "Partial",
           btnConnectTerra: "Connect device via Terra",
           btnSyncTerra: "Sync to Pace",
+          terraPausedHint: "The code is ready. Enabled when a Terra subscription is in place.",
           terraSetupHint: "Server step: add TERRA_DEV_ID + TERRA_API_KEY in Vercel. In Terra Dashboard: enable sources and set webhook to /api/terra/webhook.",
-          terraNotConfigured: "Terra keys missing on the server (Vercel env).",
+          terraNotConfigured: "Terra is planned for later — use Pace manually for now.",
           terraReady: "Server ready — connect Garmin, Strava, Oura etc. via the widget.",
           terraConnectedMeta: (provider, userId) =>
             `Connected${provider ? `: ${provider}` : ""}${userId ? ` · ${userId.slice(0, 8)}…` : ""}`,
           terraConnectFailed: "Could not start Terra connection",
+          terraSoonToast: "Terra is coming soon — use Pace manually for now.",
           terraSyncOk: "Synced from Terra into Pace",
           terraSyncEmpty: "Connected, but no values to sync yet",
           terraSyncNeedUser: "Connect a device first",
@@ -1506,8 +1551,24 @@
         const text = document.getElementById("terraStatusText");
         const meta = document.getElementById("terraConnectionMeta");
         const syncBtn = document.getElementById("syncTerra");
+        const connectBtn = document.getElementById("connectTerra");
         const connected = Boolean(terraConn?.userId);
 
+        if (!TERRA_LIVE) {
+          connectBtn.disabled = true;
+          syncBtn.disabled = true;
+          pill.textContent = t("pillComingSoon");
+          pill.className = "pill soon";
+          text.textContent = t("deviceTerra");
+          meta.textContent = t("terraPausedHint");
+          document.querySelectorAll("[data-provider-pill]").forEach((el) => {
+            el.textContent = t("pillComingSoon");
+            el.className = "pill";
+          });
+          return;
+        }
+
+        connectBtn.disabled = false;
         syncBtn.disabled = !connected;
 
         if (connected) {
@@ -1536,6 +1597,10 @@
       }
 
       async function refreshTerraServerStatus() {
+        if (!TERRA_LIVE) {
+          refreshTerraUi();
+          return;
+        }
         const pill = document.getElementById("terraStatusPill");
         const text = document.getElementById("terraStatusText");
         try {
@@ -1641,6 +1706,10 @@
       }
 
       document.getElementById("connectTerra").addEventListener("click", async () => {
+        if (!TERRA_LIVE) {
+          showToast(t("terraSoonToast"));
+          return;
+        }
         const btn = document.getElementById("connectTerra");
         btn.disabled = true;
         try {
@@ -1667,6 +1736,10 @@
       });
 
       document.getElementById("syncTerra").addEventListener("click", async () => {
+        if (!TERRA_LIVE) {
+          showToast(t("terraSoonToast"));
+          return;
+        }
         if (!terraConn?.userId) {
           showToast(t("terraSyncNeedUser"));
           return;
