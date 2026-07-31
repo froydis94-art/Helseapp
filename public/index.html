@@ -368,199 +368,290 @@
       .subpanel { display: none; }
       .subpanel.active { display: block; }
 
+      .topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 12px;
+        margin-bottom: 4px;
+      }
+      .locale-bar {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        align-items: flex-end;
+        flex-shrink: 0;
+      }
+      .seg {
+        display: inline-flex;
+        padding: 3px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(23, 29, 22, 0.9);
+      }
+      .seg button {
+        border: 0;
+        background: transparent;
+        color: var(--muted);
+        font-family: inherit;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        padding: 6px 10px;
+        border-radius: 999px;
+        cursor: pointer;
+      }
+      .seg button.active {
+        background: var(--accent);
+        color: #10140f;
+      }
+      .onboard {
+        position: fixed;
+        inset: 0;
+        z-index: 50;
+        background: rgba(6, 10, 6, 0.72);
+        display: grid;
+        place-items: center;
+        padding: 20px;
+      }
+      .onboard[hidden] { display: none; }
+      .onboard-card {
+        width: min(100%, 420px);
+        background: linear-gradient(160deg, var(--panel), var(--panel-2));
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 22px 20px 18px;
+        animation: rise 0.35s ease both;
+      }
+      .onboard-card h2 {
+        font-family: "Syne", sans-serif;
+        margin: 0 0 8px;
+        font-size: 1.35rem;
+      }
+      .onboard-card p { color: var(--muted); font-size: 0.9rem; line-height: 1.45; margin: 0 0 16px; }
+      .onboard-card .seg { width: 100%; justify-content: stretch; margin-bottom: 10px; }
+      .onboard-card .seg button { flex: 1; }
+      .onboard-label {
+        display: block;
+        color: var(--muted);
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        margin: 4px 0 8px;
+      }
+
       @media (max-width: 640px) {
         .row, .grid2, .timeline { grid-template-columns: 1fr; }
         .banner-top { flex-direction: column; }
+        .topbar { flex-direction: column; }
+        .locale-bar { align-items: stretch; }
+        .locale-bar .seg { width: 100%; }
+        .locale-bar .seg button { flex: 1; }
       }
     </style>
   </head>
   <body>
     <div class="wrap">
-      <h1 class="brand">HELSEAPP</h1>
-      <p class="tagline">Se resultatet. Hold tempoet.</p>
+      <div class="topbar">
+        <div>
+          <h1 class="brand">HELSEAPP</h1>
+          <p class="tagline" data-i18n="tagline">Se resultatet. Hold tempoet.</p>
+        </div>
+        <div class="locale-bar">
+          <div class="seg" role="group" aria-label="Language">
+            <button type="button" id="langNo" data-lang="no">NO</button>
+            <button type="button" id="langEn" data-lang="en">EN</button>
+          </div>
+          <div class="seg" role="group" aria-label="Units">
+            <button type="button" id="unitsMetric" data-units="metric">Metric</button>
+            <button type="button" id="unitsUs" data-units="us">US</button>
+          </div>
+        </div>
+      </div>
 
       <div id="paceBanner" class="banner">
         <div class="banner-top">
           <div>
-            <strong id="bannerLabel">Sett et mål under Tempo</strong>
+            <strong id="bannerLabel" data-i18n="bannerDefault">Sett et mål under Tempo</strong>
             <div class="meta" id="bannerMeta"></div>
           </div>
-          <div class="badge" id="bannerBadge">Tempo</div>
+          <div class="badge" id="bannerBadge" data-i18n="badgePace">Tempo</div>
         </div>
         <div class="progress"><i id="bannerProgress"></i></div>
         <div class="timeline">
-          <div><small>Start</small><b id="tlStart">–</b></div>
-          <div><small>Forventet nå</small><b id="tlExpected">–</b></div>
-          <div><small>Faktisk</small><b id="tlCurrent">–</b></div>
+          <div><small data-i18n="tlStart">Start</small><b id="tlStart">–</b></div>
+          <div><small data-i18n="tlExpected">Forventet nå</small><b id="tlExpected">–</b></div>
+          <div><small data-i18n="tlActual">Faktisk</small><b id="tlCurrent">–</b></div>
         </div>
       </div>
 
       <div class="tabs">
-        <button class="tab active" data-tab="future" type="button">Fremtid</button>
-        <button class="tab" data-tab="pace" type="button">Tempo</button>
-        <button class="tab" data-tab="devices" type="button">Enheter</button>
+        <button class="tab active" data-tab="future" type="button" data-i18n="tabFuture">Fremtid</button>
+        <button class="tab" data-tab="pace" type="button" data-i18n="tabPace">Tempo</button>
+        <button class="tab" data-tab="devices" type="button" data-i18n="tabDevices">Enheter</button>
       </div>
 
       <section id="panel-future" class="panel active">
-        <p class="hint">
+        <p class="hint" data-i18n="futureHint">
           Tips: bilde i t-skjorte/shorts fungerer best med Flux. Ved bar overkropp prøves reservedrift automatisk.
         </p>
 
         <label>
-          Mål / fokus (til AI-bildet)
-          <input id="maal" type="text" value="bedre kondisjon og atletisk form i treningstøy, naturlig belysning" />
+          <span data-i18n="labelGoalPrompt">Mål / prompt (til AI-bildet)</span>
+          <input id="maal" type="text" />
         </label>
 
         <label>
-          Intensitet
+          <span data-i18n="labelIntensity">Intensitet</span>
           <select id="intensity">
-            <option value="subtle">Mild</option>
-            <option value="moderate" selected>Moderat</option>
-            <option value="strong">Sterk</option>
+            <option value="subtle" data-i18n="intensitySubtle">Mild</option>
+            <option value="moderate" selected data-i18n="intensityModerate">Moderat</option>
+            <option value="strong" data-i18n="intensityStrong">Sterk</option>
           </select>
         </label>
         <p class="hint" id="intensityHint"></p>
 
         <label>
-          Utgangsbilde
+          <span data-i18n="labelSourceImage">Utgangsbilde</span>
           <input id="file" type="file" accept="image/*" />
         </label>
 
-        <button class="primary" id="run" type="button">Generer visualisering</button>
-        <button class="secondary" id="syncFromPace" type="button">
+        <button class="primary" id="run" type="button" data-i18n="btnGenerate">Generer visualisering</button>
+        <button class="secondary" id="syncFromPace" type="button" data-i18n="btnSyncPace">
           Hent motivasjonstekst fra Tempo
         </button>
         <p id="status" class="status"></p>
 
         <div class="row">
           <div>
-            <p class="shot-label">Nå</p>
-            <img id="before" alt="Før" />
+            <p class="shot-label" data-i18n="labelNow">Nå</p>
+            <img id="before" alt="" />
           </div>
           <div>
-            <p class="shot-label">Målbilde</p>
-            <img id="after" alt="Etter" />
+            <p class="shot-label" data-i18n="labelGoalImage">Målbilde</p>
+            <img id="after" alt="" />
           </div>
         </div>
 
         <details class="advanced">
-          <summary>Avansert: API-adresse</summary>
+          <summary data-i18n="advancedApi">Avansert: API-adresse</summary>
           <label>
-            API-base
+            <span data-i18n="labelApiBase">API-base</span>
             <input id="apiBase" type="text" />
           </label>
         </details>
       </section>
 
       <section id="panel-pace" class="panel">
-        <h2 class="section-title">Plan og tempo</h2>
-        <p class="hint">
+        <h2 class="section-title" data-i18n="paceTitle">Plan og tempo</h2>
+        <p class="hint" data-i18n="paceHint">
           Aktivitet og kosthold manuelt nå. Når Terra er koblet, fylles mer automatisk inn.
         </p>
 
         <div class="subtabs">
-          <button class="subtab active" data-sub="activity" type="button">Aktivitet</button>
-          <button class="subtab" data-sub="nutrition" type="button">Kosthold</button>
+          <button class="subtab active" data-sub="activity" type="button" data-i18n="subActivity">Aktivitet</button>
+          <button class="subtab" data-sub="nutrition" type="button" data-i18n="subNutrition">Kosthold</button>
         </div>
 
         <div id="sub-activity" class="subpanel active">
           <label>
-            Måltittel
-            <input id="goalTitle" type="text" value="Atletisk form" />
+            <span data-i18n="labelGoalTitle">Måltittel</span>
+            <input id="goalTitle" type="text" />
           </label>
 
           <label>
-            Metrikk
-            <input id="metricLabel" type="text" value="Treningsøkter / uke" />
+            <span data-i18n="labelMetric">Metrikk</span>
+            <input id="metricLabel" type="text" />
           </label>
           <div class="presets">
-            <button type="button" data-metric="Treningsøkter / uke" data-start="2" data-target="5">Økter/uke</button>
-            <button type="button" data-metric="Skritt / dag" data-start="4000" data-target="10000">Skritt</button>
-            <button type="button" data-metric="Vekt (kg)" data-start="85" data-target="78">Vekt</button>
+            <button type="button" data-preset="sessions" data-start="2" data-target="5"></button>
+            <button type="button" data-preset="steps" data-start="4000" data-target="10000"></button>
+            <button type="button" data-preset="weight" data-start-metric="85" data-target-metric="78" data-start-us="187" data-target-us="172"></button>
           </div>
 
           <div class="grid2">
             <label>
-              Startverdi
+              <span data-i18n="labelStartValue">Startverdi</span>
               <input id="startValue" type="number" step="any" value="2" />
             </label>
             <label>
-              Målverdi
+              <span data-i18n="labelTargetValue">Målverdi</span>
               <input id="targetValue" type="number" step="any" value="5" />
             </label>
           </div>
 
           <label>
-            Nåværende verdi
+            <span data-i18n="labelCurrentValue">Nåværende verdi</span>
             <input id="currentValue" type="number" step="any" value="2" />
           </label>
           <div class="quick">
             <button type="button" id="decCurrent">− 1</button>
             <button type="button" id="incCurrent">+ 1</button>
-            <button type="button" id="logCurrent">Lagre sjekk-inn</button>
+            <button type="button" id="logCurrent" data-i18n="btnCheckIn">Lagre sjekk-inn</button>
           </div>
 
           <div class="grid2">
             <label>
-              Startdato
+              <span data-i18n="labelStartDate">Startdato</span>
               <input id="startDate" type="date" />
             </label>
             <label>
-              Frist
+              <span data-i18n="labelEndDate">Frist</span>
               <input id="endDate" type="date" />
             </label>
           </div>
         </div>
 
         <div id="sub-nutrition" class="subpanel">
-          <p class="hint">
+          <p class="hint" data-i18n="nutritionHint">
             Daglig kosthold — manuelt nå. Senere kan verdier synces fra Health Connect / ernæringsapper via Terra der det støttes.
           </p>
           <div class="grid2">
             <label>
-              Kalorimål (kcal)
+              <span data-i18n="labelKcalTarget">Kalorimål (kcal)</span>
               <input id="kcalTarget" type="number" step="1" value="2200" />
             </label>
             <label>
-              Kalorier i dag
+              <span data-i18n="labelKcalCurrent">Kalorier i dag</span>
               <input id="kcalCurrent" type="number" step="1" value="0" />
             </label>
           </div>
           <div class="grid2">
             <label>
-              Proteinmål (g)
+              <span data-i18n="labelProteinTarget">Proteinmål (g)</span>
               <input id="proteinTarget" type="number" step="1" value="140" />
             </label>
             <label>
-              Protein i dag (g)
+              <span data-i18n="labelProteinCurrent">Protein i dag (g)</span>
               <input id="proteinCurrent" type="number" step="1" value="0" />
             </label>
           </div>
           <div class="quick">
-            <button type="button" id="addMealQuick">+ måltid (400 kcal / 30 g)</button>
-            <button type="button" id="resetNutritionDay">Nullstill i dag</button>
+            <button type="button" id="addMealQuick" data-i18n="btnAddMeal">+ måltid (400 kcal / 30 g)</button>
+            <button type="button" id="resetNutritionDay" data-i18n="btnResetNutrition">Nullstill i dag</button>
           </div>
           <div class="timeline" style="margin-top: 14px">
-            <div><small>Kcal</small><b id="tlKcal">0 / 2200</b></div>
-            <div><small>Protein</small><b id="tlProtein">0 / 140 g</b></div>
-            <div><small>Kost-status</small><b id="tlNutritionStatus">–</b></div>
+            <div><small data-i18n="tlKcal">Kcal</small><b id="tlKcal">0 / 2200</b></div>
+            <div><small data-i18n="tlProtein">Protein</small><b id="tlProtein">0 / 140 g</b></div>
+            <div><small data-i18n="tlNutritionStatus">Kost-status</small><b id="tlNutritionStatus">–</b></div>
           </div>
         </div>
 
-        <button class="primary" id="saveGoal" type="button">Lagre plan</button>
-        <button class="secondary" id="usePaceInFuture" type="button">
+        <button class="primary" id="saveGoal" type="button" data-i18n="btnSavePlan">Lagre plan</button>
+        <button class="secondary" id="usePaceInFuture" type="button" data-i18n="btnUsePaceAi">
           Bruk tempo + kost som AI-mål
         </button>
 
         <div class="history">
-          <h3>Siste sjekk-inn</h3>
+          <h3 data-i18n="historyTitle">Siste sjekk-inn</h3>
           <ul id="historyList"></ul>
         </div>
       </section>
 
       <section id="panel-devices" class="panel">
-        <h2 class="section-title">Enheter og apper</h2>
-        <p class="hint">
+        <h2 class="section-title" data-i18n="devicesTitle">Enheter og apper</h2>
+        <p class="hint" data-i18n-html="devicesHint">
           Vi kobler via <b>Terra</b> (én lisens) i stedet for hver SDK. Mens du setter opp Terra-konto,
           ligger skjelettet klart her. Aktivitet og (der det støttes) kosthold synces inn i Tempo.
         </p>
@@ -568,59 +659,77 @@
         <div class="device">
           <div>
             <b>Terra</b>
-            <small>Aggregator for Garmin, Strava, Oura, Health Connect, Samsung Health m.fl.</small>
+            <small data-i18n="deviceTerra">Aggregator for Garmin, Strava, Oura, Health Connect, Samsung Health m.fl.</small>
           </div>
-          <span class="pill soon">Klar for nøkler</span>
+          <span class="pill soon" data-i18n="pillReady">Klar for nøkler</span>
         </div>
         <div class="device">
           <div>
             <b>Garmin</b>
-            <small>Aktivitet, søvn, puls — via Terra</small>
+            <small data-i18n="deviceGarmin">Aktivitet, søvn, puls — via Terra</small>
           </div>
-          <span class="pill">Venter</span>
+          <span class="pill" data-i18n="pillWaiting">Venter</span>
         </div>
         <div class="device">
           <div>
             <b>Strava</b>
-            <small>Økter og trening — via Terra</small>
+            <small data-i18n="deviceStrava">Økter og trening — via Terra</small>
           </div>
-          <span class="pill">Venter</span>
+          <span class="pill" data-i18n="pillWaiting">Venter</span>
         </div>
         <div class="device">
           <div>
             <b>Oura</b>
-            <small>Søvn og restitusjon — via Terra</small>
+            <small data-i18n="deviceOura">Søvn og restitusjon — via Terra</small>
           </div>
-          <span class="pill">Venter</span>
+          <span class="pill" data-i18n="pillWaiting">Venter</span>
         </div>
         <div class="device">
           <div>
             <b>Health Connect / Samsung Health</b>
-            <small>Aktivitet + ofte kostholdsdata — via Terra</small>
+            <small data-i18n="deviceHealth">Aktivitet + ofte kostholdsdata — via Terra</small>
           </div>
-          <span class="pill">Venter</span>
+          <span class="pill" data-i18n="pillWaiting">Venter</span>
         </div>
         <div class="device">
           <div>
-            <b>Kostholdsapper</b>
-            <small>MyFitnessPal / Cronometer der Terra støtter det — ellers manuelt i Tempo</small>
+            <b data-i18n="deviceNutritionTitle">Kostholdsapper</b>
+            <small data-i18n="deviceNutrition">MyFitnessPal / Cronometer der Terra støtter det — ellers manuelt i Tempo</small>
           </div>
-          <span class="pill">Delvis</span>
+          <span class="pill" data-i18n="pillPartial">Delvis</span>
         </div>
 
         <label style="margin-top: 18px">
-          Terra Dev ID (valgfritt — lim inn når du har den)
-          <input id="terraDevId" type="text" placeholder="kommer fra Terra dashboard" autocomplete="off" />
+          <span data-i18n="labelTerraDev">Terra Dev ID (valgfritt — lim inn når du har den)</span>
+          <input id="terraDevId" type="text" data-i18n-placeholder="phTerraDev" autocomplete="off" />
         </label>
         <label>
-          Terra API Key (valgfritt)
-          <input id="terraApiKey" type="password" placeholder="lagres kun lokalt i nettleseren" autocomplete="off" />
+          <span data-i18n="labelTerraKey">Terra API Key (valgfritt)</span>
+          <input id="terraApiKey" type="password" data-i18n-placeholder="phTerraKey" autocomplete="off" />
         </label>
-        <button class="secondary" id="saveTerraKeys" type="button">Lagre Terra-nøkler lokalt</button>
-        <p class="hint">
+        <button class="secondary" id="saveTerraKeys" type="button" data-i18n="btnSaveTerra">Lagre Terra-nøkler lokalt</button>
+        <p class="hint" data-i18n="terraHint">
           Når nøklene er på plass, bygger vi OAuth-kobling og webhook som oppdaterer Tempo automatisk.
         </p>
       </section>
+    </div>
+
+    <div id="onboard" class="onboard" hidden>
+      <div class="onboard-card">
+        <h2 data-i18n="onboardTitle">Velkommen</h2>
+        <p data-i18n="onboardBody">Velg språk og målesystem. Du kan endre dette når som helst øverst til høyre.</p>
+        <span class="onboard-label" data-i18n="onboardLang">Språk</span>
+        <div class="seg" role="group">
+          <button type="button" data-onboard-lang="no">Norsk</button>
+          <button type="button" data-onboard-lang="en">English</button>
+        </div>
+        <span class="onboard-label" data-i18n="onboardUnits">Målesystem</span>
+        <div class="seg" role="group">
+          <button type="button" data-onboard-units="metric">Metric (kg, km)</button>
+          <button type="button" data-onboard-units="us">US (lb, mi)</button>
+        </div>
+        <button class="primary" id="onboardContinue" type="button" data-i18n="onboardContinue">Fortsett</button>
+      </div>
     </div>
 
     <div id="toast" class="toast" hidden></div>
@@ -630,6 +739,341 @@
       const GOAL_KEY = "helseapp.goal.v1";
       const HISTORY_KEY = "helseapp.history.v1";
       const TERRA_KEY = "helseapp.terra.v1";
+      const PREFS_KEY = "helseapp.prefs.v1";
+      const KG_TO_LB = 2.2046226218;
+
+      const I18N = {
+        no: {
+          tagline: "Se resultatet. Hold tempoet.",
+          bannerDefault: "Sett et mål under Tempo",
+          badgePace: "Tempo",
+          tlStart: "Start",
+          tlExpected: "Forventet nå",
+          tlActual: "Faktisk",
+          tabFuture: "Fremtid",
+          tabPace: "Tempo",
+          tabDevices: "Enheter",
+          futureHint: "Tips: bilde i t-skjorte/shorts fungerer best med Flux. Ved bar overkropp prøves reservedrift automatisk.",
+          labelGoalPrompt: "Mål / prompt (til AI-bildet)",
+          labelIntensity: "Intensitet",
+          intensitySubtle: "Mild",
+          intensityModerate: "Moderat",
+          intensityStrong: "Sterk",
+          labelSourceImage: "Utgangsbilde",
+          btnGenerate: "Generer visualisering",
+          btnSyncPace: "Hent motivasjonstekst fra Tempo",
+          labelNow: "Nå",
+          labelGoalImage: "Målbilde",
+          advancedApi: "Avansert: API-adresse",
+          labelApiBase: "API-base",
+          paceTitle: "Plan og tempo",
+          paceHint: "Aktivitet og kosthold manuelt nå. Når Terra er koblet, fylles mer automatisk inn.",
+          subActivity: "Aktivitet",
+          subNutrition: "Kosthold",
+          labelGoalTitle: "Måltittel",
+          labelMetric: "Metrikk",
+          labelStartValue: "Startverdi",
+          labelTargetValue: "Målverdi",
+          labelCurrentValue: "Nåværende verdi",
+          btnCheckIn: "Lagre sjekk-inn",
+          labelStartDate: "Startdato",
+          labelEndDate: "Frist",
+          nutritionHint: "Daglig kosthold — manuelt nå. Senere kan verdier synces fra Health Connect / ernæringsapper via Terra der det støttes.",
+          labelKcalTarget: "Kalorimål (kcal)",
+          labelKcalCurrent: "Kalorier i dag",
+          labelProteinTarget: "Proteinmål (g)",
+          labelProteinCurrent: "Protein i dag (g)",
+          btnAddMeal: "+ måltid (400 kcal / 30 g)",
+          btnResetNutrition: "Nullstill i dag",
+          tlKcal: "Kcal",
+          tlProtein: "Protein",
+          tlNutritionStatus: "Kost-status",
+          btnSavePlan: "Lagre plan",
+          btnUsePaceAi: "Bruk tempo + kost som AI-mål",
+          historyTitle: "Siste sjekk-inn",
+          devicesTitle: "Enheter og apper",
+          devicesHint: "Vi kobler via <b>Terra</b> (én lisens) i stedet for hver SDK. Mens du setter opp Terra-konto, ligger skjelettet klart her. Aktivitet og (der det støttes) kosthold synces inn i Tempo.",
+          deviceTerra: "Aggregator for Garmin, Strava, Oura, Health Connect, Samsung Health m.fl.",
+          pillReady: "Klar for nøkler",
+          deviceGarmin: "Aktivitet, søvn, puls — via Terra",
+          pillWaiting: "Venter",
+          deviceStrava: "Økter og trening — via Terra",
+          deviceOura: "Søvn og restitusjon — via Terra",
+          deviceHealth: "Aktivitet + ofte kostholdsdata — via Terra",
+          deviceNutritionTitle: "Kostholdsapper",
+          deviceNutrition: "MyFitnessPal / Cronometer der Terra støtter det — ellers manuelt i Tempo",
+          pillPartial: "Delvis",
+          labelTerraDev: "Terra Dev ID (valgfritt — lim inn når du har den)",
+          labelTerraKey: "Terra API Key (valgfritt)",
+          phTerraDev: "kommer fra Terra dashboard",
+          phTerraKey: "lagres kun lokalt i nettleseren",
+          btnSaveTerra: "Lagre Terra-nøkler lokalt",
+          terraHint: "Når nøklene er på plass, bygger vi OAuth-kobling og webhook som oppdaterer Tempo automatisk.",
+          onboardTitle: "Velkommen",
+          onboardBody: "Velg språk og målesystem. Du kan endre dette når som helst øverst til høyre.",
+          onboardLang: "Språk",
+          onboardUnits: "Målesystem",
+          onboardContinue: "Fortsett",
+          goalTitleDefault: "Atletisk form",
+          maalDefault: "bedre kondisjon og atletisk form i treningstøy, naturlig belysning",
+          presetSessions: "Økter/uke",
+          presetSteps: "Skritt",
+          presetWeight: "Vekt",
+          metricSessions: "Treningsøkter / uke",
+          metricSteps: "Skritt / dag",
+          metricWeightKg: "Vekt (kg)",
+          metricWeightLb: "Vekt (lb)",
+          paceNotStarted: "Planen har ikke startet ennå",
+          paceOnTrack: "Du er omtrent i rute",
+          paceCompleted: "Målet er nådd — flott jobbet",
+          paceMissed: "Fristen er passert uten at målet er nådd",
+          paceAhead: (d) => `Du er ca. ${d} dager foran planen`,
+          paceBehind: (d) => `Du er ca. ${d} dager bak planen`,
+          badgeWaiting: "Venter",
+          badgeOnTrack: "I rute",
+          badgeDone: "Nådd",
+          badgeMissed: "Passert",
+          badgeAhead: "Foran",
+          badgeBehind: "Bak",
+          foodOnTrack: "I rute",
+          foodBehind: "Bak på kost",
+          foodOver: "Over kcal",
+          foodOk: "Ok",
+          bannerMeta: (metric, pct, days, food, kcalC, kcalT, protein) =>
+            `${metric || "Metrikk"} · ${pct}% · ${days} dager igjen · Kost: ${food} (${kcalC}/${kcalT} kcal, ${protein}g protein)`,
+          hintBehind: "Forslag: Sterk intensitet — aktivitet eller kost er bak.",
+          hintAhead: "Forslag: Mild intensitet — du er foran / i mål.",
+          hintOnTrack: "Forslag: Moderat intensitet — du er i rute.",
+          historyEmpty: "<li><b>Ingen sjekk-inn ennå</b><span>Bruk +1 / Lagre sjekk-inn</span></li>",
+          toastMeal: "Måltid lagt til (+400 kcal / +30 g protein)",
+          toastNutritionReset: "Kosthold for i dag er nullstilt",
+          toastTerra: "Terra-nøkler lagret lokalt. OAuth kobles når kontoen er klar.",
+          toastPlanSaved: (label) => `Plan lagret. ${label}`,
+          toastPaceCopied: "Motivasjonstekst hentet fra Tempo",
+          toastPaceUpdated: "Motivasjonstekst oppdatert",
+          needImageGoal: "Velg bilde og skriv inn mål.",
+          generating: "Genererer via Replicate… dette kan ta 20–60 sek.",
+          doneFallback: "Ferdig (brukte reservedriftsmodell pga. sikkerhetsfilter).",
+          done: "Ferdig.",
+          focusBehind: "sterkere motivasjon for å ta igjen planen",
+          focusAhead: "rolig videreutvikling",
+          focusOnTrack: "jevn atletisk fremgang",
+          motivation: (goal, pace, focus) =>
+            `${goal.title}: ${pace.label}. Vis ${focus} mot ${goal.targetValue} ${goal.metricLabel}. ` +
+            `Kost i dag: ${goal.kcalCurrent}/${goal.kcalTarget} kcal, ${goal.proteinCurrent}/${goal.proteinTarget} g protein. ` +
+            `Samme person i treningstøy, naturlig belysning, realistisk kondisjon.`,
+          localeDate: "nb-NO",
+        },
+        en: {
+          tagline: "See the result. Keep the pace.",
+          bannerDefault: "Set a goal under Pace",
+          badgePace: "Pace",
+          tlStart: "Start",
+          tlExpected: "Expected now",
+          tlActual: "Actual",
+          tabFuture: "Future",
+          tabPace: "Pace",
+          tabDevices: "Devices",
+          futureHint: "Tip: a photo in a t-shirt/shorts works best with Flux. Bare torso auto-tries a fallback model.",
+          labelGoalPrompt: "Goal / prompt (for the AI image)",
+          labelIntensity: "Intensity",
+          intensitySubtle: "Subtle",
+          intensityModerate: "Moderate",
+          intensityStrong: "Strong",
+          labelSourceImage: "Source photo",
+          btnGenerate: "Generate visualization",
+          btnSyncPace: "Pull motivation text from Pace",
+          labelNow: "Now",
+          labelGoalImage: "Goal image",
+          advancedApi: "Advanced: API address",
+          labelApiBase: "API base",
+          paceTitle: "Plan and pace",
+          paceHint: "Activity and nutrition are manual for now. When Terra is connected, more fills in automatically.",
+          subActivity: "Activity",
+          subNutrition: "Nutrition",
+          labelGoalTitle: "Goal title",
+          labelMetric: "Metric",
+          labelStartValue: "Start value",
+          labelTargetValue: "Target value",
+          labelCurrentValue: "Current value",
+          btnCheckIn: "Save check-in",
+          labelStartDate: "Start date",
+          labelEndDate: "Deadline",
+          nutritionHint: "Daily nutrition — manual for now. Later, values can sync from Health Connect / nutrition apps via Terra where supported.",
+          labelKcalTarget: "Calorie target (kcal)",
+          labelKcalCurrent: "Calories today",
+          labelProteinTarget: "Protein target (g)",
+          labelProteinCurrent: "Protein today (g)",
+          btnAddMeal: "+ meal (400 kcal / 30 g)",
+          btnResetNutrition: "Reset today",
+          tlKcal: "Kcal",
+          tlProtein: "Protein",
+          tlNutritionStatus: "Nutrition status",
+          btnSavePlan: "Save plan",
+          btnUsePaceAi: "Use pace + nutrition as AI goal",
+          historyTitle: "Recent check-ins",
+          devicesTitle: "Devices and apps",
+          devicesHint: "We connect through <b>Terra</b> (one license) instead of each SDK. While you set up a Terra account, the skeleton is ready here. Activity and (where supported) nutrition sync into Pace.",
+          deviceTerra: "Aggregator for Garmin, Strava, Oura, Health Connect, Samsung Health and more.",
+          pillReady: "Ready for keys",
+          deviceGarmin: "Activity, sleep, heart rate — via Terra",
+          pillWaiting: "Waiting",
+          deviceStrava: "Workouts and training — via Terra",
+          deviceOura: "Sleep and recovery — via Terra",
+          deviceHealth: "Activity + often nutrition data — via Terra",
+          deviceNutritionTitle: "Nutrition apps",
+          deviceNutrition: "MyFitnessPal / Cronometer where Terra supports it — otherwise manual in Pace",
+          pillPartial: "Partial",
+          labelTerraDev: "Terra Dev ID (optional — paste when you have it)",
+          labelTerraKey: "Terra API Key (optional)",
+          phTerraDev: "from the Terra dashboard",
+          phTerraKey: "stored locally in this browser only",
+          btnSaveTerra: "Save Terra keys locally",
+          terraHint: "Once keys are in place, we build OAuth and a webhook that updates Pace automatically.",
+          onboardTitle: "Welcome",
+          onboardBody: "Choose language and units. You can change this anytime at the top right.",
+          onboardLang: "Language",
+          onboardUnits: "Units",
+          onboardContinue: "Continue",
+          goalTitleDefault: "Athletic shape",
+          maalDefault: "better cardio and athletic form in workout clothes, natural lighting",
+          presetSessions: "Sessions/week",
+          presetSteps: "Steps",
+          presetWeight: "Weight",
+          metricSessions: "Workout sessions / week",
+          metricSteps: "Steps / day",
+          metricWeightKg: "Weight (kg)",
+          metricWeightLb: "Weight (lb)",
+          paceNotStarted: "The plan has not started yet",
+          paceOnTrack: "You are roughly on track",
+          paceCompleted: "Goal reached — great work",
+          paceMissed: "The deadline passed without reaching the goal",
+          paceAhead: (d) => `You are about ${d} days ahead of plan`,
+          paceBehind: (d) => `You are about ${d} days behind plan`,
+          badgeWaiting: "Waiting",
+          badgeOnTrack: "On track",
+          badgeDone: "Done",
+          badgeMissed: "Missed",
+          badgeAhead: "Ahead",
+          badgeBehind: "Behind",
+          foodOnTrack: "On track",
+          foodBehind: "Behind on nutrition",
+          foodOver: "Over kcal",
+          foodOk: "Ok",
+          bannerMeta: (metric, pct, days, food, kcalC, kcalT, protein) =>
+            `${metric || "Metric"} · ${pct}% · ${days} days left · Nutrition: ${food} (${kcalC}/${kcalT} kcal, ${protein}g protein)`,
+          hintBehind: "Suggestion: Strong intensity — activity or nutrition is behind.",
+          hintAhead: "Suggestion: Subtle intensity — you are ahead / at goal.",
+          hintOnTrack: "Suggestion: Moderate intensity — you are on track.",
+          historyEmpty: "<li><b>No check-ins yet</b><span>Use +1 / Save check-in</span></li>",
+          toastMeal: "Meal added (+400 kcal / +30 g protein)",
+          toastNutritionReset: "Nutrition for today reset",
+          toastTerra: "Terra keys saved locally. OAuth connects when the account is ready.",
+          toastPlanSaved: (label) => `Plan saved. ${label}`,
+          toastPaceCopied: "Motivation text pulled from Pace",
+          toastPaceUpdated: "Motivation text updated",
+          needImageGoal: "Choose a photo and enter a goal.",
+          generating: "Generating via Replicate… this can take 20–60 sec.",
+          doneFallback: "Done (used fallback model due to safety filter).",
+          done: "Done.",
+          focusBehind: "stronger motivation to catch up to the plan",
+          focusAhead: "calm continued progress",
+          focusOnTrack: "steady athletic progress",
+          motivation: (goal, pace, focus) =>
+            `${goal.title}: ${pace.label}. Show ${focus} toward ${goal.targetValue} ${goal.metricLabel}. ` +
+            `Nutrition today: ${goal.kcalCurrent}/${goal.kcalTarget} kcal, ${goal.proteinCurrent}/${goal.proteinTarget} g protein. ` +
+            `Same person in workout clothes, natural lighting, realistic fitness.`,
+          localeDate: "en-US",
+        },
+      };
+
+      function detectDefaults() {
+        const lang = (navigator.language || "en").toLowerCase();
+        const isNo = lang.startsWith("nb") || lang.startsWith("nn") || lang.startsWith("no");
+        const isUs = lang.includes("-us") || (Intl.DateTimeFormat().resolvedOptions().locale || "").toLowerCase().includes("-us");
+        return { lang: isNo ? "no" : "en", units: isUs ? "us" : "metric", onboarded: false };
+      }
+
+      function loadPrefs() {
+        try {
+          const raw = localStorage.getItem(PREFS_KEY);
+          if (!raw) return detectDefaults();
+          return { ...detectDefaults(), ...JSON.parse(raw) };
+        } catch {
+          return detectDefaults();
+        }
+      }
+
+      let prefs = loadPrefs();
+
+      function savePrefs() {
+        localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+      }
+
+      function t(key, ...args) {
+        const pack = I18N[prefs.lang] || I18N.en;
+        const val = pack[key];
+        return typeof val === "function" ? val(...args) : val ?? key;
+      }
+
+      function isWeightMetric(label) {
+        return /\b(kg|lb|lbs)\b/i.test(label || "");
+      }
+
+      function convertWeightValue(value, fromUnits, toUnits) {
+        if (fromUnits === toUnits) return value;
+        if (fromUnits === "metric" && toUnits === "us") return Math.round(value * KG_TO_LB * 10) / 10;
+        return Math.round((value / KG_TO_LB) * 10) / 10;
+      }
+
+      function applyI18n() {
+        document.documentElement.lang = prefs.lang === "no" ? "no" : "en";
+        document.querySelectorAll("[data-i18n]").forEach((el) => {
+          el.textContent = t(el.dataset.i18n);
+        });
+        document.querySelectorAll("[data-i18n-html]").forEach((el) => {
+          el.innerHTML = t(el.dataset.i18nHtml);
+        });
+        document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => {
+          el.placeholder = t(el.dataset.i18nPlaceholder);
+        });
+
+        document.getElementById("langNo").classList.toggle("active", prefs.lang === "no");
+        document.getElementById("langEn").classList.toggle("active", prefs.lang === "en");
+        document.getElementById("unitsMetric").classList.toggle("active", prefs.units === "metric");
+        document.getElementById("unitsUs").classList.toggle("active", prefs.units === "us");
+
+        document.querySelectorAll("[data-onboard-lang]").forEach((btn) => {
+          btn.classList.toggle("active", btn.dataset.onboardLang === prefs.lang);
+        });
+        document.querySelectorAll("[data-onboard-units]").forEach((btn) => {
+          btn.classList.toggle("active", btn.dataset.onboardUnits === prefs.units);
+        });
+
+        document.querySelectorAll(".presets button").forEach((btn) => {
+          const preset = btn.dataset.preset;
+          if (preset === "sessions") {
+            btn.textContent = t("presetSessions");
+            btn.dataset.metric = t("metricSessions");
+          } else if (preset === "steps") {
+            btn.textContent = t("presetSteps");
+            btn.dataset.metric = t("metricSteps");
+          } else if (preset === "weight") {
+            btn.textContent = t("presetWeight");
+            btn.dataset.metric = prefs.units === "us" ? t("metricWeightLb") : t("metricWeightKg");
+            btn.dataset.start = prefs.units === "us" ? btn.dataset.startUs : btn.dataset.startMetric;
+            btn.dataset.target = prefs.units === "us" ? btn.dataset.targetUs : btn.dataset.targetMetric;
+          }
+        });
+
+        const maal = document.getElementById("maal");
+        if (!maal.dataset.touched) maal.value = t("maalDefault");
+        const goalTitle = document.getElementById("goalTitle");
+        if (!goalTitle.dataset.touched && !localStorage.getItem(GOAL_KEY)) {
+          goalTitle.value = t("goalTitleDefault");
+          document.getElementById("metricLabel").value = t("metricSessions");
+        }
+      }
 
       function daysFromNow(days) {
         const d = new Date();
@@ -663,8 +1107,8 @@
         if (Number.isNaN(+start) || Number.isNaN(+end) || now < start) {
           return {
             status: "not_started",
-            label: "Planen har ikke startet ennå",
-            badge: "Venter",
+            label: t("paceNotStarted"),
+            badge: t("badgeWaiting"),
             daysDelta: 0,
             expectedValue: startValue,
             progressPct: 0,
@@ -693,26 +1137,26 @@
           (!lowerIsBetter && currentValue >= targetValue);
 
         let status = "on_track";
-        let label = "Du er omtrent i rute";
-        let badge = "I rute";
+        let label = t("paceOnTrack");
+        let badge = t("badgeOnTrack");
 
         if (reached) {
           status = "completed";
-          label = "Målet er nådd — flott jobbet";
-          badge = "Nådd";
+          label = t("paceCompleted");
+          badge = t("badgeDone");
         } else if (now > end) {
           status = "missed";
-          label = "Fristen er passert uten at målet er nådd";
-          badge = "Passert";
+          label = t("paceMissed");
+          badge = t("badgeMissed");
         } else if (daysDelta >= 2) {
           status = "ahead";
           const days = Math.min(Math.round(daysDelta), Math.ceil(remainingDays) + 7);
-          label = `Du er ca. ${days} dager foran planen`;
-          badge = "Foran";
+          label = t("paceAhead", days);
+          badge = t("badgeAhead");
         } else if (daysDelta <= -2) {
           status = "behind";
-          label = `Du er ca. ${Math.abs(Math.round(daysDelta))} dager bak planen`;
-          badge = "Bak";
+          label = t("paceBehind", Math.abs(Math.round(daysDelta)));
+          badge = t("badgeBehind");
         }
 
         return {
@@ -742,24 +1186,20 @@
         const proteinPct = goal.proteinTarget
           ? Math.round((goal.proteinCurrent / goal.proteinTarget) * 100)
           : 0;
-        if (proteinPct >= 90 && kcalPct >= 85 && kcalPct <= 110) return "I rute";
-        if (proteinPct < 70 || kcalPct < 70) return "Bak på kost";
-        if (kcalPct > 120) return "Over kcal";
-        return "Ok";
+        if (proteinPct >= 90 && kcalPct >= 85 && kcalPct <= 110) return t("foodOnTrack");
+        if (proteinPct < 70 || kcalPct < 70) return t("foodBehind");
+        if (kcalPct > 120) return t("foodOver");
+        return t("foodOk");
       }
 
       function motivationText(goal, pace) {
         const focus =
           pace.status === "behind"
-            ? "sterkere motivasjon for å ta igjen planen"
+            ? t("focusBehind")
             : pace.status === "ahead" || pace.status === "completed"
-              ? "rolig videreutvikling"
-              : "jevn atletisk fremgang";
-        return (
-          `${goal.title}: ${pace.label}. Vis ${focus} mot ${goal.targetValue} ${goal.metricLabel}. ` +
-          `Kost i dag: ${goal.kcalCurrent}/${goal.kcalTarget} kcal, ${goal.proteinCurrent}/${goal.proteinTarget} g protein. ` +
-          `Samme person i treningstøy, naturlig belysning, realistisk kondisjon.`
-        );
+              ? t("focusAhead")
+              : t("focusOnTrack");
+        return t("motivation", goal, pace, focus);
       }
 
       function readGoalFromForm() {
@@ -775,21 +1215,43 @@
           kcalCurrent: Number(document.getElementById("kcalCurrent").value) || 0,
           proteinTarget: Number(document.getElementById("proteinTarget").value) || 0,
           proteinCurrent: Number(document.getElementById("proteinCurrent").value) || 0,
+          units: prefs.units,
         };
       }
 
       function writeGoalToForm(goal) {
         document.getElementById("goalTitle").value = goal.title || "";
         document.getElementById("metricLabel").value = goal.metricLabel || "";
-        document.getElementById("startValue").value = goal.startValue;
-        document.getElementById("targetValue").value = goal.targetValue;
-        document.getElementById("currentValue").value = goal.currentValue;
+        let start = goal.startValue;
+        let target = goal.targetValue;
+        let current = goal.currentValue;
+        if (goal.units && goal.units !== prefs.units && isWeightMetric(goal.metricLabel)) {
+          start = convertWeightValue(start, goal.units, prefs.units);
+          target = convertWeightValue(target, goal.units, prefs.units);
+          current = convertWeightValue(current, goal.units, prefs.units);
+          const label = document.getElementById("metricLabel");
+          label.value = prefs.units === "us" ? t("metricWeightLb") : t("metricWeightKg");
+        }
+        document.getElementById("startValue").value = start;
+        document.getElementById("targetValue").value = target;
+        document.getElementById("currentValue").value = current;
         document.getElementById("startDate").value = goal.startDate;
         document.getElementById("endDate").value = goal.endDate;
         document.getElementById("kcalTarget").value = goal.kcalTarget ?? 2200;
         document.getElementById("kcalCurrent").value = goal.kcalCurrent ?? 0;
         document.getElementById("proteinTarget").value = goal.proteinTarget ?? 140;
         document.getElementById("proteinCurrent").value = goal.proteinCurrent ?? 0;
+      }
+
+      function convertFormWeight(fromUnits, toUnits) {
+        if (fromUnits === toUnits) return;
+        const labelEl = document.getElementById("metricLabel");
+        if (!isWeightMetric(labelEl.value)) return;
+        ["startValue", "targetValue", "currentValue"].forEach((id) => {
+          const el = document.getElementById(id);
+          el.value = convertWeightValue(Number(el.value || 0), fromUnits, toUnits);
+        });
+        labelEl.value = toUnits === "us" ? t("metricWeightLb") : t("metricWeightKg");
       }
 
       function loadHistory() {
@@ -808,7 +1270,7 @@
         const list = document.getElementById("historyList");
         const items = loadHistory();
         if (!items.length) {
-          list.innerHTML = "<li><b>Ingen sjekk-inn ennå</b><span>Bruk +1 / Lagre sjekk-inn</span></li>";
+          list.innerHTML = t("historyEmpty");
           return;
         }
         list.innerHTML = items
@@ -830,8 +1292,16 @@
             : "";
         banner.className = "banner " + tone;
         document.getElementById("bannerLabel").textContent = pace.label;
-        document.getElementById("bannerMeta").textContent =
-          `${goal.metricLabel || "Metrikk"} · ${pace.progressPct}% · ${pace.remainingDays} dager igjen · Kost: ${food} (${goal.kcalCurrent}/${goal.kcalTarget} kcal, ${goal.proteinCurrent}g protein)`;
+        document.getElementById("bannerMeta").textContent = t(
+          "bannerMeta",
+          goal.metricLabel,
+          pace.progressPct,
+          pace.remainingDays,
+          food,
+          goal.kcalCurrent,
+          goal.kcalTarget,
+          goal.proteinCurrent
+        );
         document.getElementById("bannerBadge").textContent = pace.badge;
         document.getElementById("bannerBadge").className = "badge " + tone;
         document.getElementById("bannerProgress").style.width = `${pace.progressPct}%`;
@@ -844,20 +1314,69 @@
 
         const intensityEl = document.getElementById("intensity");
         const hint = document.getElementById("intensityHint");
-        if (pace.status === "behind" || food === "Bak på kost") {
-          hint.textContent = "Forslag: Sterk intensitet — aktivitet eller kost er bak.";
+        if (pace.status === "behind" || food === t("foodBehind")) {
+          hint.textContent = t("hintBehind");
         } else if (pace.status === "ahead" || pace.status === "completed") {
-          hint.textContent = "Forslag: Mild intensitet — du er foran / i mål.";
+          hint.textContent = t("hintAhead");
         } else {
-          hint.textContent = "Forslag: Moderat intensitet — du er i rute.";
+          hint.textContent = t("hintOnTrack");
         }
         if (!intensityEl.dataset.userLocked) {
           intensityEl.value = intensityFromPace(
-            food === "Bak på kost" && pace.status === "on_track" ? "behind" : pace.status
+            food === t("foodBehind") && pace.status === "on_track" ? "behind" : pace.status
           );
         }
         return { goal, pace, food };
       }
+
+      function setLang(lang) {
+        prefs.lang = lang;
+        savePrefs();
+        applyI18n();
+        renderPace();
+        renderHistory();
+      }
+
+      function setUnits(units) {
+        const prev = prefs.units;
+        if (prev !== units) convertFormWeight(prev, units);
+        prefs.units = units;
+        savePrefs();
+        applyI18n();
+        renderPace();
+      }
+
+      document.getElementById("langNo").addEventListener("click", () => setLang("no"));
+      document.getElementById("langEn").addEventListener("click", () => setLang("en"));
+      document.getElementById("unitsMetric").addEventListener("click", () => setUnits("metric"));
+      document.getElementById("unitsUs").addEventListener("click", () => setUnits("us"));
+
+      document.querySelectorAll("[data-onboard-lang]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          prefs.lang = btn.dataset.onboardLang;
+          applyI18n();
+        });
+      });
+      document.querySelectorAll("[data-onboard-units]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          prefs.units = btn.dataset.onboardUnits;
+          applyI18n();
+        });
+      });
+      document.getElementById("onboardContinue").addEventListener("click", () => {
+        prefs.onboarded = true;
+        savePrefs();
+        document.getElementById("onboard").hidden = true;
+        applyI18n();
+        renderPace();
+      });
+
+      document.getElementById("maal").addEventListener("input", () => {
+        document.getElementById("maal").dataset.touched = "1";
+      });
+      document.getElementById("goalTitle").addEventListener("input", () => {
+        document.getElementById("goalTitle").dataset.touched = "1";
+      });
 
       document.getElementById("intensity").addEventListener("change", () => {
         document.getElementById("intensity").dataset.userLocked = "1";
@@ -865,7 +1384,7 @@
 
       document.querySelectorAll(".tab").forEach((tab) => {
         tab.addEventListener("click", () => {
-          document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
+          document.querySelectorAll(".tab").forEach((tEl) => tEl.classList.remove("active"));
           document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
           tab.classList.add("active");
           document.getElementById("panel-" + tab.dataset.tab).classList.add("active");
@@ -876,7 +1395,7 @@
 
       document.querySelectorAll(".subtab").forEach((tab) => {
         tab.addEventListener("click", () => {
-          document.querySelectorAll(".subtab").forEach((t) => t.classList.remove("active"));
+          document.querySelectorAll(".subtab").forEach((tEl) => tEl.classList.remove("active"));
           document.querySelectorAll(".subpanel").forEach((p) => p.classList.remove("active"));
           tab.classList.add("active");
           document.getElementById("sub-" + tab.dataset.sub).classList.add("active");
@@ -888,13 +1407,23 @@
         ? window.location.origin
         : localStorage.getItem("helseappApiBase") || "https://helseapp-2.vercel.app";
 
+      applyI18n();
+
       const storedGoal = localStorage.getItem(GOAL_KEY);
       if (storedGoal) {
         writeGoalToForm(JSON.parse(storedGoal));
+        document.getElementById("goalTitle").dataset.touched = "1";
       } else {
+        document.getElementById("goalTitle").value = t("goalTitleDefault");
+        document.getElementById("metricLabel").value = t("metricSessions");
         document.getElementById("startDate").value = new Date().toISOString().slice(0, 10);
         document.getElementById("endDate").value = daysFromNow(84);
       }
+
+      if (!prefs.onboarded) {
+        document.getElementById("onboard").hidden = false;
+      }
+
       renderPace();
       renderHistory();
 
@@ -917,22 +1446,22 @@
         document.getElementById("proteinCurrent").value =
           Number(document.getElementById("proteinCurrent").value || 0) + 30;
         renderPace();
-        showToast("Måltid lagt til (+400 kcal / +30 g protein)");
+        showToast(t("toastMeal"));
       });
 
       document.getElementById("resetNutritionDay").addEventListener("click", () => {
         document.getElementById("kcalCurrent").value = 0;
         document.getElementById("proteinCurrent").value = 0;
         renderPace();
-        showToast("Kosthold for i dag er nullstilt");
+        showToast(t("toastNutritionReset"));
       });
 
       const terraStored = localStorage.getItem(TERRA_KEY);
       if (terraStored) {
         try {
-          const t = JSON.parse(terraStored);
-          document.getElementById("terraDevId").value = t.devId || "";
-          document.getElementById("terraApiKey").value = t.apiKey || "";
+          const terra = JSON.parse(terraStored);
+          document.getElementById("terraDevId").value = terra.devId || "";
+          document.getElementById("terraApiKey").value = terra.apiKey || "";
         } catch {}
       }
 
@@ -944,7 +1473,7 @@
             apiKey: document.getElementById("terraApiKey").value.trim(),
           })
         );
-        showToast("Terra-nøkler lagret lokalt. OAuth kobles når kontoen er klar.");
+        showToast(t("toastTerra"));
       });
 
       document.getElementById("logCurrent").addEventListener("click", () => {
@@ -953,7 +1482,7 @@
         items.unshift({
           value: goal.currentValue,
           metric: goal.metricLabel,
-          when: new Date().toLocaleString("nb-NO", {
+          when: new Date().toLocaleString(t("localeDate"), {
             day: "2-digit",
             month: "short",
             hour: "2-digit",
@@ -982,6 +1511,7 @@
       function applyPaceToFuture() {
         const { goal, pace } = renderPace();
         document.getElementById("maal").value = motivationText(goal, pace);
+        document.getElementById("maal").dataset.touched = "1";
         document.getElementById("intensity").dataset.userLocked = "";
         document.getElementById("intensity").value = intensityFromPace(pace.status);
         renderPace();
@@ -990,18 +1520,18 @@
       document.getElementById("saveGoal").addEventListener("click", () => {
         const { goal, pace } = renderPace();
         localStorage.setItem(GOAL_KEY, JSON.stringify(goal));
-        showToast("Plan lagret. " + pace.label);
+        showToast(t("toastPlanSaved", pace.label));
       });
 
       document.getElementById("usePaceInFuture").addEventListener("click", () => {
         applyPaceToFuture();
         document.querySelector('.tab[data-tab="future"]').click();
-        showToast("Motivasjonstekst hentet fra Tempo");
+        showToast(t("toastPaceCopied"));
       });
 
       document.getElementById("syncFromPace").addEventListener("click", () => {
         applyPaceToFuture();
-        showToast("Motivasjonstekst oppdatert");
+        showToast(t("toastPaceUpdated"));
       });
 
       const fileInput = document.getElementById("file");
@@ -1033,7 +1563,7 @@
         localStorage.setItem("helseappApiBase", apiBase);
 
         if (!imageBase64 || !maal) {
-          statusEl.textContent = "Velg bilde og skriv inn mål.";
+          statusEl.textContent = t("needImageGoal");
           statusEl.className = "status error";
           return;
         }
@@ -1041,7 +1571,7 @@
         const btn = document.getElementById("run");
         btn.disabled = true;
         statusEl.className = "status";
-        statusEl.textContent = "Genererer via Replicate… dette kan ta 20–60 sek.";
+        statusEl.textContent = t("generating");
 
         try {
           const response = await fetch(`${apiBase}/api/generate-future-you`, {
@@ -1050,11 +1580,9 @@
             body: JSON.stringify({ imageBase64, mimeType, maal, intensity }),
           });
           const result = await response.json();
-          if (!response.ok) throw new Error(result.error || "Ukjent feil");
+          if (!response.ok) throw new Error(result.error || "Error");
           after.src = result.imageUrl;
-          statusEl.textContent = result.usedFallback
-            ? "Ferdig (brukte reservedriftsmodell pga. sikkerhetsfilter)."
-            : "Ferdig.";
+          statusEl.textContent = result.usedFallback ? t("doneFallback") : t("done");
         } catch (error) {
           statusEl.textContent = error.message;
           statusEl.className = "status error";
