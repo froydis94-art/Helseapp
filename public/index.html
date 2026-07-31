@@ -169,7 +169,7 @@
 
         <label>
           Mål / fokus (til AI-bildet)
-          <input id="maal" type="text" value="bedre kondisjon og atletisk form i treningstøy" />
+          <input id="maal" type="text" value="bedre kondisjon og atletisk form i treningstøy, naturlig belysning" />
         </label>
 
         <label>
@@ -357,9 +357,15 @@
       }
 
       function motivationText(goal, pace) {
+        const focus =
+          pace.status === "behind"
+            ? "sterkere motivasjon for å ta igjen planen"
+            : pace.status === "ahead"
+              ? "rolig videreutvikling siden du er foran"
+              : "jevn atletisk fremgang";
         return (
-          `${goal.title}: ${pace.label}. Hold fokus på ${goal.metricLabel} mot ${goal.targetValue}, ` +
-          `med atletisk form i treningstøy.`
+          `${goal.title}: ${pace.label}. Vis ${focus} mot ${goal.targetValue} ${goal.metricLabel}, ` +
+          `samme person i treningstøy, naturlig belysning, realistisk kondisjon.`
         );
       }
 
