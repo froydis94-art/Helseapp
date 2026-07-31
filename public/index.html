@@ -27,6 +27,32 @@
       .wrap { max-width: 760px; margin: 0 auto; padding: 28px 20px 72px; }
       .brand { font-size: 2rem; letter-spacing: 0.1em; margin: 0; }
       .tagline { color: var(--muted); margin: 6px 0 18px; }
+      .banner {
+        padding: 14px 16px;
+        border-radius: 14px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        margin-bottom: 16px;
+      }
+      .banner.ahead { border-color: var(--accent); background: #1d2a16; }
+      .banner.behind { border-color: var(--warn); background: #2a2116; }
+      .banner strong { display: block; font-size: 1.1rem; margin-bottom: 4px; }
+      .banner span { color: var(--muted); font-size: 0.9rem; line-height: 1.4; }
+      .progress {
+        margin-top: 10px;
+        height: 8px;
+        border-radius: 99px;
+        background: #243022;
+        overflow: hidden;
+      }
+      .progress > i {
+        display: block;
+        height: 100%;
+        width: 0;
+        background: var(--accent);
+        border-radius: 99px;
+      }
+      .banner.behind .progress > i { background: var(--warn); }
       .tabs { display: flex; gap: 8px; margin-bottom: 18px; }
       .tab {
         flex: 1;
@@ -52,6 +78,27 @@
         color: var(--text);
       }
       .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      .quick { display: flex; gap: 8px; margin-top: 8px; }
+      .quick button {
+        flex: 1;
+        padding: 10px;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        background: #243022;
+        color: var(--text);
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .presets { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+      .presets button {
+        padding: 8px 12px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        color: var(--muted);
+        cursor: pointer;
+        font-size: 0.85rem;
+      }
       button.primary {
         margin-top: 18px;
         width: 100%;
@@ -86,17 +133,13 @@
       }
       .status { margin-top: 12px; color: var(--muted); font-size: 0.92rem; line-height: 1.45; }
       .error { color: var(--warn); }
-      .pace-card {
-        margin-top: 16px;
-        padding: 16px;
-        border-radius: 14px;
-        border: 1px solid var(--line);
-        background: var(--panel);
-      }
-      .pace-card.ahead { border-color: var(--accent); background: #1d2a16; }
-      .pace-card.behind { border-color: var(--warn); background: #2a2116; }
-      .pace-card h2 { margin: 0 0 8px; font-size: 1.25rem; }
       .hint { color: var(--muted); font-size: 0.85rem; margin-top: 10px; line-height: 1.45; }
+      details.advanced {
+        margin-top: 16px;
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
+      details.advanced summary { cursor: pointer; }
       @media (max-width: 640px) {
         .row, .grid2 { grid-template-columns: 1fr; }
       }
@@ -105,7 +148,13 @@
   <body>
     <div class="wrap">
       <h1 class="brand">HELSEAPP</h1>
-      <p class="tagline">Se resultatet. Hold tempoet. Kjører i skyen (Vercel + Replicate).</p>
+      <p class="tagline">Se resultatet. Hold tempoet.</p>
+
+      <div id="paceBanner" class="banner">
+        <strong id="bannerLabel">Sett et mål under Tempo</strong>
+        <span id="bannerMeta"></span>
+        <div class="progress"><i id="bannerProgress"></i></div>
+      </div>
 
       <div class="tabs">
         <button class="tab active" data-tab="future" type="button">Fremtid</button>
@@ -115,12 +164,8 @@
       <section id="panel-future" class="panel active">
         <p class="hint">
           Tips ved filterfeil (E005): bilde i t-skjorte/shorts og mildere måltekst.
+          Intensitet justeres automatisk etter om du er foran eller bak planen.
         </p>
-
-        <label>
-          API-base
-          <input id="apiBase" type="text" />
-        </label>
 
         <label>
           Mål / fokus (til AI-bildet)
@@ -135,6 +180,7 @@
             <option value="strong">Sterk</option>
           </select>
         </label>
+        <p class="hint" id="intensityHint"></p>
 
         <label>
           Utgangsbilde
@@ -142,6 +188,9 @@
         </label>
 
         <button class="primary" id="run" type="button">Generer visualisering</button>
+        <button class="secondary" id="syncFromPace" type="button">
+          Hent motivasjonstekst fra Tempo
+        </button>
         <p id="status" class="status"></p>
 
         <div class="row">
@@ -154,17 +203,21 @@
             <img id="after" alt="Etter" />
           </div>
         </div>
+
+        <details class="advanced">
+          <summary>Avansert: API-adresse</summary>
+          <label>
+            API-base
+            <input id="apiBase" type="text" />
+          </label>
+        </details>
       </section>
 
       <section id="panel-pace" class="panel">
         <p class="hint">
-          Appen sier fra om du er dager foran eller bak planen — lagres i nettleseren din.
+          Oppdater «nåværende verdi» jevnlig. Appen sier ifra om du er dager foran eller bak.
+          Lagres i nettleseren din.
         </p>
-
-        <div id="paceCard" class="pace-card">
-          <h2 id="paceLabel">Sett inn mål under</h2>
-          <p id="paceMeta" class="hint"></p>
-        </div>
 
         <label>
           Måltittel
@@ -175,6 +228,11 @@
           Metrikk
           <input id="metricLabel" type="text" value="Treningsøkter / uke" />
         </label>
+        <div class="presets">
+          <button type="button" data-metric="Treningsøkter / uke" data-start="2" data-target="5">Økter/uke</button>
+          <button type="button" data-metric="Skritt / dag" data-start="4000" data-target="10000">Skritt</button>
+          <button type="button" data-metric="Vekt (kg)" data-start="85" data-target="78">Vekt</button>
+        </div>
 
         <div class="grid2">
           <label>
@@ -191,6 +249,10 @@
           Nåværende verdi
           <input id="currentValue" type="number" step="any" value="2" />
         </label>
+        <div class="quick">
+          <button type="button" id="decCurrent">− 1</button>
+          <button type="button" id="incCurrent">+ 1</button>
+        </div>
 
         <div class="grid2">
           <label>
@@ -205,7 +267,7 @@
 
         <button class="primary" id="saveGoal" type="button">Lagre og oppdater tempo</button>
         <button class="secondary" id="usePaceInFuture" type="button">
-          Bruk tempotekst som AI-mål
+          Bruk tempo som AI-mål og gå til Fremtid
         </button>
       </section>
     </div>
@@ -232,7 +294,7 @@
         const end = new Date(endDate);
         const now = asOf instanceof Date ? asOf : new Date(asOf);
 
-        if (Number.isNaN(start) || Number.isNaN(end) || now < start) {
+        if (Number.isNaN(+start) || Number.isNaN(+end) || now < start) {
           return {
             status: "not_started",
             label: "Planen har ikke startet ennå",
@@ -288,6 +350,19 @@
         };
       }
 
+      function intensityFromPace(status) {
+        if (status === "behind") return "strong";
+        if (status === "ahead") return "subtle";
+        return "moderate";
+      }
+
+      function motivationText(goal, pace) {
+        return (
+          `${goal.title}: ${pace.label}. Hold fokus på ${goal.metricLabel} mot ${goal.targetValue}, ` +
+          `med atletisk form i treningstøy.`
+        );
+      }
+
       function readGoalFromForm() {
         return {
           title: document.getElementById("goalTitle").value.trim(),
@@ -313,27 +388,47 @@
       function renderPace() {
         const goal = readGoalFromForm();
         const pace = computePace(goal);
-        const card = document.getElementById("paceCard");
-        card.className = "pace-card " + (pace.status === "ahead" || pace.status === "behind" ? pace.status : "");
-        document.getElementById("paceLabel").textContent = pace.label;
-        document.getElementById("paceMeta").textContent =
+        const banner = document.getElementById("paceBanner");
+        banner.className =
+          "banner " + (pace.status === "ahead" || pace.status === "behind" ? pace.status : "");
+        document.getElementById("bannerLabel").textContent = pace.label;
+        document.getElementById("bannerMeta").textContent =
           `${goal.metricLabel || "Metrikk"}: forventet ${pace.expectedValue} · faktisk ${goal.currentValue} · mål ${goal.targetValue}. ` +
           `Fremgang ${pace.progressPct}% · ${pace.remainingDays} dager igjen.`;
+        document.getElementById("bannerProgress").style.width = `${pace.progressPct}%`;
+
+        const suggested = intensityFromPace(pace.status);
+        const intensityEl = document.getElementById("intensity");
+        const hint = document.getElementById("intensityHint");
+        if (pace.status === "behind") {
+          hint.textContent = "Forslag: Sterk intensitet — du er bak planen.";
+        } else if (pace.status === "ahead") {
+          hint.textContent = "Forslag: Mild intensitet — du er foran planen.";
+        } else {
+          hint.textContent = "Forslag: Moderat intensitet — du er i rute.";
+        }
+        // Soft-suggest without forcing if user already chose differently after save
+        if (!intensityEl.dataset.userLocked) {
+          intensityEl.value = suggested;
+        }
+
         return { goal, pace };
       }
 
-      // Tabs
+      document.getElementById("intensity").addEventListener("change", () => {
+        document.getElementById("intensity").dataset.userLocked = "1";
+      });
+
       document.querySelectorAll(".tab").forEach((tab) => {
         tab.addEventListener("click", () => {
           document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
           document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
           tab.classList.add("active");
           document.getElementById("panel-" + tab.dataset.tab).classList.add("active");
-          if (tab.dataset.tab === "pace") renderPace();
+          renderPace();
         });
       });
 
-      // Defaults
       const apiBaseInput = document.getElementById("apiBase");
       apiBaseInput.value = window.location.origin.includes("vercel.app")
         ? window.location.origin
@@ -348,9 +443,39 @@
       }
       renderPace();
 
-      ["startValue", "targetValue", "currentValue", "startDate", "endDate"].forEach((id) => {
-        document.getElementById(id).addEventListener("input", renderPace);
+      ["startValue", "targetValue", "currentValue", "startDate", "endDate", "metricLabel", "goalTitle"].forEach(
+        (id) => document.getElementById(id).addEventListener("input", renderPace)
+      );
+
+      document.getElementById("incCurrent").addEventListener("click", () => {
+        const el = document.getElementById("currentValue");
+        el.value = Number(el.value || 0) + 1;
+        renderPace();
       });
+      document.getElementById("decCurrent").addEventListener("click", () => {
+        const el = document.getElementById("currentValue");
+        el.value = Number(el.value || 0) - 1;
+        renderPace();
+      });
+
+      document.querySelectorAll(".presets button").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          document.getElementById("metricLabel").value = btn.dataset.metric;
+          document.getElementById("startValue").value = btn.dataset.start;
+          document.getElementById("targetValue").value = btn.dataset.target;
+          document.getElementById("currentValue").value = btn.dataset.start;
+          document.getElementById("intensity").dataset.userLocked = "";
+          renderPace();
+        });
+      });
+
+      function applyPaceToFuture() {
+        const { goal, pace } = renderPace();
+        document.getElementById("maal").value = motivationText(goal, pace);
+        document.getElementById("intensity").dataset.userLocked = "";
+        document.getElementById("intensity").value = intensityFromPace(pace.status);
+        renderPace();
+      }
 
       document.getElementById("saveGoal").addEventListener("click", () => {
         const { goal, pace } = renderPace();
@@ -359,15 +484,12 @@
       });
 
       document.getElementById("usePaceInFuture").addEventListener("click", () => {
-        const { goal, pace } = renderPace();
-        const text =
-          `${goal.title}: ${pace.label}. Hold fokus på ${goal.metricLabel} mot ${goal.targetValue}, ` +
-          `med atletisk form i treningstøy.`;
-        document.getElementById("maal").value = text;
+        applyPaceToFuture();
         document.querySelector('.tab[data-tab="future"]').click();
       });
 
-      // Future / AI
+      document.getElementById("syncFromPace").addEventListener("click", applyPaceToFuture);
+
       const fileInput = document.getElementById("file");
       const before = document.getElementById("before");
       const after = document.getElementById("after");
@@ -396,11 +518,6 @@
         const intensity = document.getElementById("intensity").value;
         localStorage.setItem("helseappApiBase", apiBase);
 
-        if (!apiBase) {
-          statusEl.textContent = "Lim inn Vercel-URL først.";
-          statusEl.className = "status error";
-          return;
-        }
         if (!imageBase64 || !maal) {
           statusEl.textContent = "Velg bilde og skriv inn mål.";
           statusEl.className = "status error";
