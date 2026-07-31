@@ -5,8 +5,7 @@ module.exports = function handler(_req, res) {
     hasReplicateToken: Boolean(process.env.REPLICATE_API_TOKEN),
     model: process.env.REPLICATE_MODEL || "black-forest-labs/flux-kontext-pro",
     fallbackModel:
-      process.env.REPLICATE_FALLBACK_MODEL ||
-      "stability-ai/stable-diffusion-img2img",
+      process.env.REPLICATE_FALLBACK_MODEL || "stability-ai/sdxl",
     mode: "vercel",
   });
 };
