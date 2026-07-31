@@ -607,6 +607,7 @@
           <div>
             <strong id="bannerLabel" data-i18n="bannerDefault">Sett et mål under Tempo</strong>
             <div class="meta" id="bannerMeta"></div>
+            <p id="deviceStrip" class="hint" style="margin:8px 0 0"></p>
           </div>
           <div class="badge" id="bannerBadge" data-i18n="badgePace">Tempo</div>
         </div>
@@ -661,8 +662,37 @@
           <div class="choices" id="fatChoices">
             <button type="button" class="choice active" data-fat="decrease" data-i18n="fatDecrease">Minske</button>
             <button type="button" class="choice" data-fat="maintain" data-i18n="fatMaintain">Beholde</button>
-            <button type="button" class="choice" data-fat="increase" data-i18n="fatIncrease">Øke (masse)</button>
+            <button type="button" class="choice" data-fat="increase" data-i18n="fatIncrease">Øke</button>
           </div>
+          <div class="diet-grid" style="margin-top:10px">
+            <label>
+              <span data-i18n="labelBfNow">Nåværende fett-% (estimat OK)</span>
+              <input id="bfNow" type="number" step="0.5" min="5" max="55" value="22" />
+            </label>
+            <label>
+              <span data-i18n="labelBfGoal">Ønsket fett-%</span>
+              <input id="bfGoal" type="number" step="0.5" min="5" max="55" value="16" />
+            </label>
+            <label>
+              <span data-i18n="labelHeightCm">Høyde (cm)</span>
+              <input id="heightCm" type="number" step="1" min="120" max="230" value="175" />
+            </label>
+            <label>
+              <span data-i18n="labelWeightKg">Vekt (kg)</span>
+              <input id="weightKg" type="number" step="0.1" min="35" max="300" value="80" />
+            </label>
+          </div>
+          <div class="prompt-preview" id="bodyPlanPreview" style="margin-top:10px"></div>
+          <div class="choices" style="margin-top:8px">
+            <button type="button" class="choice" id="toggleMedicine" data-i18n="medicineOff">
+              Slankemedisin: av
+            </button>
+            <button type="button" class="choice" id="applyBfDate" data-i18n="btnApplyBfDate">
+              Bruk estimert dato som måldato
+            </button>
+          </div>
+          <p class="hint" id="bmiHint"></p>
+          <p class="hint" id="healthWarn" hidden style="color:var(--warn)"></p>
         </div>
 
         <div class="choice-block">
@@ -674,12 +704,13 @@
         </div>
 
         <div class="choice-block">
-          <span class="choice-label" data-i18n="labelZone">Fokus / kroppsdel</span>
+          <span class="choice-label" data-i18n="labelZone">Fokus / kroppsdel (flervalg)</span>
           <div class="choices" id="zoneChoices">
-            <button type="button" class="choice" data-zone="overall" data-i18n="zoneOverall">Helhet</button>
             <button type="button" class="choice active" data-zone="abs" data-i18n="zoneAbs">Mage</button>
-            <button type="button" class="choice" data-zone="upper" data-i18n="zoneUpper">Overkropp / armer</button>
-            <button type="button" class="choice" data-zone="lower" data-i18n="zoneLower">Rumpe / bein</button>
+            <button type="button" class="choice" data-zone="glutes" data-i18n="zoneGlutes">Rumpe</button>
+            <button type="button" class="choice" data-zone="thighs" data-i18n="zoneThighs">Lår</button>
+            <button type="button" class="choice" data-zone="arms" data-i18n="zoneArms">Armer</button>
+            <button type="button" class="choice" data-zone="chest" data-i18n="zoneChest">Bryst / overkropp</button>
             <button type="button" class="choice" data-zone="posture" data-i18n="zonePosture">Holdning</button>
           </div>
         </div>
@@ -1017,13 +1048,36 @@
           labelFat: "Fettprosent",
           fatDecrease: "Minske",
           fatMaintain: "Beholde",
-          fatIncrease: "Øke (masse)",
+          fatIncrease: "Øke",
+          labelBfNow: "Nåværende fett-% (estimat OK)",
+          labelBfGoal: "Ønsket fett-%",
+          labelHeightCm: "Høyde (cm)",
+          labelWeightKg: "Vekt (kg)",
+          medicineOff: "Slankemedisin: av",
+          medicineOn: "Slankemedisin: på",
+          btnApplyBfDate: "Bruk estimert dato som måldato",
+          bodyPlanPreview: (weeks, date, bmi, rateNote) =>
+            `Plan-estimat: <b>~${weeks} uker</b> → <b>${date}</b> · BMI nå: <b>${bmi}</b>${rateNote ? ` · ${rateNote}` : ""}`,
+          bodyPlanMaintain: "Vedlikehold — liten/ingen fett-%-endring.",
+          bodyPlanRateLifestyle: "Trygt livsstilstempo",
+          bodyPlanRateMedicine: "Raskere tempo (medisinmodus) — ikke medisinsk råd",
+          bodyPlanAggressive: "Tempoet er aggressivt — vurder mildere innsats hvis det ikke er bærekraftig.",
+          bmiHintOk: (bmi) => `BMI ca. ${bmi} (kun estimat fra vekt/høyde).`,
+          healthWarnLowBmi:
+            "BMI er under 18,5. Appen oppmuntrer ikke til ytterligere fettnedgang — snakk med helsepersonell.",
+          healthWarnBlockGenerate:
+            "Kan ikke generere målbilde for ytterligere fettnedgang mens BMI er under normalvekt. Juster målet eller snakk med fagperson.",
+          zoneNeedOne: "Velg minst én kroppsdel.",
           labelMuscle: "Muskelstruktur",
           muscleToned: "Slank / tonet",
           muscleVolume: "Øke volum",
-          labelZone: "Fokus / kroppsdel",
+          labelZone: "Fokus / kroppsdel (flervalg)",
           zoneOverall: "Helhet",
           zoneAbs: "Mage",
+          zoneGlutes: "Rumpe",
+          zoneThighs: "Lår",
+          zoneArms: "Armer",
+          zoneChest: "Bryst / overkropp",
           zoneUpper: "Overkropp / armer",
           zoneLower: "Rumpe / bein",
           zonePosture: "Holdning",
@@ -1131,7 +1185,8 @@
           btnSavePlan: "Lagre plan",
           btnUsePaceAi: "Bruk tempo + kost som AI-mål",
           historyTitle: "Siste sjekk-inn",
-          devicesTitle: "Enheter og apper",
+          devicesStripManual: "Enheter: manuelt nå · wearable-sync kommer snart",
+          devicesStripConnected: (provider) => `Enheter: koblet${provider ? ` (${provider})` : ""}`,
           devicesSoonTitle: "Kommer snart",
           devicesSoonBody: "Wearable-sync via Terra er bygget inn, men vi venter med betalt Terra-lisens til senere. Bruk Tempo manuelt for aktivitet og kosthold inntil videre.",
           devicesHint: "Vi kobler via <b>Terra</b> (én lisens) i stedet for hver SDK — Garmin, Strava, Oura, Health Connect og mer.",
@@ -1241,13 +1296,36 @@
           labelFat: "Body fat",
           fatDecrease: "Decrease",
           fatMaintain: "Maintain",
-          fatIncrease: "Increase (bulk)",
+          fatIncrease: "Increase",
+          labelBfNow: "Current body fat % (estimate OK)",
+          labelBfGoal: "Target body fat %",
+          labelHeightCm: "Height (cm)",
+          labelWeightKg: "Weight (kg)",
+          medicineOff: "Weight-loss meds: off",
+          medicineOn: "Weight-loss meds: on",
+          btnApplyBfDate: "Use estimated date as target date",
+          bodyPlanPreview: (weeks, date, bmi, rateNote) =>
+            `Plan estimate: <b>~${weeks} weeks</b> → <b>${date}</b> · BMI now: <b>${bmi}</b>${rateNote ? ` · ${rateNote}` : ""}`,
+          bodyPlanMaintain: "Maintenance — little/no body-fat change.",
+          bodyPlanRateLifestyle: "Sustainable lifestyle pace",
+          bodyPlanRateMedicine: "Faster pace (meds mode) — not medical advice",
+          bodyPlanAggressive: "Pace looks aggressive — consider gentler effort if it won’t stick.",
+          bmiHintOk: (bmi) => `BMI about ${bmi} (estimate from weight/height only).`,
+          healthWarnLowBmi:
+            "BMI is under 18.5. The app does not encourage further fat loss — talk to a health professional.",
+          healthWarnBlockGenerate:
+            "Cannot generate a further fat-loss goal image while BMI is under normal range. Adjust the goal or talk to a professional.",
+          zoneNeedOne: "Pick at least one body zone.",
           labelMuscle: "Muscle style",
           muscleToned: "Lean / toned",
           muscleVolume: "Add volume",
-          labelZone: "Focus / body zone",
+          labelZone: "Focus / body zones (multi-select)",
           zoneOverall: "Overall",
           zoneAbs: "Core / abs",
+          zoneGlutes: "Glutes",
+          zoneThighs: "Thighs",
+          zoneArms: "Arms",
+          zoneChest: "Chest / upper body",
           zoneUpper: "Upper body / arms",
           zoneLower: "Glutes / legs",
           zonePosture: "Posture",
@@ -1350,6 +1428,8 @@
           btnSavePlan: "Save plan",
           btnUsePaceAi: "Use pace + nutrition as AI goal",
           historyTitle: "Recent check-ins",
+          devicesStripManual: "Devices: manual for now · wearable sync coming soon",
+          devicesStripConnected: (provider) => `Devices: connected${provider ? ` (${provider})` : ""}`,
           devicesTitle: "Devices and apps",
           devicesSoonTitle: "Coming soon",
           devicesSoonBody: "Wearable sync via Terra is built in, but we are waiting on a paid Terra plan. Use Pace manually for activity and nutrition for now.",
@@ -1654,13 +1734,15 @@
       }
 
       function getSelectedFocus() {
-        return getSelectedZone();
+        const zones = getSelectedZones();
+        return zones[0] || "abs";
       }
 
-      function getSelectedZone() {
-        return (
-          document.querySelector("#zoneChoices .choice.active")?.dataset.zone || "abs"
+      function getSelectedZones() {
+        const zones = [...document.querySelectorAll("#zoneChoices .choice.active")].map(
+          (b) => b.dataset.zone
         );
+        return zones.length ? zones : ["abs"];
       }
 
       function getSelectedFat() {
@@ -1674,6 +1756,105 @@
           document.querySelector("#muscleChoices .choice.active")?.dataset.muscle ||
           "toned"
         );
+      }
+
+      function isMedicineOn() {
+        return document.getElementById("toggleMedicine")?.classList.contains("active");
+      }
+
+      function calcBmi() {
+        const cm = Number(document.getElementById("heightCm").value);
+        const kg = Number(document.getElementById("weightKg").value);
+        if (!cm || !kg || cm < 100) return null;
+        return Math.round((kg / ((cm / 100) ** 2)) * 10) / 10;
+      }
+
+      /** Motivational planning only — not medical advice. */
+      function estimateBfPlan() {
+        const bfNow = Number(document.getElementById("bfNow").value);
+        const bfGoal = Number(document.getElementById("bfGoal").value);
+        const intensity = document.getElementById("intensity").value;
+        const medicine = isMedicineOn();
+        const fat = getSelectedFat();
+        const bmi = calcBmi();
+
+        if (!Number.isFinite(bfNow) || !Number.isFinite(bfGoal)) {
+          return { weeks: 12, date: daysFromNow(84), bmi, rateNote: "", maintain: false };
+        }
+
+        const diff = Math.abs(bfNow - bfGoal);
+        if (diff < 0.4 || fat === "maintain") {
+          return {
+            weeks: 0,
+            date: new Date().toISOString().slice(0, 10),
+            bmi,
+            rateNote: t("bodyPlanMaintain"),
+            maintain: true,
+            diff,
+            medicine,
+            aggressive: false,
+          };
+        }
+
+        // Body-fat percentage points per week (rough planning model).
+        let rate =
+          intensity === "strong" ? 0.4 : intensity === "subtle" ? 0.25 : 0.33;
+        if (medicine) rate += 0.22;
+        if (!medicine && rate > 0.45) rate = 0.45;
+
+        const weeks = Math.max(3, Math.round(diff / rate));
+        const aggressive = !medicine && diff / weeks > 0.45;
+        return {
+          weeks,
+          date: daysFromNow(weeks * 7),
+          bmi,
+          rateNote: medicine ? t("bodyPlanRateMedicine") : t("bodyPlanRateLifestyle"),
+          maintain: false,
+          diff,
+          medicine,
+          aggressive,
+        };
+      }
+
+      function updateBodyPlanPreview() {
+        const preview = document.getElementById("bodyPlanPreview");
+        const bmiEl = document.getElementById("bmiHint");
+        const warn = document.getElementById("healthWarn");
+        const medBtn = document.getElementById("toggleMedicine");
+        if (!preview) return;
+
+        const plan = estimateBfPlan();
+        medBtn.textContent = isMedicineOn() ? t("medicineOn") : t("medicineOff");
+        medBtn.classList.toggle("active", isMedicineOn());
+
+        if (plan.bmi != null) bmiEl.textContent = t("bmiHintOk", plan.bmi);
+        else bmiEl.textContent = "";
+
+        const lowBmi = plan.bmi != null && plan.bmi < 18.5;
+        const fatLoss = getSelectedFat() === "decrease";
+        if (lowBmi && fatLoss) {
+          warn.hidden = false;
+          warn.textContent = t("healthWarnLowBmi");
+        } else if (plan.aggressive) {
+          warn.hidden = false;
+          warn.textContent = t("bodyPlanAggressive");
+        } else {
+          warn.hidden = true;
+          warn.textContent = "";
+        }
+
+        if (plan.maintain) {
+          preview.innerHTML = t("bodyPlanMaintain");
+        } else {
+          preview.innerHTML = t(
+            "bodyPlanPreview",
+            plan.weeks,
+            plan.date,
+            plan.bmi != null ? plan.bmi : "–",
+            plan.rateNote
+          );
+        }
+        return plan;
       }
 
       function getSelectedTrains() {
@@ -1704,7 +1885,7 @@
       function buildCoachAdvice() {
         const fat = getSelectedFat();
         const muscle = getSelectedMuscle();
-        const zone = getSelectedZone();
+        const zones = getSelectedZones();
         const intensity = document.getElementById("intensity").value;
         const trains = getSelectedTrains();
         const diet = getSelectedDiet();
@@ -1713,7 +1894,7 @@
         const proteinNow = Number(document.getElementById("futureProtein").value) || 100;
 
         const trainTips = [];
-        if (muscle === "volume" || zone === "upper" || zone === "lower") {
+        if (muscle === "volume" || zones.includes("arms") || zones.includes("chest") || zones.includes("thighs") || zones.includes("glutes")) {
           trainTips.push(t(muscle === "volume" ? "coachTrainStrengthVolume" : "coachTrainStrengthFat"));
         } else if (fat === "decrease") {
           trainTips.push(t("coachTrainStrengthFat"));
@@ -1724,10 +1905,10 @@
         if (fat === "decrease") trainTips.push(t("coachTrainCardioFat"));
         if (trains.includes("hiit") || intensity === "strong") trainTips.push(t("coachTrainHiit"));
 
-        if (zone === "abs") trainTips.push(t("coachTrainZoneAbs"));
-        if (zone === "upper") trainTips.push(t("coachTrainZoneUpper"));
-        if (zone === "lower") trainTips.push(t("coachTrainZoneLower"));
-        if (zone === "posture" || trains.includes("yoga")) trainTips.push(t("coachTrainZonePosture"));
+        if (zones.includes("abs")) trainTips.push(t("coachTrainZoneAbs"));
+        if (zones.includes("arms") || zones.includes("chest")) trainTips.push(t("coachTrainZoneUpper"));
+        if (zones.includes("glutes") || zones.includes("thighs")) trainTips.push(t("coachTrainZoneLower"));
+        if (zones.includes("posture") || trains.includes("yoga")) trainTips.push(t("coachTrainZonePosture"));
         if (trains.includes("walking") || fat === "decrease") trainTips.push(t("coachTrainWalking"));
 
         const preferred = trains.find((x) => x !== "hiit") || trains[0];
@@ -1851,11 +2032,19 @@
         const map = {
           overall: t("zoneOverall"),
           abs: t("zoneAbs"),
+          glutes: t("zoneGlutes"),
+          thighs: t("zoneThighs"),
+          arms: t("zoneArms"),
+          chest: t("zoneChest"),
           upper: t("zoneUpper"),
           lower: t("zoneLower"),
           posture: t("zonePosture"),
         };
         return map[zone] || map.overall;
+      }
+
+      function zonesLabel(zones) {
+        return (zones || []).map(zoneLabel).join(", ");
       }
 
       function fatLabel(fat) {
@@ -1891,9 +2080,10 @@
           horizonLabel(getSelectedHorizon()),
           fatLabel(getSelectedFat()),
           muscleLabel(getSelectedMuscle()),
-          zoneLabel(getSelectedZone()),
+          zonesLabel(getSelectedZones()),
           intensityLabel(document.getElementById("intensity").value)
         );
+        updateBodyPlanPreview();
       }
 
       function suggestIntensity() {
@@ -2034,6 +2224,20 @@
         document.getElementById("tlProtein").textContent = `${goal.proteinCurrent} / ${goal.proteinTarget} g`;
         document.getElementById("tlNutritionStatus").textContent = food;
 
+        const deviceStrip = document.getElementById("deviceStrip");
+        if (deviceStrip) {
+          let terraConn = null;
+          try {
+            terraConn = JSON.parse(localStorage.getItem(TERRA_CONN_KEY) || "null");
+          } catch {
+            terraConn = null;
+          }
+          deviceStrip.textContent =
+            TERRA_LIVE && terraConn?.userId
+              ? t("devicesStripConnected", terraConn.provider || "")
+              : t("devicesStripManual");
+        }
+
         const intensityEl = document.getElementById("intensity");
         const hint = document.getElementById("intensityHint");
         const horizon = getSelectedHorizon();
@@ -2145,10 +2349,17 @@
 
       bindChoiceGroup("#fatChoices .choice");
       bindChoiceGroup("#muscleChoices .choice");
-      bindChoiceGroup("#zoneChoices .choice");
       bindChoiceGroup("#dietChoices .choice");
       bindChoiceGroup("#intensityChoices .choice", (btn) => {
         setIntensityValue(btn.dataset.intensity, { lock: true });
+      });
+
+      document.querySelectorAll("#zoneChoices .choice").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          btn.classList.toggle("active");
+          if (!getSelectedZones().length) btn.classList.add("active");
+          updatePromptPreview();
+        });
       });
 
       document.querySelectorAll("#trainChoices .choice").forEach((btn) => {
@@ -2159,9 +2370,28 @@
         });
       });
 
-      ["dietNote", "futureKcal", "futureProtein"].forEach((id) => {
-        document.getElementById(id).addEventListener("input", updatePromptPreview);
+      document.getElementById("toggleMedicine").addEventListener("click", () => {
+        document.getElementById("toggleMedicine").classList.toggle("active");
+        updateBodyPlanPreview();
+        updatePromptPreview();
       });
+
+      document.getElementById("applyBfDate").addEventListener("click", () => {
+        const plan = updateBodyPlanPreview();
+        if (!plan || plan.maintain) return;
+        document
+          .querySelectorAll("#horizonChoices .choice")
+          .forEach((b) => b.classList.remove("active"));
+        document.querySelector('#horizonChoices .choice[data-horizon="custom"]').classList.add("active");
+        syncCustomHorizonUi();
+        document.getElementById("horizonDate").value = plan.date;
+        updatePromptPreview();
+        showToast(t("btnApplyBfDate") + ": " + plan.date);
+      });
+
+      ["dietNote", "futureKcal", "futureProtein", "bfNow", "bfGoal", "heightCm", "weightKg"].forEach(
+        (id) => document.getElementById(id).addEventListener("input", updatePromptPreview)
+      );
 
       document.querySelectorAll(".tab").forEach((tab) => {
         tab.addEventListener("click", () => {
@@ -2223,15 +2453,21 @@
         const maal = document.getElementById("maal").value.trim();
         const intensity = document.getElementById("intensity").value;
         const horizon = getSelectedHorizon();
-        const zone = getSelectedZone();
+        const zones = getSelectedZones();
         const fat = getSelectedFat();
         const muscle = getSelectedMuscle();
         const { goal, pace } = renderPace();
         const { horizonDate, occasionLabel } = getCustomHorizonMeta();
+        const plan = updateBodyPlanPreview();
         localStorage.setItem("helseappApiBase", apiBase);
 
         if (!imageBase64) {
           statusEl.textContent = t("needImageGoal");
+          statusEl.className = "status error";
+          return;
+        }
+        if (!zones.length) {
+          statusEl.textContent = t("zoneNeedOne");
           statusEl.className = "status error";
           return;
         }
@@ -2242,6 +2478,11 @@
         }
         if (horizon === "custom" && !horizonDate) {
           statusEl.textContent = t("needCustomDate");
+          statusEl.className = "status error";
+          return;
+        }
+        if (plan?.bmi != null && plan.bmi < 18.5 && fat === "decrease") {
+          statusEl.textContent = t("healthWarnBlockGenerate");
           statusEl.className = "status error";
           return;
         }
@@ -2262,10 +2503,14 @@
               maal,
               intensity,
               horizon,
-              focus: zone,
-              zone,
+              focus: zones[0],
+              zone: zones.join(","),
+              zones,
               fat,
               muscle,
+              bfNow: Number(document.getElementById("bfNow").value),
+              bfGoal: Number(document.getElementById("bfGoal").value),
+              medicine: isMedicineOn(),
               paceLabel: pace?.label || "",
               goalTitle: goal?.title || "",
               horizonDate: horizon === "custom" ? horizonDate : "",
@@ -2633,6 +2878,9 @@
         document.getElementById("futureKcal").value = goal.kcalCurrent || goal.kcalTarget || 2200;
         document.getElementById("futureProtein").value =
           goal.proteinCurrent || goal.proteinTarget || 100;
+        if (isWeightMetric(goal.metricLabel) && prefs.units === "metric") {
+          document.getElementById("weightKg").value = goal.currentValue || goal.startValue || 80;
+        }
         suggestIntensity();
         updatePromptPreview();
         renderPace();

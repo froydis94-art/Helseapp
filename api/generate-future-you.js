@@ -23,8 +23,17 @@ async function handler(req, res) {
     const horizon = String(req.body?.horizon || "8w").trim();
     const focus = String(req.body?.focus || "overall").trim();
     const zone = String(req.body?.zone || "").trim();
+    const zones = Array.isArray(req.body?.zones)
+      ? req.body.zones.map(String)
+      : String(req.body?.zones || "")
+          .split(",")
+          .map((z) => z.trim())
+          .filter(Boolean);
     const fat = String(req.body?.fat || "decrease").trim();
     const muscle = String(req.body?.muscle || "toned").trim();
+    const bfNow = req.body?.bfNow;
+    const bfGoal = req.body?.bfGoal;
+    const medicine = Boolean(req.body?.medicine);
     const paceLabel = String(req.body?.paceLabel || "").trim();
     const goalTitle = String(req.body?.goalTitle || "").trim();
     const horizonDate = String(req.body?.horizonDate || "").trim();
@@ -53,8 +62,12 @@ async function handler(req, res) {
       horizon,
       focus,
       zone,
+      zones: zones.length ? zones : zone ? [zone] : [],
       fat,
       muscle,
+      bfNow,
+      bfGoal,
+      medicine,
       paceLabel,
       goalTitle,
       horizonDate,
