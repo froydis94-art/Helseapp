@@ -3,6 +3,7 @@ module.exports = function handler(_req, res) {
   res.status(200).json({
     ok: true,
     hasReplicateToken: Boolean(process.env.REPLICATE_API_TOKEN),
+    hasTerra: Boolean(process.env.TERRA_DEV_ID && process.env.TERRA_API_KEY),
     model: process.env.REPLICATE_MODEL || "black-forest-labs/flux-kontext-pro",
     fallbackModel:
       process.env.REPLICATE_FALLBACK_MODEL || "stability-ai/sdxl",

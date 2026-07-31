@@ -656,40 +656,49 @@
           ligger skjelettet klart her. Aktivitet og (der det støttes) kosthold synces inn i Tempo.
         </p>
 
-        <div class="device">
+        <div id="terraStatusBox" class="device">
           <div>
             <b>Terra</b>
-            <small data-i18n="deviceTerra">Aggregator for Garmin, Strava, Oura, Health Connect, Samsung Health m.fl.</small>
+            <small id="terraStatusText" data-i18n="deviceTerra">Aggregator for Garmin, Strava, Oura, Health Connect, Samsung Health m.fl.</small>
           </div>
-          <span class="pill soon" data-i18n="pillReady">Klar for nøkler</span>
+          <span class="pill soon" id="terraStatusPill" data-i18n="pillReady">Klar for nøkler</span>
         </div>
+
+        <button class="primary" id="connectTerra" type="button" data-i18n="btnConnectTerra" style="margin-top: 14px">
+          Koble enhet via Terra
+        </button>
+        <button class="secondary" id="syncTerra" type="button" data-i18n="btnSyncTerra" disabled>
+          Synk til Tempo
+        </button>
+        <p class="hint" id="terraConnectionMeta"></p>
+
         <div class="device">
           <div>
             <b>Garmin</b>
             <small data-i18n="deviceGarmin">Aktivitet, søvn, puls — via Terra</small>
           </div>
-          <span class="pill" data-i18n="pillWaiting">Venter</span>
+          <span class="pill" data-provider-pill="GARMIN" data-i18n="pillWaiting">Venter</span>
         </div>
         <div class="device">
           <div>
             <b>Strava</b>
             <small data-i18n="deviceStrava">Økter og trening — via Terra</small>
           </div>
-          <span class="pill" data-i18n="pillWaiting">Venter</span>
+          <span class="pill" data-provider-pill="STRAVA" data-i18n="pillWaiting">Venter</span>
         </div>
         <div class="device">
           <div>
             <b>Oura</b>
             <small data-i18n="deviceOura">Søvn og restitusjon — via Terra</small>
           </div>
-          <span class="pill" data-i18n="pillWaiting">Venter</span>
+          <span class="pill" data-provider-pill="OURA" data-i18n="pillWaiting">Venter</span>
         </div>
         <div class="device">
           <div>
             <b>Health Connect / Samsung Health</b>
             <small data-i18n="deviceHealth">Aktivitet + ofte kostholdsdata — via Terra</small>
           </div>
-          <span class="pill" data-i18n="pillWaiting">Venter</span>
+          <span class="pill" data-provider-pill="HEALTH_CONNECT" data-i18n="pillWaiting">Venter</span>
         </div>
         <div class="device">
           <div>
@@ -699,17 +708,8 @@
           <span class="pill" data-i18n="pillPartial">Delvis</span>
         </div>
 
-        <label style="margin-top: 18px">
-          <span data-i18n="labelTerraDev">Terra Dev ID (valgfritt — lim inn når du har den)</span>
-          <input id="terraDevId" type="text" data-i18n-placeholder="phTerraDev" autocomplete="off" />
-        </label>
-        <label>
-          <span data-i18n="labelTerraKey">Terra API Key (valgfritt)</span>
-          <input id="terraApiKey" type="password" data-i18n-placeholder="phTerraKey" autocomplete="off" />
-        </label>
-        <button class="secondary" id="saveTerraKeys" type="button" data-i18n="btnSaveTerra">Lagre Terra-nøkler lokalt</button>
-        <p class="hint" data-i18n="terraHint">
-          Når nøklene er på plass, bygger vi OAuth-kobling og webhook som oppdaterer Tempo automatisk.
+        <p class="hint" data-i18n="terraSetupHint" style="margin-top: 18px">
+          Servertrinn: legg TERRA_DEV_ID + TERRA_API_KEY i Vercel. I Terra Dashboard: aktiver kilder og sett webhook til /api/terra/webhook.
         </p>
       </section>
     </div>
@@ -738,7 +738,7 @@
       const DAY_MS = 24 * 60 * 60 * 1000;
       const GOAL_KEY = "helseapp.goal.v1";
       const HISTORY_KEY = "helseapp.history.v1";
-      const TERRA_KEY = "helseapp.terra.v1";
+      const TERRA_CONN_KEY = "helseapp.terra.connection.v1";
       const PREFS_KEY = "helseapp.prefs.v1";
       const KG_TO_LB = 2.2046226218;
 
@@ -792,9 +792,12 @@
           btnUsePaceAi: "Bruk tempo + kost som AI-mål",
           historyTitle: "Siste sjekk-inn",
           devicesTitle: "Enheter og apper",
-          devicesHint: "Vi kobler via <b>Terra</b> (én lisens) i stedet for hver SDK. Mens du setter opp Terra-konto, ligger skjelettet klart her. Aktivitet og (der det støttes) kosthold synces inn i Tempo.",
+          devicesHint: "Vi kobler via <b>Terra</b> (én lisens) i stedet for hver SDK. Koble en wearable, og synk aktivitet + kost inn i Tempo.",
           deviceTerra: "Aggregator for Garmin, Strava, Oura, Health Connect, Samsung Health m.fl.",
           pillReady: "Klar for nøkler",
+          pillConnected: "Koblet",
+          pillServerOk: "Server klar",
+          pillServerMissing: "Mangler nøkler",
           deviceGarmin: "Aktivitet, søvn, puls — via Terra",
           pillWaiting: "Venter",
           deviceStrava: "Økter og trening — via Terra",
@@ -803,12 +806,19 @@
           deviceNutritionTitle: "Kostholdsapper",
           deviceNutrition: "MyFitnessPal / Cronometer der Terra støtter det — ellers manuelt i Tempo",
           pillPartial: "Delvis",
-          labelTerraDev: "Terra Dev ID (valgfritt — lim inn når du har den)",
-          labelTerraKey: "Terra API Key (valgfritt)",
-          phTerraDev: "kommer fra Terra dashboard",
-          phTerraKey: "lagres kun lokalt i nettleseren",
-          btnSaveTerra: "Lagre Terra-nøkler lokalt",
-          terraHint: "Når nøklene er på plass, bygger vi OAuth-kobling og webhook som oppdaterer Tempo automatisk.",
+          btnConnectTerra: "Koble enhet via Terra",
+          btnSyncTerra: "Synk til Tempo",
+          terraSetupHint: "Servertrinn: legg TERRA_DEV_ID + TERRA_API_KEY i Vercel. I Terra Dashboard: aktiver kilder og sett webhook til /api/terra/webhook.",
+          terraNotConfigured: "Terra-nøkler mangler på serveren (Vercel env).",
+          terraReady: "Server klar — koble Garmin, Strava, Oura m.fl. via widget.",
+          terraConnectedMeta: (provider, userId) =>
+            `Koblet${provider ? `: ${provider}` : ""}${userId ? ` · ${userId.slice(0, 8)}…` : ""}`,
+          terraConnectFailed: "Kunne ikke starte Terra-kobling",
+          terraSyncOk: "Synket fra Terra til Tempo",
+          terraSyncEmpty: "Koblet, men fant ingen tall å synke ennå",
+          terraSyncNeedUser: "Koble en enhet først",
+          terraAuthSuccess: "Enhet koblet via Terra",
+          terraAuthFailure: "Terra-kobling ble avbrutt",
           onboardTitle: "Velkommen",
           onboardBody: "Velg språk og målesystem. Du kan endre dette når som helst øverst til høyre.",
           onboardLang: "Språk",
@@ -847,7 +857,6 @@
           historyEmpty: "<li><b>Ingen sjekk-inn ennå</b><span>Bruk +1 / Lagre sjekk-inn</span></li>",
           toastMeal: "Måltid lagt til (+400 kcal / +30 g protein)",
           toastNutritionReset: "Kosthold for i dag er nullstilt",
-          toastTerra: "Terra-nøkler lagret lokalt. OAuth kobles når kontoen er klar.",
           toastPlanSaved: (label) => `Plan lagret. ${label}`,
           toastPaceCopied: "Motivasjonstekst hentet fra Tempo",
           toastPaceUpdated: "Motivasjonstekst oppdatert",
@@ -913,9 +922,12 @@
           btnUsePaceAi: "Use pace + nutrition as AI goal",
           historyTitle: "Recent check-ins",
           devicesTitle: "Devices and apps",
-          devicesHint: "We connect through <b>Terra</b> (one license) instead of each SDK. While you set up a Terra account, the skeleton is ready here. Activity and (where supported) nutrition sync into Pace.",
+          devicesHint: "We connect through <b>Terra</b> (one license) instead of each SDK. Connect a wearable, then sync activity and nutrition into Pace.",
           deviceTerra: "Aggregator for Garmin, Strava, Oura, Health Connect, Samsung Health and more.",
           pillReady: "Ready for keys",
+          pillConnected: "Connected",
+          pillServerOk: "Server ready",
+          pillServerMissing: "Missing keys",
           deviceGarmin: "Activity, sleep, heart rate — via Terra",
           pillWaiting: "Waiting",
           deviceStrava: "Workouts and training — via Terra",
@@ -924,12 +936,19 @@
           deviceNutritionTitle: "Nutrition apps",
           deviceNutrition: "MyFitnessPal / Cronometer where Terra supports it — otherwise manual in Pace",
           pillPartial: "Partial",
-          labelTerraDev: "Terra Dev ID (optional — paste when you have it)",
-          labelTerraKey: "Terra API Key (optional)",
-          phTerraDev: "from the Terra dashboard",
-          phTerraKey: "stored locally in this browser only",
-          btnSaveTerra: "Save Terra keys locally",
-          terraHint: "Once keys are in place, we build OAuth and a webhook that updates Pace automatically.",
+          btnConnectTerra: "Connect device via Terra",
+          btnSyncTerra: "Sync to Pace",
+          terraSetupHint: "Server step: add TERRA_DEV_ID + TERRA_API_KEY in Vercel. In Terra Dashboard: enable sources and set webhook to /api/terra/webhook.",
+          terraNotConfigured: "Terra keys missing on the server (Vercel env).",
+          terraReady: "Server ready — connect Garmin, Strava, Oura etc. via the widget.",
+          terraConnectedMeta: (provider, userId) =>
+            `Connected${provider ? `: ${provider}` : ""}${userId ? ` · ${userId.slice(0, 8)}…` : ""}`,
+          terraConnectFailed: "Could not start Terra connection",
+          terraSyncOk: "Synced from Terra into Pace",
+          terraSyncEmpty: "Connected, but no values to sync yet",
+          terraSyncNeedUser: "Connect a device first",
+          terraAuthSuccess: "Device connected via Terra",
+          terraAuthFailure: "Terra connection was cancelled",
           onboardTitle: "Welcome",
           onboardBody: "Choose language and units. You can change this anytime at the top right.",
           onboardLang: "Language",
@@ -968,7 +987,6 @@
           historyEmpty: "<li><b>No check-ins yet</b><span>Use +1 / Save check-in</span></li>",
           toastMeal: "Meal added (+400 kcal / +30 g protein)",
           toastNutritionReset: "Nutrition for today reset",
-          toastTerra: "Terra keys saved locally. OAuth connects when the account is ready.",
           toastPlanSaved: (label) => `Plan saved. ${label}`,
           toastPaceCopied: "Motivation text pulled from Pace",
           toastPaceUpdated: "Motivation text updated",
@@ -1456,25 +1474,226 @@
         showToast(t("toastNutritionReset"));
       });
 
-      const terraStored = localStorage.getItem(TERRA_KEY);
+      const terraStored = localStorage.getItem(TERRA_CONN_KEY);
+      let terraConn = null;
       if (terraStored) {
         try {
-          const terra = JSON.parse(terraStored);
-          document.getElementById("terraDevId").value = terra.devId || "";
-          document.getElementById("terraApiKey").value = terra.apiKey || "";
-        } catch {}
+          terraConn = JSON.parse(terraStored);
+        } catch {
+          terraConn = null;
+        }
       }
 
-      document.getElementById("saveTerraKeys").addEventListener("click", () => {
-        localStorage.setItem(
-          TERRA_KEY,
-          JSON.stringify({
-            devId: document.getElementById("terraDevId").value.trim(),
-            apiKey: document.getElementById("terraApiKey").value.trim(),
-          })
-        );
-        showToast(t("toastTerra"));
+      function saveTerraConn(conn) {
+        terraConn = conn;
+        localStorage.setItem(TERRA_CONN_KEY, JSON.stringify(conn));
+        refreshTerraUi();
+      }
+
+      function getOrCreateReferenceId() {
+        if (terraConn?.referenceId) return terraConn.referenceId;
+        const id = `web_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+        saveTerraConn({ ...(terraConn || {}), referenceId: id });
+        return id;
+      }
+
+      function apiOrigin() {
+        return (document.getElementById("apiBase").value || window.location.origin).replace(/\/$/, "");
+      }
+
+      function refreshTerraUi() {
+        const pill = document.getElementById("terraStatusPill");
+        const text = document.getElementById("terraStatusText");
+        const meta = document.getElementById("terraConnectionMeta");
+        const syncBtn = document.getElementById("syncTerra");
+        const connected = Boolean(terraConn?.userId);
+
+        syncBtn.disabled = !connected;
+
+        if (connected) {
+          pill.textContent = t("pillConnected");
+          pill.className = "pill soon";
+          text.textContent = t("deviceTerra");
+          meta.textContent = t(
+            "terraConnectedMeta",
+            terraConn.provider || "",
+            terraConn.userId || ""
+          );
+        }
+
+        document.querySelectorAll("[data-provider-pill]").forEach((el) => {
+          const provider = (terraConn?.provider || "").toUpperCase();
+          const match =
+            connected &&
+            provider &&
+            (provider.includes(el.dataset.providerPill) ||
+              el.dataset.providerPill.includes(provider));
+          if (match) {
+            el.textContent = t("pillConnected");
+            el.className = "pill soon";
+          }
+        });
+      }
+
+      async function refreshTerraServerStatus() {
+        const pill = document.getElementById("terraStatusPill");
+        const text = document.getElementById("terraStatusText");
+        try {
+          const response = await fetch(`${apiOrigin()}/api/terra/status`);
+          const result = await response.json();
+          if (terraConn?.userId) {
+            refreshTerraUi();
+            return;
+          }
+          if (result.configured) {
+            pill.textContent = t("pillServerOk");
+            pill.className = "pill soon";
+            text.textContent = t("terraReady");
+          } else {
+            pill.textContent = t("pillServerMissing");
+            pill.className = "pill";
+            text.textContent = t("terraNotConfigured");
+          }
+        } catch {
+          if (!terraConn?.userId) {
+            pill.textContent = t("pillServerMissing");
+            text.textContent = t("terraNotConfigured");
+          }
+        }
+        refreshTerraUi();
+      }
+
+      function applyTerraMetricsToPace(metrics) {
+        let applied = false;
+        const metricLabel = (document.getElementById("metricLabel").value || "").toLowerCase();
+
+        if (metrics.stepsToday != null && /skritt|steps/.test(metricLabel)) {
+          document.getElementById("currentValue").value = metrics.stepsToday;
+          applied = true;
+        } else if (
+          metrics.activitiesLast7Days != null &&
+          /(økt|session|workout|trenings)/.test(metricLabel)
+        ) {
+          document.getElementById("currentValue").value = metrics.activitiesLast7Days;
+          applied = true;
+        } else if (metrics.weightKg != null && /vekt|weight|kg|lb/.test(metricLabel)) {
+          const display =
+            prefs.units === "us"
+              ? Math.round(metrics.weightKg * KG_TO_LB * 10) / 10
+              : metrics.weightKg;
+          document.getElementById("currentValue").value = display;
+          document.getElementById("metricLabel").value =
+            prefs.units === "us" ? t("metricWeightLb") : t("metricWeightKg");
+          applied = true;
+        } else if (metrics.stepsToday != null) {
+          document.getElementById("metricLabel").value = t("metricSteps");
+          document.getElementById("currentValue").value = metrics.stepsToday;
+          applied = true;
+        } else if (metrics.activitiesLast7Days != null) {
+          document.getElementById("metricLabel").value = t("metricSessions");
+          document.getElementById("currentValue").value = metrics.activitiesLast7Days;
+          applied = true;
+        }
+
+        if (metrics.kcalToday != null) {
+          document.getElementById("kcalCurrent").value = metrics.kcalToday;
+          applied = true;
+        }
+        if (metrics.proteinToday != null) {
+          document.getElementById("proteinCurrent").value = metrics.proteinToday;
+          applied = true;
+        }
+
+        if (metrics.provider) {
+          saveTerraConn({ ...terraConn, provider: metrics.provider, userId: terraConn.userId });
+        }
+
+        renderPace();
+        return applied;
+      }
+
+      function consumeTerraRedirect() {
+        const params = new URLSearchParams(window.location.search);
+        const terra = params.get("terra");
+        const userId = params.get("user_id");
+        const referenceId = params.get("reference_id");
+        const provider = params.get("resource") || params.get("provider");
+
+        if (terra === "failure") {
+          showToast(t("terraAuthFailure"));
+          history.replaceState({}, "", window.location.pathname);
+          return;
+        }
+
+        if (userId || terra === "success") {
+          if (userId) {
+            saveTerraConn({
+              userId,
+              referenceId: referenceId || getOrCreateReferenceId(),
+              provider: provider || terraConn?.provider || null,
+              connectedAt: new Date().toISOString(),
+            });
+            showToast(t("terraAuthSuccess"));
+            document.querySelector('.tab[data-tab="devices"]').click();
+          }
+          history.replaceState({}, "", window.location.pathname);
+        }
+      }
+
+      document.getElementById("connectTerra").addEventListener("click", async () => {
+        const btn = document.getElementById("connectTerra");
+        btn.disabled = true;
+        try {
+          const referenceId = getOrCreateReferenceId();
+          const response = await fetch(`${apiOrigin()}/api/terra/widget-session`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              referenceId,
+              language: prefs.lang === "no" ? "en" : prefs.lang,
+              origin: window.location.origin,
+            }),
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || t("terraConnectFailed"));
+          if (result.referenceId) {
+            saveTerraConn({ ...(terraConn || {}), referenceId: result.referenceId });
+          }
+          window.location.href = result.url;
+        } catch (error) {
+          showToast(error.message || t("terraConnectFailed"));
+          btn.disabled = false;
+        }
       });
+
+      document.getElementById("syncTerra").addEventListener("click", async () => {
+        if (!terraConn?.userId) {
+          showToast(t("terraSyncNeedUser"));
+          return;
+        }
+        const btn = document.getElementById("syncTerra");
+        btn.disabled = true;
+        try {
+          const response = await fetch(`${apiOrigin()}/api/terra/sync`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userId: terraConn.userId }),
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || "Sync failed");
+          const applied = applyTerraMetricsToPace(result.metrics || {});
+          localStorage.setItem(GOAL_KEY, JSON.stringify(readGoalFromForm()));
+          showToast(applied ? t("terraSyncOk") : t("terraSyncEmpty"));
+          document.querySelector('.tab[data-tab="pace"]').click();
+        } catch (error) {
+          showToast(error.message || t("terraConnectFailed"));
+        } finally {
+          btn.disabled = !terraConn?.userId;
+        }
+      });
+
+      consumeTerraRedirect();
+      refreshTerraServerStatus();
 
       document.getElementById("logCurrent").addEventListener("click", () => {
         const { goal, pace } = renderPace();

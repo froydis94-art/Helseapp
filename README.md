@@ -1,29 +1,53 @@
-# Helseapp (Vercel-first)
+# Helseapp
 
-Vi kjører **uten lokal Node**: webapp + API på Vercel, bildegenerering via Replicate.
+Web-app (Vercel) som viser et motivasjonsbilde av deg basert på planen, og sier fra om du er dager foran eller bak målet. Helseenheter kobles via **Terra**.
 
-## Det som virker nå
+Live: https://helseapp-2.vercel.app  
+Repo: https://github.com/froydis94-art/Helseapp
 
-- **Fremtid** — last opp bilde → AI-visualisering (`/api/generate-future-you`)
-- **Tempo** — dager foran/bak planen (lagres i nettleseren)
-- Live: https://helseapp-2.vercel.app
+## Faner
 
-## Oppdater etter kodeendring
+- **Fremtid** — bilde + mål → AI-visualisering (Replicate Flux + SDXL-fallback)
+- **Tempo** — aktivitet + kosthold, dager foran/bak planen
+- **Enheter** — Terra-widget for Garmin, Strava, Oura, Health Connect, m.fl.
 
-1. Gå til https://vercel.com/new  
-2. Dra inn den oppdaterte `helseapp`-mappen  
-3. Velg prosjekt **helseapp-2** hvis mulig, ellers nytt + lim inn env vars på nytt  
-4. Environment Variables:
-   - `REPLICATE_API_TOKEN`
-   - `REPLICATE_MODEL` = `black-forest-labs/flux-kontext-pro`  
-5. Redeploy hvis du bare endret env vars
+## Språk og enheter
 
-## Neste i planen
+NO / EN og Metric / US øverst til høyre (første besøk får onboarding).
 
-- Kosthold manuelt i Tempo (kcal/protein) — klart
-- Enheter-skjelett for Terra — klart
-- Terra OAuth + webhook → auto-tempo (aktivitet + kost der støttet)
+## Vercel env
 
-## Tips (E005)
+| Variabel | Bruk |
+|---|---|
+| `REPLICATE_API_TOKEN` | AI-bilder |
+| `REPLICATE_MODEL` | valgfri, default `black-forest-labs/flux-kontext-pro` |
+| `REPLICATE_FALLBACK_MODEL` | valgfri, default `stability-ai/sdxl` |
+| `TERRA_DEV_ID` | Terra dashboard Dev ID |
+| `TERRA_API_KEY` | Terra API key |
+| `TERRA_WEBHOOK_SECRET` | valgfri, for webhook-signatur |
+| `APP_BASE_URL` | valgfri, default live-URL |
 
-Bruk bilde i treningstøy og mildere måltekst hvis Replicate sitt sikkerhetsfilter stopper generering.
+## Terra-oppsett
+
+1. Opprett konto på [dashboard.tryterra.co](https://dashboard.tryterra.co)
+2. Aktiver datakilder (Garmin, Strava, Oura, …)
+3. Sett **webhook destination** til:  
+   `https://helseapp-2.vercel.app/api/terra/webhook`
+4. Legg `TERRA_DEV_ID` + `TERRA_API_KEY` (+ gjerne `TERRA_WEBHOOK_SECRET`) i Vercel → Settings → Environment Variables
+5. Redeploy
+6. I appen: **Enheter → Koble enhet via Terra** → etter OAuth: **Synk til Tempo**
+
+API-er:
+
+- `POST /api/terra/widget-session` — starter Terra-widget
+- `POST /api/terra/sync` — henter daily/activity/body/nutrition
+- `POST /api/terra/webhook` — mottar Terra-events
+- `GET /api/terra/status` — om servernøkler er satt
+
+## Lokal Expo (valgfritt)
+
+Expo-klienten kan snakke med samme Vercel-API når Node er godkjent på PC-en. Se `src/api/terra.js`.
+
+## Merknad
+
+Visualiseringene er motivasjon, ikke medisinsk prediksjon.
