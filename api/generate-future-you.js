@@ -20,6 +20,10 @@ async function handler(req, res) {
   try {
     const maal = String(req.body?.maal || "").trim();
     const intensity = String(req.body?.intensity || "moderate").trim();
+    const horizon = String(req.body?.horizon || "8w").trim();
+    const focus = String(req.body?.focus || "overall").trim();
+    const paceLabel = String(req.body?.paceLabel || "").trim();
+    const goalTitle = String(req.body?.goalTitle || "").trim();
 
     if (!maal) {
       return res.status(400).json({ error: "Mangler mål (maal)." });
@@ -45,6 +49,10 @@ async function handler(req, res) {
       mimeType,
       maal,
       intensity,
+      horizon,
+      focus,
+      paceLabel,
+      goalTitle,
     });
 
     return res.status(200).json({
