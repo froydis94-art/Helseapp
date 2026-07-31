@@ -24,6 +24,8 @@ async function handler(req, res) {
     const focus = String(req.body?.focus || "overall").trim();
     const paceLabel = String(req.body?.paceLabel || "").trim();
     const goalTitle = String(req.body?.goalTitle || "").trim();
+    const horizonDate = String(req.body?.horizonDate || "").trim();
+    const occasionLabel = String(req.body?.occasionLabel || "").trim();
 
     if (!maal) {
       return res.status(400).json({ error: "Mangler mål (maal)." });
@@ -53,6 +55,8 @@ async function handler(req, res) {
       focus,
       paceLabel,
       goalTitle,
+      horizonDate,
+      occasionLabel,
     });
 
     return res.status(200).json({

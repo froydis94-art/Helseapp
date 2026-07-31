@@ -311,6 +311,24 @@
         min-height: 200px;
         object-fit: cover;
         border: 1px solid var(--line);
+        display: block;
+        filter: none;
+        opacity: 1;
+      }
+      img[src=""], img:not([src]) {
+        opacity: 0.35;
+      }
+      .custom-horizon {
+        display: none;
+        margin-top: 10px;
+        padding: 12px;
+        border-radius: 12px;
+        border: 1px solid var(--line);
+        background: rgba(0, 0, 0, 0.16);
+        gap: 10px;
+      }
+      .custom-horizon.open {
+        display: grid;
       }
       .status { margin-top: 12px; color: var(--muted); font-size: 0.9rem; line-height: 1.45; }
       .error { color: var(--warn); }
@@ -579,6 +597,17 @@
             <button type="button" class="choice active" data-horizon="12w" data-i18n="horizon12w">Om 3 måneder</button>
             <button type="button" class="choice" data-horizon="24w" data-i18n="horizon24w">Om 6 måneder</button>
             <button type="button" class="choice" data-horizon="18m" data-i18n="horizon18m">Om 1,5 år</button>
+            <button type="button" class="choice" data-horizon="custom" data-i18n="horizonCustom">Egen dato</button>
+          </div>
+          <div class="custom-horizon" id="customHorizonFields">
+            <label>
+              <span data-i18n="labelHorizonDate">Måldato</span>
+              <input id="horizonDate" type="date" />
+            </label>
+            <label>
+              <span data-i18n="labelOccasion">Anledning (valgfritt)</span>
+              <input id="occasionLabel" type="text" data-i18n-placeholder="occasionPlaceholder" placeholder="Bryllup, ferie, konkurranse…" />
+            </label>
           </div>
         </div>
 
@@ -861,6 +890,11 @@
           horizon12w: "Om 3 måneder",
           horizon24w: "Om 6 måneder",
           horizon18m: "Om 1,5 år",
+          horizonCustom: "Egen dato",
+          labelHorizonDate: "Måldato",
+          labelOccasion: "Anledning (valgfritt)",
+          occasionPlaceholder: "Bryllup, ferie, konkurranse…",
+          needCustomDate: "Velg en måldato for egen tidshorisont.",
           labelFocus: "Fokusområde",
           focusOverall: "Helhet",
           focusCardio: "Kondisjon",
@@ -878,6 +912,7 @@
           hintHorizon12w: "Forslag: Sterk intensitet — merkbart fittere kropp.",
           hintHorizon24w: "Forslag: Sterk intensitet — stor, synlig transformasjon.",
           hintHorizon18m: "Forslag: Sterk intensitet — langsiktig toppform.",
+          hintHorizonCustom: "Forslag: Sterk intensitet — tilpasset din anledning.",
           labelSourceImage: "Utgangsbilde",
           btnGenerate: "Generer visualisering",
           btnSyncPace: "Hent motivasjonstekst fra Tempo",
@@ -949,8 +984,8 @@
           onboardLang: "Språk",
           onboardUnits: "Målesystem",
           onboardContinue: "Fortsett",
+          maalDefault: "merkebar atletisk fremgang — mer muskuløs, strammere midje, tydeligere form",
           goalTitleDefault: "Atletisk form",
-          maalDefault: "bedre kondisjon og atletisk form i treningstøy, naturlig belysning",
           presetSessions: "Økter/uke",
           presetSteps: "Skritt",
           presetWeight: "Vekt",
@@ -990,12 +1025,12 @@
           doneFallback: "Ferdig (brukte reservedriftsmodell pga. sikkerhetsfilter).",
           done: "Ferdig.",
           focusBehind: "sterkere motivasjon for å ta igjen planen",
-          focusAhead: "rolig videreutvikling",
-          focusOnTrack: "jevn atletisk fremgang",
+          focusAhead: "tydelig videre atletisk utvikling",
+          focusOnTrack: "tydelig atletisk fremgang",
           motivation: (goal, pace, focus) =>
-            `${goal.title}: ${pace.label}. Vis ${focus} mot ${goal.targetValue} ${goal.metricLabel}. ` +
+            `${goal.title}: ${pace.label}. Vis tydelig ${focus} mot ${goal.targetValue} ${goal.metricLabel}. ` +
             `Kost i dag: ${goal.kcalCurrent}/${goal.kcalTarget} kcal, ${goal.proteinCurrent}/${goal.proteinTarget} g protein. ` +
-            `Samme person i treningstøy, naturlig belysning, realistisk kondisjon.`,
+            `Samme person, mer muskuløs og strammere kropp, naturlig belysning.`,
           localeDate: "nb-NO",
         },
         en: {
@@ -1016,6 +1051,11 @@
           horizon12w: "In 3 months",
           horizon24w: "In 6 months",
           horizon18m: "In 1.5 years",
+          horizonCustom: "Custom date",
+          labelHorizonDate: "Target date",
+          labelOccasion: "Occasion (optional)",
+          occasionPlaceholder: "Wedding, holiday, competition…",
+          needCustomDate: "Pick a target date for your custom horizon.",
           labelFocus: "Focus area",
           focusOverall: "Overall",
           focusCardio: "Cardio",
@@ -1033,6 +1073,7 @@
           hintHorizon12w: "Suggestion: Strong intensity — noticeably fitter body.",
           hintHorizon24w: "Suggestion: Strong intensity — major visible transformation.",
           hintHorizon18m: "Suggestion: Strong intensity — peak long-term physique.",
+          hintHorizonCustom: "Suggestion: Strong intensity — tailored to your occasion.",
           labelSourceImage: "Source photo",
           btnGenerate: "Generate visualization",
           btnSyncPace: "Pull motivation text from Pace",
@@ -1105,7 +1146,7 @@
           onboardUnits: "Units",
           onboardContinue: "Continue",
           goalTitleDefault: "Athletic shape",
-          maalDefault: "better cardio and athletic form in workout clothes, natural lighting",
+          maalDefault: "noticeable athletic progress — more muscle, tighter waist, clearer shape",
           presetSessions: "Sessions/week",
           presetSteps: "Steps",
           presetWeight: "Weight",
@@ -1145,12 +1186,12 @@
           doneFallback: "Done (used fallback model due to safety filter).",
           done: "Done.",
           focusBehind: "stronger motivation to catch up to the plan",
-          focusAhead: "calm continued progress",
-          focusOnTrack: "steady athletic progress",
+          focusAhead: "clear continued athletic development",
+          focusOnTrack: "clear athletic progress",
           motivation: (goal, pace, focus) =>
-            `${goal.title}: ${pace.label}. Show ${focus} toward ${goal.targetValue} ${goal.metricLabel}. ` +
+            `${goal.title}: ${pace.label}. Show clear ${focus} toward ${goal.targetValue} ${goal.metricLabel}. ` +
             `Nutrition today: ${goal.kcalCurrent}/${goal.kcalTarget} kcal, ${goal.proteinCurrent}/${goal.proteinTarget} g protein. ` +
-            `Same person in workout clothes, natural lighting, realistic fitness.`,
+            `Same person, more muscular and leaner body, natural lighting.`,
           localeDate: "en-US",
         },
       };
@@ -1235,13 +1276,21 @@
         });
 
         const maal = document.getElementById("maal");
-        if (!maal.dataset.touched) maal.value = t("maalDefault");
+        const staleMaalDefaults = [
+          "bedre kondisjon og atletisk form i treningstøy, naturlig belysning",
+          "better conditioning and athletic form in workout clothes, natural lighting",
+          "better cardio and athletic form in workout clothes, natural lighting",
+        ];
+        if (!maal.dataset.touched || staleMaalDefaults.includes(maal.value.trim())) {
+          maal.value = t("maalDefault");
+        }
         const goalTitle = document.getElementById("goalTitle");
         if (!goalTitle.dataset.touched && !localStorage.getItem(GOAL_KEY)) {
           goalTitle.value = t("goalTitleDefault");
           document.getElementById("metricLabel").value = t("metricSessions");
         }
         updatePromptPreview();
+        syncCustomHorizonUi();
       }
 
       function daysFromNow(days) {
@@ -1365,7 +1414,40 @@
         );
       }
 
+      function getCustomHorizonMeta() {
+        const horizonDate = document.getElementById("horizonDate")?.value || "";
+        const occasionLabel = document.getElementById("occasionLabel")?.value.trim() || "";
+        let days = null;
+        if (horizonDate) {
+          const target = new Date(`${horizonDate}T12:00:00`);
+          days = Number.isNaN(target.getTime())
+            ? null
+            : Math.max(1, Math.round((target - new Date()) / DAY_MS));
+        }
+        return { horizonDate, occasionLabel, days };
+      }
+
+      function syncCustomHorizonUi() {
+        const fields = document.getElementById("customHorizonFields");
+        const isCustom = getSelectedHorizon() === "custom";
+        fields.classList.toggle("open", isCustom);
+        const dateEl = document.getElementById("horizonDate");
+        if (dateEl && !dateEl.min) {
+          dateEl.min = new Date().toISOString().slice(0, 10);
+        }
+        if (isCustom && dateEl && !dateEl.value) {
+          dateEl.value = daysFromNow(180);
+        }
+      }
+
       function horizonLabel(horizon) {
+        if (horizon === "custom") {
+          const { horizonDate, occasionLabel, days } = getCustomHorizonMeta();
+          const base = occasionLabel
+            ? `${occasionLabel}${horizonDate ? ` · ${horizonDate}` : ""}`
+            : horizonDate || t("horizonCustom");
+          return days != null ? `${base} (${days}d)` : base;
+        }
         const map = {
           "4w": t("horizon4w"),
           "8w": t("horizon8w"),
@@ -1571,6 +1653,7 @@
             "12w": t("hintHorizon12w"),
             "24w": t("hintHorizon24w"),
             "18m": t("hintHorizon18m"),
+            custom: t("hintHorizonCustom"),
           };
           hint.textContent = horizonHints[horizon] || t("hintOnTrack");
         }
@@ -1643,11 +1726,18 @@
             .querySelectorAll("#horizonChoices .choice")
             .forEach((b) => b.classList.remove("active"));
           btn.classList.add("active");
+          syncCustomHorizonUi();
           suggestIntensity({ forceHorizon: true });
           renderPace();
           updatePromptPreview();
         });
       });
+
+      document.getElementById("horizonDate").addEventListener("change", () => {
+        suggestIntensity({ forceHorizon: true });
+        updatePromptPreview();
+      });
+      document.getElementById("occasionLabel").addEventListener("input", updatePromptPreview);
 
       document.querySelectorAll("#focusChoices .choice").forEach((btn) => {
         btn.addEventListener("click", () => {
@@ -1721,10 +1811,16 @@
         const horizon = getSelectedHorizon();
         const focus = getSelectedFocus();
         const { goal, pace } = renderPace();
+        const { horizonDate, occasionLabel } = getCustomHorizonMeta();
         localStorage.setItem("helseappApiBase", apiBase);
 
         if (!imageBase64 || !maal) {
           statusEl.textContent = t("needImageGoal");
+          statusEl.className = "status error";
+          return;
+        }
+        if (horizon === "custom" && !horizonDate) {
+          statusEl.textContent = t("needCustomDate");
           statusEl.className = "status error";
           return;
         }
@@ -1747,6 +1843,8 @@
               focus,
               paceLabel: pace?.label || "",
               goalTitle: goal?.title || "",
+              horizonDate: horizon === "custom" ? horizonDate : "",
+              occasionLabel,
             }),
           });
           const result = await response.json();
