@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="no">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Helseapp</title>
+    <style>
+      :root {
+        --bg: #10140f;
+        --panel: #1a2119;
+        --text: #eef5e8;
+        --muted: #9aab92;
+        --accent: #c6f26d;
+        --warn: #e3a15c;
+        --line: #2a3528;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: Georgia, "Times New Roman", serif;
+        background:
+          radial-gradient(circle at top left, #243022, transparent 42%),
+          linear-gradient(160deg, #10140f, #161c15 52%, #0c100c);
+        color: var(--text);
+        min-height: 100vh;
+      }
+      .wrap { max-width: 760px; margin: 0 auto; padding: 28px 20px 72px; }
+      .brand { font-size: 2rem; letter-spacing: 0.1em; margin: 0; }
+      .tagline { color: var(--muted); margin: 6px 0 18px; }
+      .tabs { display: flex; gap: 8px; margin-bottom: 18px; }
+      .tab {
+        flex: 1;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        color: var(--muted);
+        padding: 12px;
+        border-radius: 12px;
+        cursor: pointer;
+        font-weight: 700;
+      }
+      .tab.active { background: var(--accent); color: #10140f; border-color: var(--accent); }
+      .panel { display: none; }
+      .panel.active { display: block; }
+      label { display: block; margin-top: 14px; font-size: 0.9rem; color: var(--muted); }
+      input, select {
+        width: 100%;
+        margin-top: 6px;
+        padding: 12px 14px;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        color: var(--text);
+      }
+      .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      button.primary {
+        margin-top: 18px;
+        width: 100%;
+        padding: 14px;
+        border: 0;
+        border-radius: 12px;
+        background: var(--accent);
+        color: #10140f;
+        font-weight: 800;
+        font-size: 1rem;
+        cursor: pointer;
+      }
+      button.primary:disabled { opacity: 0.6; cursor: wait; }
+      button.secondary {
+        margin-top: 10px;
+        width: 100%;
+        padding: 12px;
+        border-radius: 12px;
+        border: 1px solid var(--line);
+        background: #243022;
+        color: var(--text);
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 22px; }
+      img {
+        width: 100%;
+        border-radius: 12px;
+        background: var(--panel);
+        min-height: 180px;
+        object-fit: cover;
+      }
+      .status { margin-top: 12px; color: var(--muted); font-size: 0.92rem; line-height: 1.45; }
+      .error { color: var(--warn); }
+      .pace-card {
+        margin-top: 16px;
+        padding: 16px;
+        border-radius: 14px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+      }
+      .pace-card.ahead { border-color: var(--accent); background: #1d2a16; }
+      .pace-card.behind { border-color: var(--warn); background: #2a2116; }
+      .pace-card h2 { margin: 0 0 8px; font-size: 1.25rem; }
+      .hint { color: var(--muted); font-size: 0.85rem; margin-top: 10px; line-height: 1.45; }
+      @media (max-width: 640px) {
+        .row, .grid2 { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1 class="brand">HELSEAPP</h1>
+      <p class="tagline">Se resultatet. Hold tempoet. Kjører i skyen (Vercel + Replicate).</p>
+
+      <div class="tabs">
+        <button class="tab active" data-tab="future" type="button">Fremtid</button>
+        <button class="tab" data-tab="pace" type="button">Tempo</button>
+      </div>
+
+      <section id="panel-future" class="panel active">
+        <p class="hint">
+          Tips ved filterfeil (E005): bilde i t-skjorte/shorts og mildere måltekst.
+        </p>
+
+        <label>
+          API-base
+          <input id="apiBase" type="text" />
+        </label>
+
+        <label>
+          Mål / fokus (til AI-bildet)
+          <input id="maal" type="text" value="bedre kondisjon og atletisk form i treningstøy" />
+        </label>
+
+        <label>
+          Intensitet
+          <select id="intensity">
+            <option value="subtle">Mild</option>
+            <option value="moderate" selected>Moderat</option>
+            <option value="strong">Sterk</option>
+          </select>
+        </label>
+
+        <label>
+          Utgangsbilde
+          <input id="file" type="file" accept="image/*" />
+        </label>
+
+        <button class="primary" id="run" type="button">Generer visualisering</button>
+        <p id="status" class="status"></p>
+
+        <div class="row">
+          <div>
+            <p>Nå</p>
+            <img id="before" alt="Før" />
+          </div>
+          <div>
+            <p>Målbilde</p>
+            <img id="after" alt="Etter" />
+          </div>
+        </div>
+      </section>
+
+      <section id="panel-pace" class="panel">
+        <p class="hint">
+          Appen sier fra om du er dager foran eller bak planen — lagres i nettleseren din.
+        </p>
+
+        <div id="paceCard" class="pace-card">
+          <h2 id="paceLabel">Sett inn mål under</h2>
+          <p id="paceMeta" class="hint"></p>
+        </div>
+
+        <label>
+          Måltittel
+          <input id="goalTitle" type="text" value="Atletisk form" />
+        </label>
+
+        <label>
+          Metrikk
+          <input id="metricLabel" type="text" value="Treningsøkter / uke" />
+        </label>
+
+        <div class="grid2">
+          <label>
+            Startverdi
+            <input id="startValue" type="number" step="any" value="2" />
+          </label>
+          <label>
+            Målverdi
+            <input id="targetValue" type="number" step="any" value="5" />
+          </label>
+        </div>
+
+        <label>
+          Nåværende verdi
+          <input id="currentValue" type="number" step="any" value="2" />
+        </label>
+
+        <div class="grid2">
+          <label>
+            Startdato
+            <input id="startDate" type="date" />
+          </label>
+          <label>
+            Frist
+            <input id="endDate" type="date" />
+          </label>
+        </div>
+
+        <button class="primary" id="saveGoal" type="button">Lagre og oppdater tempo</button>
+        <button class="secondary" id="usePaceInFuture" type="button">
+          Bruk tempotekst som AI-mål
+        </button>
+      </section>
+    </div>
+
+    <script>
+      const DAY_MS = 24 * 60 * 60 * 1000;
+      const GOAL_KEY = "helseapp.goal.v1";
+
+      function daysFromNow(days) {
+        const d = new Date();
+        d.setDate(d.getDate() + days);
+        return d.toISOString().slice(0, 10);
+      }
+
+      function computePace({
+        startDate,
+        endDate,
+        startValue,
+        targetValue,
+        currentValue,
+        asOf = new Date(),
+      }) {
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        const now = asOf instanceof Date ? asOf : new Date(asOf);
+
+        if (Number.isNaN(start) || Number.isNaN(end) || now < start) {
+          return {
+            status: "not_started",
+            label: "Planen har ikke startet ennå",
+            daysDelta: 0,
+            expectedValue: startValue,
+            progressPct: 0,
+            remainingDays: 0,
+          };
+        }
+
+        const totalDays = Math.max((end - start) / DAY_MS, 1);
+        const elapsedDays = Math.min(Math.max((now - start) / DAY_MS, 0), totalDays);
+        const remainingDays = Math.max(totalDays - elapsedDays, 0);
+        const totalChange = targetValue - startValue;
+        const expectedValue = startValue + totalChange * (elapsedDays / totalDays);
+        const actualChange = currentValue - startValue;
+        const expectedChange = expectedValue - startValue;
+        const dailyRate = totalChange / totalDays;
+        let daysDelta = Math.abs(dailyRate) > 1e-9 ? (actualChange - expectedChange) / dailyRate : 0;
+        const lowerIsBetter = targetValue < startValue;
+        if (lowerIsBetter) daysDelta = -daysDelta;
+
+        const progressPct = Math.max(
+          0,
+          Math.min(100, (actualChange / (totalChange || 1)) * 100)
+        );
+
+        let status = "on_track";
+        let label = "Du er omtrent i rute";
+        if (daysDelta >= 2) {
+          status = "ahead";
+          label = `Du er ca. ${Math.round(daysDelta)} dager foran planen`;
+        } else if (daysDelta <= -2) {
+          status = "behind";
+          label = `Du er ca. ${Math.abs(Math.round(daysDelta))} dager bak planen`;
+        } else if (now > end) {
+          const done =
+            (lowerIsBetter && currentValue <= targetValue) ||
+            (!lowerIsBetter && currentValue >= targetValue);
+          status = done ? "completed" : "missed";
+          label = done ? "Målet er nådd" : "Fristen er passert uten at målet er nådd";
+        }
+
+        return {
+          status,
+          label,
+          daysDelta: Math.round(daysDelta * 10) / 10,
+          expectedValue: Math.round(expectedValue * 10) / 10,
+          currentValue,
+          targetValue,
+          progressPct: Math.round(progressPct),
+          remainingDays: Math.ceil(remainingDays),
+        };
+      }
+
+      function readGoalFromForm() {
+        return {
+          title: document.getElementById("goalTitle").value.trim(),
+          metricLabel: document.getElementById("metricLabel").value.trim(),
+          startValue: Number(document.getElementById("startValue").value),
+          targetValue: Number(document.getElementById("targetValue").value),
+          currentValue: Number(document.getElementById("currentValue").value),
+          startDate: document.getElementById("startDate").value,
+          endDate: document.getElementById("endDate").value,
+        };
+      }
+
+      function writeGoalToForm(goal) {
+        document.getElementById("goalTitle").value = goal.title || "";
+        document.getElementById("metricLabel").value = goal.metricLabel || "";
+        document.getElementById("startValue").value = goal.startValue;
+        document.getElementById("targetValue").value = goal.targetValue;
+        document.getElementById("currentValue").value = goal.currentValue;
+        document.getElementById("startDate").value = goal.startDate;
+        document.getElementById("endDate").value = goal.endDate;
+      }
+
+      function renderPace() {
+        const goal = readGoalFromForm();
+        const pace = computePace(goal);
+        const card = document.getElementById("paceCard");
+        card.className = "pace-card " + (pace.status === "ahead" || pace.status === "behind" ? pace.status : "");
+        document.getElementById("paceLabel").textContent = pace.label;
+        document.getElementById("paceMeta").textContent =
+          `${goal.metricLabel || "Metrikk"}: forventet ${pace.expectedValue} · faktisk ${goal.currentValue} · mål ${goal.targetValue}. ` +
+          `Fremgang ${pace.progressPct}% · ${pace.remainingDays} dager igjen.`;
+        return { goal, pace };
+      }
+
+      // Tabs
+      document.querySelectorAll(".tab").forEach((tab) => {
+        tab.addEventListener("click", () => {
+          document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
+          document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
+          tab.classList.add("active");
+          document.getElementById("panel-" + tab.dataset.tab).classList.add("active");
+          if (tab.dataset.tab === "pace") renderPace();
+        });
+      });
+
+      // Defaults
+      const apiBaseInput = document.getElementById("apiBase");
+      apiBaseInput.value = window.location.origin.includes("vercel.app")
+        ? window.location.origin
+        : localStorage.getItem("helseappApiBase") || "https://helseapp-2.vercel.app";
+
+      const storedGoal = localStorage.getItem(GOAL_KEY);
+      if (storedGoal) {
+        writeGoalToForm(JSON.parse(storedGoal));
+      } else {
+        document.getElementById("startDate").value = new Date().toISOString().slice(0, 10);
+        document.getElementById("endDate").value = daysFromNow(84);
+      }
+      renderPace();
+
+      ["startValue", "targetValue", "currentValue", "startDate", "endDate"].forEach((id) => {
+        document.getElementById(id).addEventListener("input", renderPace);
+      });
+
+      document.getElementById("saveGoal").addEventListener("click", () => {
+        const { goal, pace } = renderPace();
+        localStorage.setItem(GOAL_KEY, JSON.stringify(goal));
+        alert(pace.label + "\nMålet er lagret i nettleseren.");
+      });
+
+      document.getElementById("usePaceInFuture").addEventListener("click", () => {
+        const { goal, pace } = renderPace();
+        const text =
+          `${goal.title}: ${pace.label}. Hold fokus på ${goal.metricLabel} mot ${goal.targetValue}, ` +
+          `med atletisk form i treningstøy.`;
+        document.getElementById("maal").value = text;
+        document.querySelector('.tab[data-tab="future"]').click();
+      });
+
+      // Future / AI
+      const fileInput = document.getElementById("file");
+      const before = document.getElementById("before");
+      const after = document.getElementById("after");
+      const statusEl = document.getElementById("status");
+      let imageBase64 = "";
+      let mimeType = "image/jpeg";
+
+      fileInput.addEventListener("change", async () => {
+        const file = fileInput.files?.[0];
+        if (!file) return;
+        mimeType = file.type || "image/jpeg";
+        const dataUrl = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        before.src = dataUrl;
+        imageBase64 = String(dataUrl).split(",")[1] || "";
+        after.removeAttribute("src");
+      });
+
+      document.getElementById("run").addEventListener("click", async () => {
+        const apiBase = apiBaseInput.value.replace(/\/$/, "");
+        const maal = document.getElementById("maal").value.trim();
+        const intensity = document.getElementById("intensity").value;
+        localStorage.setItem("helseappApiBase", apiBase);
+
+        if (!apiBase) {
+          statusEl.textContent = "Lim inn Vercel-URL først.";
+          statusEl.className = "status error";
+          return;
+        }
+        if (!imageBase64 || !maal) {
+          statusEl.textContent = "Velg bilde og skriv inn mål.";
+          statusEl.className = "status error";
+          return;
+        }
+
+        const btn = document.getElementById("run");
+        btn.disabled = true;
+        statusEl.className = "status";
+        statusEl.textContent = "Genererer via Replicate… dette kan ta 20–60 sek.";
+
+        try {
+          const response = await fetch(`${apiBase}/api/generate-future-you`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ imageBase64, mimeType, maal, intensity }),
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || "Ukjent feil");
+          after.src = result.imageUrl;
+          statusEl.textContent = "Ferdig.";
+        } catch (error) {
+          statusEl.textContent = error.message;
+          statusEl.className = "status error";
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>
