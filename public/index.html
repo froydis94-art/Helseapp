@@ -268,6 +268,51 @@
         color: var(--text);
         font-weight: 600;
       }
+      .diet-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-top: 10px;
+      }
+      .coach-card {
+        display: none;
+        margin-top: 18px;
+        padding: 16px;
+        border-radius: 16px;
+        border: 1px solid rgba(198, 242, 109, 0.28);
+        background: linear-gradient(160deg, rgba(198, 242, 109, 0.08), rgba(0, 0, 0, 0.22));
+      }
+      .coach-card.open { display: block; animation: rise 0.35s ease; }
+      .coach-card h3 {
+        margin: 0 0 8px;
+        font-family: "Syne", sans-serif;
+        font-size: 1.05rem;
+      }
+      .coach-card p {
+        margin: 0 0 10px;
+        color: var(--muted);
+        font-size: 0.88rem;
+        line-height: 1.45;
+      }
+      .coach-card ol, .coach-card ul {
+        margin: 0 0 12px;
+        padding-left: 1.15rem;
+        color: var(--text);
+        font-size: 0.88rem;
+        line-height: 1.5;
+      }
+      .coach-card li { margin-bottom: 6px; }
+      .coach-card .coach-note {
+        margin-top: 4px;
+        padding-top: 10px;
+        border-top: 1px solid var(--line);
+        color: var(--accent);
+        font-size: 0.86rem;
+        font-weight: 600;
+      }
+      @media (max-width: 640px) {
+        .diet-grid { grid-template-columns: 1fr; }
+      }
 
       button.primary {
         margin-top: 18px;
@@ -654,6 +699,45 @@
         </div>
         <p class="hint" id="intensityHint"></p>
 
+        <div class="choice-block">
+          <span class="choice-label" data-i18n="labelTrainPrefs">Treningsformer du liker (flervalg)</span>
+          <div class="choices" id="trainChoices">
+            <button type="button" class="choice active" data-train="strength" data-i18n="trainStrength">Styrke</button>
+            <button type="button" class="choice" data-train="cardio" data-i18n="trainCardio">Kondisjon</button>
+            <button type="button" class="choice" data-train="hiit" data-i18n="trainHiit">HIIT</button>
+            <button type="button" class="choice" data-train="walking" data-i18n="trainWalking">Gåturer</button>
+            <button type="button" class="choice" data-train="yoga" data-i18n="trainYoga">Yoga / mobilitet</button>
+            <button type="button" class="choice" data-train="sports" data-i18n="trainSports">Ballspill / sport</button>
+            <button type="button" class="choice" data-train="home" data-i18n="trainHome">Hjemmetrening</button>
+          </div>
+        </div>
+
+        <div class="choice-block">
+          <span class="choice-label" data-i18n="labelDietNow">Kosthold i dag</span>
+          <div class="choices" id="dietChoices">
+            <button type="button" class="choice active" data-diet="mixed" data-i18n="dietMixed">Blandet</button>
+            <button type="button" class="choice" data-diet="vegetarian" data-i18n="dietVegetarian">Vegetar</button>
+            <button type="button" class="choice" data-diet="vegan" data-i18n="dietVegan">Vegan</button>
+            <button type="button" class="choice" data-diet="meat" data-i18n="dietMeat">Mye kjøtt</button>
+            <button type="button" class="choice" data-diet="fastfood" data-i18n="dietFastfood">Mye fast food</button>
+            <button type="button" class="choice" data-diet="irregular" data-i18n="dietIrregular">Uregelmessig</button>
+          </div>
+          <label style="margin-top:10px">
+            <span data-i18n="labelDietNote">Presisering (valgfritt)</span>
+            <input id="dietNote" type="text" data-i18n-placeholder="dietNotePlaceholder" placeholder="F.eks. lite grønnsaker, mye snacks…" />
+          </label>
+          <div class="diet-grid">
+            <label>
+              <span data-i18n="labelFutureKcal">Typisk kcal / dag</span>
+              <input id="futureKcal" type="number" step="50" value="2200" />
+            </label>
+            <label>
+              <span data-i18n="labelFutureProtein">Typisk protein / dag (g)</span>
+              <input id="futureProtein" type="number" step="5" value="100" />
+            </label>
+          </div>
+        </div>
+
         <div class="prompt-preview" id="promptPreview"></div>
 
         <label>
@@ -676,6 +760,18 @@
             <p class="shot-label" data-i18n="labelGoalImage">Målbilde</p>
             <img id="after" alt="" />
           </div>
+        </div>
+
+        <div class="coach-card" id="coachPanel" aria-live="polite">
+          <h3 data-i18n="coachTitle">Slik kommer du nærmere målbildet</h3>
+          <p id="coachIntro"></p>
+          <p><b data-i18n="coachTrainTitle">Prioriter denne treningen</b></p>
+          <ol id="coachTrainList"></ol>
+          <p><b data-i18n="coachDietTitle">Kosthold for målet</b></p>
+          <ul id="coachDietList"></ul>
+          <p class="coach-note" id="coachAdjust" data-i18n="coachAdjust">
+            Ser ikke målbildet riktig ut? Juster tidshorisont, fett/muskel/sone eller innsats og generer på nytt.
+          </p>
         </div>
 
         <details class="advanced">
@@ -941,14 +1037,66 @@
           intensitySubtle: "Moderat",
           intensityModerate: "Hard",
           intensityStrong: "Strikt / maks",
+          labelTrainPrefs: "Treningsformer du liker (flervalg)",
+          trainStrength: "Styrke",
+          trainCardio: "Kondisjon",
+          trainHiit: "HIIT",
+          trainWalking: "Gåturer",
+          trainYoga: "Yoga / mobilitet",
+          trainSports: "Ballspill / sport",
+          trainHome: "Hjemmetrening",
+          labelDietNow: "Kosthold i dag",
+          dietMixed: "Blandet",
+          dietVegetarian: "Vegetar",
+          dietVegan: "Vegan",
+          dietMeat: "Mye kjøtt",
+          dietFastfood: "Mye fast food",
+          dietIrregular: "Uregelmessig",
+          labelDietNote: "Presisering (valgfritt)",
+          dietNotePlaceholder: "F.eks. lite grønnsaker, mye snacks…",
+          labelFutureKcal: "Typisk kcal / dag",
+          labelFutureProtein: "Typisk protein / dag (g)",
+          coachTitle: "Slik kommer du nærmere målbildet",
+          coachTrainTitle: "Prioriter denne treningen",
+          coachDietTitle: "Kosthold for målet",
+          coachAdjust: "Ser ikke målbildet riktig ut? Juster tidshorisont, fett/muskel/sone eller innsats og generer på nytt.",
+          coachIntro: (horizon, effort) =>
+            `Basert på målet ditt (${horizon}) og innsatsnivået «${effort}» anbefaler vi denne prioriteringen:`,
+          coachNeedTrain: "Velg minst én treningsform du liker.",
+          coachTrainStrengthFat: "Styrketrening 3–4×/uke — bevarer/bygger muskel mens du går ned i fett.",
+          coachTrainStrengthVolume: "Styrketrening med progressive sett — prioritert for mer volum.",
+          coachTrainCardioFat: "Kondisjon 2–3×/uke (sone 2 / rask gange) — støtter fettnedgang uten å «spise» musklene.",
+          coachTrainHiit: "HIIT 1–2×/uke — effektivt, men ikke eneste fokus hvis restitusjon er lav.",
+          coachTrainZoneAbs: "Legg inn kjernearbeid 2–3×/uke (planke, anti-rotasjon) i tillegg til helkroppsstyrke.",
+          coachTrainZoneUpper: "Prioriter press/trekk for overkropp (benk/rows/skulder) 2×/uke.",
+          coachTrainZoneLower: "Prioriter knebøy/hip hinge og sete/bein 2×/uke.",
+          coachTrainZonePosture: "Mobilitet + rygg/skulderstabilitet 2×/uke — yoga eller fokusert mobilitet fungerer godt.",
+          coachTrainWalking: "Daglige gåturer (8–12k skritt) — lavterskel og støtter kostholdsmålet.",
+          coachTrainPrefer: (name) => `Bruk gjerne «${name}» som hovedform — det du liker er det du holder over tid.`,
+          coachDietDeficit: (kcal) =>
+            `For fettnedgang: sikte på ca. ${kcal} kcal/dag (lett underskudd) og jevnlig protein til hvert måltid.`,
+          coachDietSurplus: (kcal) =>
+            `For mer muskelvolum: sikte på ca. ${kcal} kcal/dag (lett overskudd) med nok protein.`,
+          coachDietMaintain: (kcal) =>
+            `Hold energien rundt ca. ${kcal} kcal/dag og prioriter proteinkvalitet.`,
+          coachDietProtein: (g) => `Proteinmål: ca. ${g} g/dag — fordel det på 3–4 måltider.`,
+          coachDietFastfood: "Kutt ned hyppig fast food: bytt 3–4 måltider/uke til hjemmelaget med grønnsaker + protein.",
+          coachDietIrregular: "Lag faste måltidsvinduer — uregelmessig spising gjør det vanskelig å treffe kcal/protein.",
+          coachDietPlant: "Vegetar/vegan: planlegg protein (belger, tofu, meieri/alternativer, pulver ved behov).",
+          coachDietMeat: "Mye kjøtt er ok for protein — balansér med fiber/grønnsaker for metthet og restitusjon.",
+          coachDietNote: (note) => `Du skrev: «${note}». La det styre konkrete bytter i hverdagen.`,
+          coachDietFocus: "Kosthold er like viktig som trening for at målbildet skal bli realistisk å nå.",
           promptPreview: (goal, horizon, fat, muscle, zone, intensity) =>
             `AI-brief: ${horizon} · ${fat} · ${muscle} · ${zone} · ${intensity}${goal ? ` · <b>${goal}</b>` : ""}`,
-          hintHorizon4w: "Forslag: Hard innsats — tidlig, synlig fremgang.",
-          hintHorizon8w: "Forslag: Strikt / maks — tydelig midtveis-endring.",
-          hintHorizon12w: "Forslag: Strikt / maks — merkbart fittere kropp.",
-          hintHorizon24w: "Forslag: Strikt / maks — stor, synlig transformasjon.",
-          hintHorizon18m: "Forslag: Strikt / maks — langsiktig toppform.",
-          hintHorizonCustom: "Forslag: Strikt / maks — tilpasset din anledning.",
+          hintHorizon4w: "Innsats er ditt valg — kortere tid = mer forsiktig endring i bildet.",
+          hintHorizon8w: "Innsats er ditt valg — tydeligere midtveis-endring i bildet.",
+          hintHorizon12w: "Innsats er ditt valg — merkbart fittere, fortsatt realistisk.",
+          hintHorizon24w: "Innsats er ditt valg — større, synlig transformasjon.",
+          hintHorizon18m: "Innsats er ditt valg — langsiktig toppform.",
+          hintHorizonCustom: "Innsats er ditt valg — tilpasset din anledning.",
+          hintBehind: "Tips: høyere innsats hjelper når aktivitet/kost er bak — men du velger selv.",
+          hintAhead: "Tips: du er foran planen — du kan fortsatt velge høy innsats om du vil se mer endring.",
+          hintOnTrack: "Tips: du er i rute — velg innsats ut fra hvor motiverende målbildet skal være.",
           maalDefault: "",
           goalTitleDefault: "Atletisk form",
           labelSourceImage: "Utgangsbilde",
@@ -1047,9 +1195,6 @@
           foodOk: "Ok",
           bannerMeta: (metric, pct, days, food, kcalC, kcalT, protein) =>
             `${metric || "Metrikk"} · ${pct}% · ${days} dager igjen · Kost: ${food} (${kcalC}/${kcalT} kcal, ${protein}g protein)`,
-          hintBehind: "Forslag: Strikt / maks — aktivitet eller kost er bak.",
-          hintAhead: "Forslag: Hard innsats — du er foran / i mål, men endringen skal synes.",
-          hintOnTrack: "Forslag: Strikt / maks — synlig fremgang mot målet.",
           historyEmpty: "<li><b>Ingen sjekk-inn ennå</b><span>Bruk +1 / Lagre sjekk-inn</span></li>",
           toastMeal: "Måltid lagt til (+400 kcal / +30 g protein)",
           toastNutritionReset: "Kosthold for i dag er nullstilt",
@@ -1116,14 +1261,63 @@
           intensitySubtle: "Moderate",
           intensityModerate: "Hard",
           intensityStrong: "Strict / max",
+          labelTrainPrefs: "Training you enjoy (multi-select)",
+          trainStrength: "Strength",
+          trainCardio: "Cardio",
+          trainHiit: "HIIT",
+          trainWalking: "Walking",
+          trainYoga: "Yoga / mobility",
+          trainSports: "Sports / ball games",
+          trainHome: "Home workouts",
+          labelDietNow: "Diet today",
+          dietMixed: "Mixed",
+          dietVegetarian: "Vegetarian",
+          dietVegan: "Vegan",
+          dietMeat: "Lots of meat",
+          dietFastfood: "Lots of fast food",
+          dietIrregular: "Irregular",
+          labelDietNote: "Details (optional)",
+          dietNotePlaceholder: "E.g. few veggies, lots of snacks…",
+          labelFutureKcal: "Typical kcal / day",
+          labelFutureProtein: "Typical protein / day (g)",
+          coachTitle: "How to get closer to the goal image",
+          coachTrainTitle: "Prioritize this training",
+          coachDietTitle: "Nutrition for the goal",
+          coachAdjust: "Does the goal image look wrong? Adjust horizon, fat/muscle/zone or effort and generate again.",
+          coachIntro: (horizon, effort) =>
+            `Based on your goal (${horizon}) and effort level “${effort}”, prioritize this:`,
+          coachNeedTrain: "Pick at least one training style you like.",
+          coachTrainStrengthFat: "Strength 3–4×/week — keeps/builds muscle while losing fat.",
+          coachTrainStrengthVolume: "Progressive strength work — priority for adding volume.",
+          coachTrainCardioFat: "Cardio 2–3×/week (zone 2 / brisk walks) — supports fat loss without shredding muscle.",
+          coachTrainHiit: "HIIT 1–2×/week — effective, but not the only focus if recovery is low.",
+          coachTrainZoneAbs: "Add core work 2–3×/week (plank, anti-rotation) plus full-body strength.",
+          coachTrainZoneUpper: "Prioritize upper push/pull (press/rows/shoulders) 2×/week.",
+          coachTrainZoneLower: "Prioritize squat/hinge and glutes/legs 2×/week.",
+          coachTrainZonePosture: "Mobility + back/shoulder stability 2×/week — yoga or focused mobility works well.",
+          coachTrainWalking: "Daily walks (8–12k steps) — low barrier and supports the nutrition goal.",
+          coachTrainPrefer: (name) => `Lean on “${name}” as your main style — what you enjoy is what you stick with.`,
+          coachDietDeficit: (kcal) =>
+            `For fat loss: aim near ${kcal} kcal/day (mild deficit) with protein at each meal.`,
+          coachDietSurplus: (kcal) =>
+            `For more muscle volume: aim near ${kcal} kcal/day (mild surplus) with enough protein.`,
+          coachDietMaintain: (kcal) =>
+            `Keep energy around ${kcal} kcal/day and prioritize protein quality.`,
+          coachDietProtein: (g) => `Protein target: about ${g} g/day — spread across 3–4 meals.`,
+          coachDietFastfood: "Cut frequent fast food: swap 3–4 meals/week to home meals with veggies + protein.",
+          coachDietIrregular: "Set regular meal windows — irregular eating makes kcal/protein hard to hit.",
+          coachDietPlant: "Vegetarian/vegan: plan protein (legumes, tofu, dairy/alts, powder if needed).",
+          coachDietMeat: "Lots of meat is fine for protein — balance with fiber/veg for fullness and recovery.",
+          coachDietNote: (note) => `You noted: “${note}”. Let that drive concrete daily swaps.`,
+          coachDietFocus: "Nutrition matters as much as training for making the goal image achievable.",
           promptPreview: (goal, horizon, fat, muscle, zone, intensity) =>
             `AI brief: ${horizon} · ${fat} · ${muscle} · ${zone} · ${intensity}${goal ? ` · <b>${goal}</b>` : ""}`,
-          hintHorizon4w: "Suggestion: Hard effort — early, visible progress.",
-          hintHorizon8w: "Suggestion: Strict / max — clear mid-plan change.",
-          hintHorizon12w: "Suggestion: Strict / max — noticeably fitter body.",
-          hintHorizon24w: "Suggestion: Strict / max — major visible transformation.",
-          hintHorizon18m: "Suggestion: Strict / max — peak long-term physique.",
-          hintHorizonCustom: "Suggestion: Strict / max — tailored to your occasion.",
+          hintHorizon4w: "Effort is your choice — shorter time = gentler change in the image.",
+          hintHorizon8w: "Effort is your choice — clearer mid-plan change in the image.",
+          hintHorizon12w: "Effort is your choice — noticeably fitter, still realistic.",
+          hintHorizon24w: "Effort is your choice — larger, visible transformation.",
+          hintHorizon18m: "Effort is your choice — long-term peak shape.",
+          hintHorizonCustom: "Effort is your choice — tailored to your occasion.",
           labelSourceImage: "Source photo",
           btnGenerate: "Generate visualization",
           btnSyncPace: "Pull motivation text from Pace",
@@ -1222,9 +1416,9 @@
           foodOk: "Ok",
           bannerMeta: (metric, pct, days, food, kcalC, kcalT, protein) =>
             `${metric || "Metric"} · ${pct}% · ${days} days left · Nutrition: ${food} (${kcalC}/${kcalT} kcal, ${protein}g protein)`,
-          hintBehind: "Suggestion: Strict / max — activity or nutrition is behind.",
-          hintAhead: "Suggestion: Hard effort — you are ahead / at goal, but change should still be visible.",
-          hintOnTrack: "Suggestion: Strict / max — visible progress toward the goal.",
+          hintBehind: "Tip: higher effort helps when activity/nutrition is behind — but you choose.",
+          hintAhead: "Tip: you are ahead — you can still pick high effort if you want a stronger goal image.",
+          hintOnTrack: "Tip: you are on track — pick effort based on how motivating you want the image.",
           historyEmpty: "<li><b>No check-ins yet</b><span>Use +1 / Save check-in</span></li>",
           toastMeal: "Meal added (+400 kcal / +30 g protein)",
           toastNutritionReset: "Nutrition for today reset",
@@ -1482,6 +1676,115 @@
         );
       }
 
+      function getSelectedTrains() {
+        return [...document.querySelectorAll("#trainChoices .choice.active")].map(
+          (b) => b.dataset.train
+        );
+      }
+
+      function getSelectedDiet() {
+        return (
+          document.querySelector("#dietChoices .choice.active")?.dataset.diet || "mixed"
+        );
+      }
+
+      function trainLabel(key) {
+        const map = {
+          strength: t("trainStrength"),
+          cardio: t("trainCardio"),
+          hiit: t("trainHiit"),
+          walking: t("trainWalking"),
+          yoga: t("trainYoga"),
+          sports: t("trainSports"),
+          home: t("trainHome"),
+        };
+        return map[key] || key;
+      }
+
+      function buildCoachAdvice() {
+        const fat = getSelectedFat();
+        const muscle = getSelectedMuscle();
+        const zone = getSelectedZone();
+        const intensity = document.getElementById("intensity").value;
+        const trains = getSelectedTrains();
+        const diet = getSelectedDiet();
+        const dietNote = document.getElementById("dietNote").value.trim();
+        const kcalNow = Number(document.getElementById("futureKcal").value) || 2200;
+        const proteinNow = Number(document.getElementById("futureProtein").value) || 100;
+
+        const trainTips = [];
+        if (muscle === "volume" || zone === "upper" || zone === "lower") {
+          trainTips.push(t(muscle === "volume" ? "coachTrainStrengthVolume" : "coachTrainStrengthFat"));
+        } else if (fat === "decrease") {
+          trainTips.push(t("coachTrainStrengthFat"));
+        } else {
+          trainTips.push(t("coachTrainStrengthFat"));
+        }
+
+        if (fat === "decrease") trainTips.push(t("coachTrainCardioFat"));
+        if (trains.includes("hiit") || intensity === "strong") trainTips.push(t("coachTrainHiit"));
+
+        if (zone === "abs") trainTips.push(t("coachTrainZoneAbs"));
+        if (zone === "upper") trainTips.push(t("coachTrainZoneUpper"));
+        if (zone === "lower") trainTips.push(t("coachTrainZoneLower"));
+        if (zone === "posture" || trains.includes("yoga")) trainTips.push(t("coachTrainZonePosture"));
+        if (trains.includes("walking") || fat === "decrease") trainTips.push(t("coachTrainWalking"));
+
+        const preferred = trains.find((x) => x !== "hiit") || trains[0];
+        if (preferred) trainTips.unshift(t("coachTrainPrefer", trainLabel(preferred)));
+
+        // Deduplicate while keeping order
+        const uniqueTrain = [...new Set(trainTips)].slice(0, 5);
+
+        const dietTips = [];
+        const effortBoost = intensity === "strong" ? 0.92 : intensity === "subtle" ? 1 : 0.96;
+        if (fat === "decrease") {
+          dietTips.push(t("coachDietDeficit", Math.round(kcalNow * Math.min(effortBoost, 0.95))));
+        } else if (fat === "increase" || muscle === "volume") {
+          dietTips.push(t("coachDietSurplus", Math.round(kcalNow * 1.08)));
+        } else {
+          dietTips.push(t("coachDietMaintain", kcalNow));
+        }
+
+        const proteinTarget =
+          muscle === "volume" || intensity === "strong"
+            ? Math.max(proteinNow, 140)
+            : Math.max(proteinNow, 120);
+        dietTips.push(t("coachDietProtein", proteinTarget));
+
+        if (diet === "fastfood") dietTips.push(t("coachDietFastfood"));
+        if (diet === "irregular") dietTips.push(t("coachDietIrregular"));
+        if (diet === "vegetarian" || diet === "vegan") dietTips.push(t("coachDietPlant"));
+        if (diet === "meat") dietTips.push(t("coachDietMeat"));
+        if (dietNote) dietTips.push(t("coachDietNote", dietNote));
+        dietTips.push(t("coachDietFocus"));
+
+        return {
+          intro: t(
+            "coachIntro",
+            horizonLabel(getSelectedHorizon()),
+            intensityLabel(intensity)
+          ),
+          trainTips: uniqueTrain,
+          dietTips,
+        };
+      }
+
+      function renderCoachPanel() {
+        const panel = document.getElementById("coachPanel");
+        const advice = buildCoachAdvice();
+        document.getElementById("coachIntro").textContent = advice.intro;
+        document.getElementById("coachTrainList").innerHTML = advice.trainTips
+          .map((tip) => `<li>${tip}</li>`)
+          .join("");
+        document.getElementById("coachDietList").innerHTML = advice.dietTips
+          .map((tip) => `<li>${tip}</li>`)
+          .join("");
+        document.getElementById("coachAdjust").textContent = t("coachAdjust");
+        panel.classList.add("open");
+        panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+
       function syncIntensityChips() {
         const value = document.getElementById("intensity").value;
         document.querySelectorAll("#intensityChoices .choice").forEach((btn) => {
@@ -1593,22 +1896,9 @@
         );
       }
 
-      function suggestIntensity({ paceStatus, forceHorizon } = {}) {
-        const intensityEl = document.getElementById("intensity");
-        if (intensityEl.dataset.userLocked) {
-          syncIntensityChips();
-          return;
-        }
-        const horizon = getSelectedHorizon();
-        if (forceHorizon) {
-          setIntensityValue(intensityFromHorizon(horizon));
-          return;
-        }
-        if (paceStatus === "behind" || paceStatus === "ahead" || paceStatus === "completed") {
-          setIntensityValue(intensityFromPace(paceStatus));
-        } else {
-          setIntensityValue(intensityFromHorizon(horizon));
-        }
+      function suggestIntensity() {
+        // User owns effort level — only keep chips in sync. Hints come from renderPace.
+        syncIntensityChips();
       }
 
       function nutritionStatus(goal) {
@@ -1762,10 +2052,7 @@
           };
           hint.textContent = horizonHints[horizon] || t("hintOnTrack");
         }
-        suggestIntensity({
-          paceStatus:
-            food === t("foodBehind") && pace.status === "on_track" ? "behind" : pace.status,
-        });
+        suggestIntensity();
         updatePromptPreview();
         return { goal, pace, food };
       }
@@ -1833,14 +2120,14 @@
             .forEach((b) => b.classList.remove("active"));
           btn.classList.add("active");
           syncCustomHorizonUi();
-          suggestIntensity({ forceHorizon: true });
+          suggestIntensity();
           renderPace();
           updatePromptPreview();
         });
       });
 
       document.getElementById("horizonDate").addEventListener("change", () => {
-        suggestIntensity({ forceHorizon: true });
+        suggestIntensity();
         updatePromptPreview();
       });
       document.getElementById("occasionLabel").addEventListener("input", updatePromptPreview);
@@ -1859,8 +2146,21 @@
       bindChoiceGroup("#fatChoices .choice");
       bindChoiceGroup("#muscleChoices .choice");
       bindChoiceGroup("#zoneChoices .choice");
+      bindChoiceGroup("#dietChoices .choice");
       bindChoiceGroup("#intensityChoices .choice", (btn) => {
         setIntensityValue(btn.dataset.intensity, { lock: true });
+      });
+
+      document.querySelectorAll("#trainChoices .choice").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          btn.classList.toggle("active");
+          if (!getSelectedTrains().length) btn.classList.add("active");
+          updatePromptPreview();
+        });
+      });
+
+      ["dietNote", "futureKcal", "futureProtein"].forEach((id) => {
+        document.getElementById(id).addEventListener("input", updatePromptPreview);
       });
 
       document.querySelectorAll(".tab").forEach((tab) => {
@@ -1935,6 +2235,11 @@
           statusEl.className = "status error";
           return;
         }
+        if (!getSelectedTrains().length) {
+          statusEl.textContent = t("coachNeedTrain");
+          statusEl.className = "status error";
+          return;
+        }
         if (horizon === "custom" && !horizonDate) {
           statusEl.textContent = t("needCustomDate");
           statusEl.className = "status error";
@@ -1945,6 +2250,7 @@
         btn.disabled = true;
         statusEl.className = "status";
         statusEl.textContent = t("generating");
+        document.getElementById("coachPanel").classList.remove("open");
 
         try {
           const response = await fetch(`${apiBase}/api/generate-future-you`, {
@@ -1978,6 +2284,7 @@
           } else {
             statusEl.textContent = t("doneFallback");
           }
+          renderCoachPanel();
         } catch (error) {
           statusEl.textContent = error.message;
           statusEl.className = "status error";
@@ -2323,8 +2630,10 @@
         const { goal, pace } = renderPace();
         document.getElementById("maal").value = motivationText(goal, pace);
         document.getElementById("maal").dataset.touched = "1";
-        document.getElementById("intensity").dataset.userLocked = "";
-        suggestIntensity({ paceStatus: pace.status });
+        document.getElementById("futureKcal").value = goal.kcalCurrent || goal.kcalTarget || 2200;
+        document.getElementById("futureProtein").value =
+          goal.proteinCurrent || goal.proteinTarget || 100;
+        suggestIntensity();
         updatePromptPreview();
         renderPace();
       }
