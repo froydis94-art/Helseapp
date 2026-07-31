@@ -1470,26 +1470,94 @@
         ? window.location.origin
         : localStorage.getItem("helseappApiBase") || "https://helseapp-2.vercel.app";
 
-      applyI18n();
+      // Bind image upload early so a later init error cannot break photo selection.
+      const fileInput = document.getElementById("file");
+      const before = document.getElementById("before");
+      const after = document.getElementById("after");
+      const statusEl = document.getElementById("status");
+      let imageBase64 = "";
+      let mimeType = "image/jpeg";
 
-      const storedGoal = localStorage.getItem(GOAL_KEY);
-      if (storedGoal) {
-        writeGoalToForm(JSON.parse(storedGoal));
-        document.getElementById("goalTitle").dataset.touched = "1";
-      } else {
-        document.getElementById("goalTitle").value = t("goalTitleDefault");
-        document.getElementById("metricLabel").value = t("metricSessions");
-        document.getElementById("startDate").value = new Date().toISOString().slice(0, 10);
-        document.getElementById("endDate").value = daysFromNow(84);
+      fileInput.addEventListener("change", async () => {
+        const file = fileInput.files?.[0];
+        if (!file) return;
+        try {
+          mimeType = file.type || "image/jpeg";
+          const dataUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          });
+          before.src = dataUrl;
+          imageBase64 = String(dataUrl).split(",")[1] || "";
+          after.removeAttribute("src");
+          statusEl.className = "status";
+          statusEl.textContent = "";
+        } catch (error) {
+          statusEl.textContent = error.message || "Could not read image";
+          statusEl.className = "status error";
+        }
+      });
+
+      document.getElementById("run").addEventListener("click", async () => {
+        const apiBase = apiBaseInput.value.replace(/\/$/, "");
+        const maal = document.getElementById("maal").value.trim();
+        const intensity = document.getElementById("intensity").value;
+        localStorage.setItem("helseappApiBase", apiBase);
+
+        if (!imageBase64 || !maal) {
+          statusEl.textContent = t("needImageGoal");
+          statusEl.className = "status error";
+          return;
+        }
+
+        const btn = document.getElementById("run");
+        btn.disabled = true;
+        statusEl.className = "status";
+        statusEl.textContent = t("generating");
+
+        try {
+          const response = await fetch(`${apiBase}/api/generate-future-you`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ imageBase64, mimeType, maal, intensity }),
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || "Error");
+          after.src = result.imageUrl;
+          statusEl.textContent = result.usedFallback ? t("doneFallback") : t("done");
+        } catch (error) {
+          statusEl.textContent = error.message;
+          statusEl.className = "status error";
+        } finally {
+          btn.disabled = false;
+        }
+      });
+
+      try {
+        applyI18n();
+
+        const storedGoal = localStorage.getItem(GOAL_KEY);
+        if (storedGoal) {
+          writeGoalToForm(JSON.parse(storedGoal));
+          document.getElementById("goalTitle").dataset.touched = "1";
+        } else {
+          document.getElementById("goalTitle").value = t("goalTitleDefault");
+          document.getElementById("metricLabel").value = t("metricSessions");
+          document.getElementById("startDate").value = new Date().toISOString().slice(0, 10);
+          document.getElementById("endDate").value = daysFromNow(84);
+        }
+
+        if (!prefs.onboarded) {
+          document.getElementById("onboard").hidden = false;
+        }
+
+        renderPace();
+        renderHistory();
+      } catch (error) {
+        console.error("[helseapp init]", error);
       }
-
-      if (!prefs.onboarded) {
-        document.getElementById("onboard").hidden = false;
-      }
-
-      renderPace();
-      renderHistory();
-
       ["startValue", "targetValue", "currentValue", "startDate", "endDate", "metricLabel", "goalTitle", "kcalTarget", "kcalCurrent", "proteinTarget", "proteinCurrent"].forEach(
         (id) => document.getElementById(id).addEventListener("input", renderPace)
       );
@@ -1824,63 +1892,6 @@
       document.getElementById("syncFromPace").addEventListener("click", () => {
         applyPaceToFuture();
         showToast(t("toastPaceUpdated"));
-      });
-
-      const fileInput = document.getElementById("file");
-      const before = document.getElementById("before");
-      const after = document.getElementById("after");
-      const statusEl = document.getElementById("status");
-      let imageBase64 = "";
-      let mimeType = "image/jpeg";
-
-      fileInput.addEventListener("change", async () => {
-        const file = fileInput.files?.[0];
-        if (!file) return;
-        mimeType = file.type || "image/jpeg";
-        const dataUrl = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result);
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-        before.src = dataUrl;
-        imageBase64 = String(dataUrl).split(",")[1] || "";
-        after.removeAttribute("src");
-      });
-
-      document.getElementById("run").addEventListener("click", async () => {
-        const apiBase = apiBaseInput.value.replace(/\/$/, "");
-        const maal = document.getElementById("maal").value.trim();
-        const intensity = document.getElementById("intensity").value;
-        localStorage.setItem("helseappApiBase", apiBase);
-
-        if (!imageBase64 || !maal) {
-          statusEl.textContent = t("needImageGoal");
-          statusEl.className = "status error";
-          return;
-        }
-
-        const btn = document.getElementById("run");
-        btn.disabled = true;
-        statusEl.className = "status";
-        statusEl.textContent = t("generating");
-
-        try {
-          const response = await fetch(`${apiBase}/api/generate-future-you`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ imageBase64, mimeType, maal, intensity }),
-          });
-          const result = await response.json();
-          if (!response.ok) throw new Error(result.error || "Error");
-          after.src = result.imageUrl;
-          statusEl.textContent = result.usedFallback ? t("doneFallback") : t("done");
-        } catch (error) {
-          statusEl.textContent = error.message;
-          statusEl.className = "status error";
-        } finally {
-          btn.disabled = false;
-        }
       });
     </script>
   </body>
