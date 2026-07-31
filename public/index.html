@@ -681,6 +681,19 @@
               <span data-i18n="labelWeightKg">Vekt (kg)</span>
               <input id="weightKg" type="number" step="0.1" min="35" max="300" value="80" />
             </label>
+            <label>
+              <span data-i18n="labelBmi">BMI (auto — kan korrigeres)</span>
+              <input id="bmiValue" type="number" step="0.1" min="12" max="60" value="26.1" />
+            </label>
+          </div>
+          <div class="choice-block" style="margin-top:10px">
+            <span class="choice-label" data-i18n="labelFrame">Kroppstype / ramme</span>
+            <div class="choices" id="frameChoices">
+              <button type="button" class="choice" data-frame="narrow" data-i18n="frameNarrow">Smalere</button>
+              <button type="button" class="choice active" data-frame="average" data-i18n="frameAverage">Normal</button>
+              <button type="button" class="choice" data-frame="wide" data-i18n="frameWide">Bredere</button>
+            </div>
+            <p class="hint" data-i18n="frameHint">Ramme justerer BMI-tolkning litt (smal −0,5 / bred +0,5). Ikke medisinsk diagnose.</p>
           </div>
           <div class="prompt-preview" id="bodyPlanPreview" style="margin-top:10px"></div>
           <div class="choices" style="margin-top:8px">
@@ -696,11 +709,18 @@
         </div>
 
         <div class="choice-block">
-          <span class="choice-label" data-i18n="labelMuscle">Muskelstruktur</span>
-          <div class="choices" id="muscleChoices">
-            <button type="button" class="choice active" data-muscle="toned" data-i18n="muscleToned">Slank / tonet</button>
-            <button type="button" class="choice" data-muscle="volume" data-i18n="muscleVolume">Øke volum</button>
+          <span class="choice-label" data-i18n="labelGender">Kjønn</span>
+          <div class="choices" id="genderChoices">
+            <button type="button" class="choice" data-gender="female" data-i18n="genderFemale">Kvinne</button>
+            <button type="button" class="choice" data-gender="male" data-i18n="genderMale">Mann</button>
+            <button type="button" class="choice" data-gender="unspecified" data-i18n="genderSkip">Hopper over</button>
           </div>
+        </div>
+
+        <div class="choice-block">
+          <span class="choice-label" data-i18n="labelShape">Kroppsfasong</span>
+          <div class="choices" id="shapeChoices"></div>
+          <p class="hint" id="shapeHint" data-i18n="shapeHint">Velg den silhuetten som ligner mest — brukes for realistisk AI-målbilde.</p>
         </div>
 
         <div class="choice-block">
@@ -710,8 +730,27 @@
             <button type="button" class="choice" data-zone="glutes" data-i18n="zoneGlutes">Rumpe</button>
             <button type="button" class="choice" data-zone="thighs" data-i18n="zoneThighs">Lår</button>
             <button type="button" class="choice" data-zone="arms" data-i18n="zoneArms">Armer</button>
-            <button type="button" class="choice" data-zone="chest" data-i18n="zoneChest">Bryst / overkropp</button>
+            <button type="button" class="choice" data-zone="chest" data-i18n="zoneChest">Bryst</button>
+            <button type="button" class="choice" data-zone="shoulders" data-i18n="zoneShoulders">Skuldre / overkropp</button>
+            <button type="button" class="choice" data-zone="back" data-i18n="zoneBack">Rygg</button>
             <button type="button" class="choice" data-zone="posture" data-i18n="zonePosture">Holdning</button>
+          </div>
+        </div>
+
+        <div class="choice-block">
+          <span class="choice-label" data-i18n="labelOutcomes">Ønsket resultat (flervalg)</span>
+          <div class="choices" id="outcomeChoices">
+            <button type="button" class="choice active" data-outcome="stronger" data-i18n="outcomeStronger">Sterkere</button>
+            <button type="button" class="choice" data-outcome="leaner" data-i18n="outcomeLeaner">Slankere</button>
+            <button type="button" class="choice" data-outcome="tone" data-i18n="outcomeTone">Tone / strammere</button>
+            <button type="button" class="choice" data-outcome="bulk" data-i18n="outcomeBulk">Bulke</button>
+            <button type="button" class="choice" data-outcome="shred" data-i18n="outcomeShred">Shredde</button>
+            <button type="button" class="choice" data-outcome="lighter" data-i18n="outcomeLighter">Lettere</button>
+            <button type="button" class="choice" data-outcome="performance" data-i18n="outcomePerformance">Bedre prestasjon</button>
+            <button type="button" class="choice" data-outcome="endurance" data-i18n="outcomeEndurance">Bedre utholdenhet</button>
+            <button type="button" class="choice" data-outcome="curves" data-i18n="outcomeCurves">Mer fasong / kurver</button>
+            <button type="button" class="choice" data-outcome="vshape" data-i18n="outcomeVshape">Bredere skuldre / V-form</button>
+            <button type="button" class="choice" data-outcome="confidence" data-i18n="outcomeConfidence">Mer selvtillit i speilet</button>
           </div>
         </div>
 
@@ -994,7 +1033,7 @@
     <div id="onboard" class="onboard" hidden>
       <div class="onboard-card">
         <h2 data-i18n="onboardTitle">Velkommen</h2>
-        <p data-i18n="onboardBody">Velg språk og målesystem. Du kan endre dette når som helst øverst til høyre.</p>
+        <p data-i18n="onboardBody">Velg språk, målesystem og kjønn. Du kan endre dette senere.</p>
         <span class="onboard-label" data-i18n="onboardLang">Språk</span>
         <div class="seg" role="group">
           <button type="button" data-onboard-lang="no">Norsk</button>
@@ -1004,6 +1043,12 @@
         <div class="seg" role="group">
           <button type="button" data-onboard-units="metric">Metric (kg, km)</button>
           <button type="button" data-onboard-units="us">US (lb, mi)</button>
+        </div>
+        <span class="onboard-label" data-i18n="onboardGender">Kjønn (for kroppsfasong)</span>
+        <div class="seg" role="group">
+          <button type="button" data-onboard-gender="female" data-i18n="genderFemale">Kvinne</button>
+          <button type="button" data-onboard-gender="male" data-i18n="genderMale">Mann</button>
+          <button type="button" data-onboard-gender="unspecified" data-i18n="genderSkip">Hopper over</button>
         </div>
         <button class="primary" id="onboardContinue" type="button" data-i18n="onboardContinue">Fortsett</button>
       </div>
@@ -1062,7 +1107,46 @@
           bodyPlanRateLifestyle: "Trygt livsstilstempo",
           bodyPlanRateMedicine: "Raskere tempo (medisinmodus) — ikke medisinsk råd",
           bodyPlanAggressive: "Tempoet er aggressivt — vurder mildere innsats hvis det ikke er bærekraftig.",
-          bmiHintOk: (bmi) => `BMI ca. ${bmi} (kun estimat fra vekt/høyde).`,
+          labelBmi: "BMI (auto — kan korrigeres)",
+          labelFrame: "Kroppstype / ramme",
+          frameNarrow: "Smalere",
+          frameAverage: "Normal",
+          frameWide: "Bredere",
+          frameHint: "Ramme justerer BMI-tolkning litt (smal −0,5 / bred +0,5). Ikke medisinsk diagnose.",
+          labelGender: "Kjønn",
+          genderFemale: "Kvinne",
+          genderMale: "Mann",
+          genderSkip: "Hopper over",
+          labelShape: "Kroppsfasong",
+          shapeHint: "Velg den silhuetten som ligner mest — brukes for realistisk AI-målbilde.",
+          shapeEcto: "Smal / ektomorf",
+          shapeMeso: "Atletisk / V-form",
+          shapeEndo: "Robust / endomorf",
+          shapeHourglass: "Timeglass",
+          shapePear: "Pære",
+          shapeApple: "Eple",
+          shapeRectangle: "Rektangel / søyle",
+          shapeSpoon: "Skje (pære-variant)",
+          shapeAthletic: "Atletisk / jevn",
+          labelOutcomes: "Ønsket resultat (flervalg)",
+          outcomeStronger: "Sterkere",
+          outcomeLeaner: "Slankere",
+          outcomeTone: "Tone / strammere",
+          outcomeBulk: "Bulke",
+          outcomeShred: "Shredde",
+          outcomeLighter: "Lettere",
+          outcomePerformance: "Bedre prestasjon",
+          outcomeEndurance: "Bedre utholdenhet",
+          outcomeCurves: "Mer fasong / kurver",
+          outcomeVshape: "Bredere skuldre / V-form",
+          outcomeConfidence: "Mer selvtillit i speilet",
+          outcomeNeedOne: "Velg minst ett ønsket resultat.",
+          bmiHintOk: (bmi, adj) =>
+            adj != null && adj !== bmi
+              ? `BMI ${bmi} (fra vekt/høyde) · rammejustert ca. ${adj}. Kan korrigeres manuelt.`
+              : `BMI ${bmi} (auto fra vekt/høyde). Kan korrigeres hvis du har målt annerledes.`,
+          bmiHintManual: (bmi, auto) =>
+            `BMI ${bmi} (manuelt korrigert${auto != null ? ` · auto var ${auto}` : ""}).`,
           healthWarnLowBmi:
             "BMI er under 18,5. Appen oppmuntrer ikke til ytterligere fettnedgang — snakk med helsepersonell.",
           healthWarnBlockGenerate:
@@ -1077,7 +1161,9 @@
           zoneGlutes: "Rumpe",
           zoneThighs: "Lår",
           zoneArms: "Armer",
-          zoneChest: "Bryst / overkropp",
+          zoneChest: "Bryst",
+          zoneShoulders: "Skuldre / overkropp",
+          zoneBack: "Rygg",
           zoneUpper: "Overkropp / armer",
           zoneLower: "Rumpe / bein",
           zonePosture: "Holdning",
@@ -1140,8 +1226,8 @@
           coachDietMeat: "Mye kjøtt er ok for protein — balansér med fiber/grønnsaker for metthet og restitusjon.",
           coachDietNote: (note) => `Du skrev: «${note}». La det styre konkrete bytter i hverdagen.`,
           coachDietFocus: "Kosthold er like viktig som trening for at målbildet skal bli realistisk å nå.",
-          promptPreview: (goal, horizon, fat, muscle, zone, intensity) =>
-            `AI-brief: ${horizon} · ${fat} · ${muscle} · ${zone} · ${intensity}${goal ? ` · <b>${goal}</b>` : ""}`,
+          promptPreview: (goal, horizon, fat, shape, zone, intensity, outcomes) =>
+            `AI-brief: ${horizon} · ${fat} · ${shape} · ${zone}${outcomes ? ` · ${outcomes}` : ""} · ${intensity}${goal ? ` · <b>${goal}</b>` : ""}`,
           hintHorizon4w: "Innsats er ditt valg — kortere tid = mer forsiktig endring i bildet.",
           hintHorizon8w: "Innsats er ditt valg — tydeligere midtveis-endring i bildet.",
           hintHorizon12w: "Innsats er ditt valg — merkbart fittere, fortsatt realistisk.",
@@ -1222,9 +1308,10 @@
           terraAuthSuccess: "Enhet koblet via Terra",
           terraAuthFailure: "Terra-kobling ble avbrutt",
           onboardTitle: "Velkommen",
-          onboardBody: "Velg språk og målesystem. Du kan endre dette når som helst øverst til høyre.",
+          onboardBody: "Velg språk, målesystem og kjønn. Du kan endre dette senere.",
           onboardLang: "Språk",
           onboardUnits: "Målesystem",
+          onboardGender: "Kjønn (for kroppsfasong)",
           onboardContinue: "Fortsett",
           presetSessions: "Økter/uke",
           presetSteps: "Skritt",
@@ -1311,7 +1398,46 @@
           bodyPlanRateLifestyle: "Sustainable lifestyle pace",
           bodyPlanRateMedicine: "Faster pace (meds mode) — not medical advice",
           bodyPlanAggressive: "Pace looks aggressive — consider gentler effort if it won’t stick.",
-          bmiHintOk: (bmi) => `BMI about ${bmi} (estimate from weight/height only).`,
+          labelBmi: "BMI (auto — editable)",
+          labelFrame: "Body frame",
+          frameNarrow: "Narrower",
+          frameAverage: "Average",
+          frameWide: "Wider",
+          frameHint: "Frame nudges BMI interpretation slightly (narrow −0.5 / wide +0.5). Not a medical diagnosis.",
+          labelGender: "Gender",
+          genderFemale: "Woman",
+          genderMale: "Man",
+          genderSkip: "Skip",
+          labelShape: "Body shape",
+          shapeHint: "Pick the silhouette that fits best — used for a realistic AI goal image.",
+          shapeEcto: "Lean / ectomorph",
+          shapeMeso: "Athletic / V-taper",
+          shapeEndo: "Solid / endomorph",
+          shapeHourglass: "Hourglass",
+          shapePear: "Pear",
+          shapeApple: "Apple",
+          shapeRectangle: "Rectangle / column",
+          shapeSpoon: "Spoon (pear variant)",
+          shapeAthletic: "Athletic / even",
+          labelOutcomes: "Desired results (multi-select)",
+          outcomeStronger: "Stronger",
+          outcomeLeaner: "Leaner",
+          outcomeTone: "Tone / tighter",
+          outcomeBulk: "Bulk",
+          outcomeShred: "Shred",
+          outcomeLighter: "Lighter",
+          outcomePerformance: "Better performance",
+          outcomeEndurance: "Better endurance",
+          outcomeCurves: "More shape / curves",
+          outcomeVshape: "Wider shoulders / V-shape",
+          outcomeConfidence: "More confidence in the mirror",
+          outcomeNeedOne: "Pick at least one desired result.",
+          bmiHintOk: (bmi, adj) =>
+            adj != null && adj !== bmi
+              ? `BMI ${bmi} (from weight/height) · frame-adjusted ~${adj}. Editable if you know better.`
+              : `BMI ${bmi} (auto from weight/height). Edit if a scan says otherwise.`,
+          bmiHintManual: (bmi, auto) =>
+            `BMI ${bmi} (manually corrected${auto != null ? ` · auto was ${auto}` : ""}).`,
           healthWarnLowBmi:
             "BMI is under 18.5. The app does not encourage further fat loss — talk to a health professional.",
           healthWarnBlockGenerate:
@@ -1326,7 +1452,9 @@
           zoneGlutes: "Glutes",
           zoneThighs: "Thighs",
           zoneArms: "Arms",
-          zoneChest: "Chest / upper body",
+          zoneChest: "Chest",
+          zoneShoulders: "Shoulders / upper body",
+          zoneBack: "Back",
           zoneUpper: "Upper body / arms",
           zoneLower: "Glutes / legs",
           zonePosture: "Posture",
@@ -1389,8 +1517,8 @@
           coachDietMeat: "Lots of meat is fine for protein — balance with fiber/veg for fullness and recovery.",
           coachDietNote: (note) => `You noted: “${note}”. Let that drive concrete daily swaps.`,
           coachDietFocus: "Nutrition matters as much as training for making the goal image achievable.",
-          promptPreview: (goal, horizon, fat, muscle, zone, intensity) =>
-            `AI brief: ${horizon} · ${fat} · ${muscle} · ${zone} · ${intensity}${goal ? ` · <b>${goal}</b>` : ""}`,
+          promptPreview: (goal, horizon, fat, shape, zone, intensity, outcomes) =>
+            `AI brief: ${horizon} · ${fat} · ${shape} · ${zone}${outcomes ? ` · ${outcomes}` : ""} · ${intensity}${goal ? ` · <b>${goal}</b>` : ""}`,
           hintHorizon4w: "Effort is your choice — shorter time = gentler change in the image.",
           hintHorizon8w: "Effort is your choice — clearer mid-plan change in the image.",
           hintHorizon12w: "Effort is your choice — noticeably fitter, still realistic.",
@@ -1466,9 +1594,10 @@
           terraAuthSuccess: "Device connected via Terra",
           terraAuthFailure: "Terra connection was cancelled",
           onboardTitle: "Welcome",
-          onboardBody: "Choose language and units. You can change this anytime at the top right.",
+          onboardBody: "Choose language, units, and gender. You can change this later.",
           onboardLang: "Language",
           onboardUnits: "Units",
+          onboardGender: "Gender (for body shape)",
           onboardContinue: "Continue",
           goalTitleDefault: "Athletic shape",
           maalDefault: "",
@@ -1525,7 +1654,14 @@
         const lang = (navigator.language || "en").toLowerCase();
         const isNo = lang.startsWith("nb") || lang.startsWith("nn") || lang.startsWith("no");
         const isUs = lang.includes("-us") || (Intl.DateTimeFormat().resolvedOptions().locale || "").toLowerCase().includes("-us");
-        return { lang: isNo ? "no" : "en", units: isUs ? "us" : "metric", onboarded: false };
+        return {
+          lang: isNo ? "no" : "en",
+          units: isUs ? "us" : "metric",
+          gender: "unspecified",
+          frame: "average",
+          shape: "",
+          onboarded: false,
+        };
       }
 
       function loadPrefs() {
@@ -1617,6 +1753,9 @@
         }
         updatePromptPreview();
         syncCustomHorizonUi();
+        syncGenderChips();
+        syncFrameChips();
+        renderShapeChoices();
       }
 
       function daysFromNow(days) {
@@ -1752,22 +1891,87 @@
         );
       }
 
-      function getSelectedMuscle() {
+      function getSelectedGender() {
         return (
-          document.querySelector("#muscleChoices .choice.active")?.dataset.muscle ||
-          "toned"
+          document.querySelector("#genderChoices .choice.active")?.dataset.gender ||
+          prefs.gender ||
+          "unspecified"
         );
+      }
+
+      function getSelectedFrame() {
+        return (
+          document.querySelector("#frameChoices .choice.active")?.dataset.frame ||
+          prefs.frame ||
+          "average"
+        );
+      }
+
+      function getSelectedShape() {
+        return (
+          document.querySelector("#shapeChoices .choice.active")?.dataset.shape ||
+          prefs.shape ||
+          ""
+        );
+      }
+
+      function getSelectedOutcomes() {
+        const list = [...document.querySelectorAll("#outcomeChoices .choice.active")].map(
+          (b) => b.dataset.outcome
+        );
+        return list.length ? list : ["stronger"];
+      }
+
+      /** Derive legacy muscle style from outcome chips for prompts/coaching. */
+      function getSelectedMuscle() {
+        const outcomes = getSelectedOutcomes();
+        if (outcomes.includes("bulk") || outcomes.includes("vshape")) return "volume";
+        if (outcomes.includes("tone") || outcomes.includes("leaner") || outcomes.includes("shred")) {
+          return "toned";
+        }
+        return "toned";
       }
 
       function isMedicineOn() {
         return document.getElementById("toggleMedicine")?.classList.contains("active");
       }
 
-      function calcBmi() {
+      function frameBmiNudge(frame) {
+        if (frame === "narrow") return -0.5;
+        if (frame === "wide") return 0.5;
+        return 0;
+      }
+
+      function calcBmiAuto() {
         const cm = Number(document.getElementById("heightCm").value);
         const kg = Number(document.getElementById("weightKg").value);
         if (!cm || !kg || cm < 100) return null;
         return Math.round((kg / ((cm / 100) ** 2)) * 10) / 10;
+      }
+
+      function syncBmiFromHw({ force } = {}) {
+        const el = document.getElementById("bmiValue");
+        if (!el) return null;
+        const auto = calcBmiAuto();
+        if (auto == null) return null;
+        if (force || el.dataset.userLocked !== "1") {
+          el.value = String(auto);
+          el.dataset.userLocked = "0";
+        }
+        return auto;
+      }
+
+      function getBmiValue() {
+        const el = document.getElementById("bmiValue");
+        const typed = Number(el?.value);
+        if (Number.isFinite(typed) && typed > 0) return Math.round(typed * 10) / 10;
+        return calcBmiAuto();
+      }
+
+      function getAdjustedBmi() {
+        const bmi = getBmiValue();
+        if (bmi == null) return null;
+        return Math.round((bmi + frameBmiNudge(getSelectedFrame())) * 10) / 10;
       }
 
       /** Motivational planning only — not medical advice. */
@@ -1777,10 +1981,11 @@
         const intensity = document.getElementById("intensity").value;
         const medicine = isMedicineOn();
         const fat = getSelectedFat();
-        const bmi = calcBmi();
+        const bmi = getBmiValue();
+        const bmiAdj = getAdjustedBmi();
 
         if (!Number.isFinite(bfNow) || !Number.isFinite(bfGoal)) {
-          return { weeks: 12, date: daysFromNow(84), bmi, rateNote: "", maintain: false };
+          return { weeks: 12, date: daysFromNow(84), bmi, bmiAdj, rateNote: "", maintain: false };
         }
 
         const diff = Math.abs(bfNow - bfGoal);
@@ -1789,6 +1994,7 @@
             weeks: 0,
             date: new Date().toISOString().slice(0, 10),
             bmi,
+            bmiAdj,
             rateNote: t("bodyPlanMaintain"),
             maintain: true,
             diff,
@@ -1809,6 +2015,7 @@
           weeks,
           date: daysFromNow(weeks * 7),
           bmi,
+          bmiAdj,
           rateNote: medicine ? t("bodyPlanRateMedicine") : t("bodyPlanRateLifestyle"),
           maintain: false,
           diff,
@@ -1824,12 +2031,22 @@
         const medBtn = document.getElementById("toggleMedicine");
         if (!preview) return;
 
+        syncBmiFromHw();
         const plan = estimateBfPlan();
         medBtn.textContent = isMedicineOn() ? t("medicineOn") : t("medicineOff");
         medBtn.classList.toggle("active", isMedicineOn());
 
-        if (plan.bmi != null) bmiEl.textContent = t("bmiHintOk", plan.bmi);
-        else bmiEl.textContent = "";
+        const bmiInput = document.getElementById("bmiValue");
+        const auto = calcBmiAuto();
+        if (plan.bmi != null) {
+          if (bmiInput?.dataset.userLocked === "1") {
+            bmiEl.textContent = t("bmiHintManual", plan.bmi, auto);
+          } else {
+            bmiEl.textContent = t("bmiHintOk", plan.bmi, plan.bmiAdj);
+          }
+        } else {
+          bmiEl.textContent = "";
+        }
 
         const lowBmi = plan.bmi != null && plan.bmi < 18.5;
         const fatLoss = getSelectedFat() === "decrease";
@@ -1856,6 +2073,75 @@
           );
         }
         return plan;
+      }
+
+      function shapesForGender(gender) {
+        if (gender === "male") {
+          return [
+            { id: "ecto", labelKey: "shapeEcto" },
+            { id: "meso", labelKey: "shapeMeso" },
+            { id: "endo", labelKey: "shapeEndo" },
+          ];
+        }
+        if (gender === "female") {
+          return [
+            { id: "hourglass", labelKey: "shapeHourglass" },
+            { id: "pear", labelKey: "shapePear" },
+            { id: "apple", labelKey: "shapeApple" },
+            { id: "rectangle", labelKey: "shapeRectangle" },
+            { id: "spoon", labelKey: "shapeSpoon" },
+          ];
+        }
+        return [
+          { id: "athletic", labelKey: "shapeAthletic" },
+          { id: "ecto", labelKey: "shapeEcto" },
+          { id: "endo", labelKey: "shapeEndo" },
+          { id: "hourglass", labelKey: "shapeHourglass" },
+          { id: "pear", labelKey: "shapePear" },
+        ];
+      }
+
+      function renderShapeChoices() {
+        const host = document.getElementById("shapeChoices");
+        if (!host) return;
+        const gender = getSelectedGender();
+        const shapes = shapesForGender(gender);
+        const prev = getSelectedShape();
+        const keep = shapes.some((s) => s.id === prev) ? prev : shapes[0]?.id;
+        host.innerHTML = shapes
+          .map(
+            (s) =>
+              `<button type="button" class="choice${s.id === keep ? " active" : ""}" data-shape="${s.id}">${t(s.labelKey)}</button>`
+          )
+          .join("");
+        host.querySelectorAll(".choice").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            host.querySelectorAll(".choice").forEach((b) => b.classList.remove("active"));
+            btn.classList.add("active");
+            prefs.shape = btn.dataset.shape;
+            savePrefs();
+            updatePromptPreview();
+          });
+        });
+        prefs.shape = keep;
+        savePrefs();
+      }
+
+      function syncGenderChips() {
+        const g = prefs.gender || "unspecified";
+        document.querySelectorAll("#genderChoices .choice").forEach((btn) => {
+          btn.classList.toggle("active", btn.dataset.gender === g);
+        });
+        document.querySelectorAll("[data-onboard-gender]").forEach((btn) => {
+          btn.classList.toggle("active", btn.dataset.onboardGender === g);
+        });
+      }
+
+      function syncFrameChips() {
+        const f = prefs.frame || "average";
+        document.querySelectorAll("#frameChoices .choice").forEach((btn) => {
+          btn.classList.toggle("active", btn.dataset.frame === f);
+        });
       }
 
       function getSelectedTrains() {
@@ -1907,7 +2193,14 @@
         if (trains.includes("hiit") || intensity === "strong") trainTips.push(t("coachTrainHiit"));
 
         if (zones.includes("abs")) trainTips.push(t("coachTrainZoneAbs"));
-        if (zones.includes("arms") || zones.includes("chest")) trainTips.push(t("coachTrainZoneUpper"));
+        if (
+          zones.includes("arms") ||
+          zones.includes("chest") ||
+          zones.includes("shoulders") ||
+          zones.includes("back")
+        ) {
+          trainTips.push(t("coachTrainZoneUpper"));
+        }
         if (zones.includes("glutes") || zones.includes("thighs")) trainTips.push(t("coachTrainZoneLower"));
         if (zones.includes("posture") || trains.includes("yoga")) trainTips.push(t("coachTrainZonePosture"));
         if (trains.includes("walking") || fat === "decrease") trainTips.push(t("coachTrainWalking"));
@@ -2037,6 +2330,8 @@
           thighs: t("zoneThighs"),
           arms: t("zoneArms"),
           chest: t("zoneChest"),
+          shoulders: t("zoneShoulders"),
+          back: t("zoneBack"),
           upper: t("zoneUpper"),
           lower: t("zoneLower"),
           posture: t("zonePosture"),
@@ -2057,12 +2352,40 @@
         return map[fat] || map.decrease;
       }
 
-      function muscleLabel(muscle) {
+      function shapeLabel(shape) {
         const map = {
-          toned: t("muscleToned"),
-          volume: t("muscleVolume"),
+          ecto: t("shapeEcto"),
+          meso: t("shapeMeso"),
+          endo: t("shapeEndo"),
+          hourglass: t("shapeHourglass"),
+          pear: t("shapePear"),
+          apple: t("shapeApple"),
+          rectangle: t("shapeRectangle"),
+          spoon: t("shapeSpoon"),
+          athletic: t("shapeAthletic"),
         };
-        return map[muscle] || map.toned;
+        return map[shape] || t("labelShape");
+      }
+
+      function outcomeLabel(outcome) {
+        const map = {
+          stronger: t("outcomeStronger"),
+          leaner: t("outcomeLeaner"),
+          tone: t("outcomeTone"),
+          bulk: t("outcomeBulk"),
+          shred: t("outcomeShred"),
+          lighter: t("outcomeLighter"),
+          performance: t("outcomePerformance"),
+          endurance: t("outcomeEndurance"),
+          curves: t("outcomeCurves"),
+          vshape: t("outcomeVshape"),
+          confidence: t("outcomeConfidence"),
+        };
+        return map[outcome] || outcome;
+      }
+
+      function outcomesLabel(outcomes) {
+        return (outcomes || []).map(outcomeLabel).join(", ");
       }
 
       function intensityLabel(value) {
@@ -2080,9 +2403,10 @@
           maal,
           horizonLabel(getSelectedHorizon()),
           fatLabel(getSelectedFat()),
-          muscleLabel(getSelectedMuscle()),
+          shapeLabel(getSelectedShape()),
           zonesLabel(getSelectedZones()),
-          intensityLabel(document.getElementById("intensity").value)
+          intensityLabel(document.getElementById("intensity").value),
+          outcomesLabel(getSelectedOutcomes())
         );
         updateBodyPlanPreview();
       }
@@ -2296,8 +2620,21 @@
           applyI18n();
         });
       });
+      document.querySelectorAll("[data-onboard-gender]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          prefs.gender = btn.dataset.onboardGender;
+          savePrefs();
+          syncGenderChips();
+          renderShapeChoices();
+          applyI18n();
+        });
+      });
       document.getElementById("onboardContinue").addEventListener("click", () => {
         prefs.onboarded = true;
+        prefs.gender =
+          document.querySelector("[data-onboard-gender].active")?.dataset.onboardGender ||
+          prefs.gender ||
+          "unspecified";
         savePrefs();
         document.getElementById("onboard").hidden = true;
         applyI18n();
@@ -2349,8 +2686,17 @@
       }
 
       bindChoiceGroup("#fatChoices .choice");
-      bindChoiceGroup("#muscleChoices .choice");
       bindChoiceGroup("#dietChoices .choice");
+      bindChoiceGroup("#frameChoices .choice", (btn) => {
+        prefs.frame = btn.dataset.frame;
+        savePrefs();
+      });
+      bindChoiceGroup("#genderChoices .choice", (btn) => {
+        prefs.gender = btn.dataset.gender;
+        savePrefs();
+        syncGenderChips();
+        renderShapeChoices();
+      });
       bindChoiceGroup("#intensityChoices .choice", (btn) => {
         setIntensityValue(btn.dataset.intensity, { lock: true });
       });
@@ -2359,6 +2705,14 @@
         btn.addEventListener("click", () => {
           btn.classList.toggle("active");
           if (!getSelectedZones().length) btn.classList.add("active");
+          updatePromptPreview();
+        });
+      });
+
+      document.querySelectorAll("#outcomeChoices .choice").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          btn.classList.toggle("active");
+          if (!getSelectedOutcomes().length) btn.classList.add("active");
           updatePromptPreview();
         });
       });
@@ -2390,9 +2744,20 @@
         showToast(t("btnApplyBfDate") + ": " + plan.date);
       });
 
-      ["dietNote", "futureKcal", "futureProtein", "bfNow", "bfGoal", "heightCm", "weightKg"].forEach(
+      ["dietNote", "futureKcal", "futureProtein", "bfNow", "bfGoal"].forEach(
         (id) => document.getElementById(id).addEventListener("input", updatePromptPreview)
       );
+      ["heightCm", "weightKg"].forEach((id) => {
+        document.getElementById(id).addEventListener("input", () => {
+          document.getElementById("bmiValue").dataset.userLocked = "0";
+          syncBmiFromHw({ force: true });
+          updatePromptPreview();
+        });
+      });
+      document.getElementById("bmiValue").addEventListener("input", () => {
+        document.getElementById("bmiValue").dataset.userLocked = "1";
+        updatePromptPreview();
+      });
 
       document.querySelectorAll(".tab").forEach((tab) => {
         tab.addEventListener("click", () => {
@@ -2457,6 +2822,10 @@
         const zones = getSelectedZones();
         const fat = getSelectedFat();
         const muscle = getSelectedMuscle();
+        const gender = getSelectedGender();
+        const frame = getSelectedFrame();
+        const shape = getSelectedShape();
+        const outcomes = getSelectedOutcomes();
         const { goal, pace } = renderPace();
         const { horizonDate, occasionLabel } = getCustomHorizonMeta();
         const plan = updateBodyPlanPreview();
@@ -2469,6 +2838,11 @@
         }
         if (!zones.length) {
           statusEl.textContent = t("zoneNeedOne");
+          statusEl.className = "status error";
+          return;
+        }
+        if (!outcomes.length) {
+          statusEl.textContent = t("outcomeNeedOne");
           statusEl.className = "status error";
           return;
         }
@@ -2509,6 +2883,12 @@
               zones,
               fat,
               muscle,
+              gender,
+              frame,
+              shape,
+              outcomes,
+              bmi: plan?.bmi ?? null,
+              bmiAdjusted: plan?.bmiAdj ?? null,
               bfNow: Number(document.getElementById("bfNow").value),
               bfGoal: Number(document.getElementById("bfGoal").value),
               medicine: isMedicineOn(),

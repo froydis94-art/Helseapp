@@ -31,6 +31,17 @@ async function handler(req, res) {
           .filter(Boolean);
     const fat = String(req.body?.fat || "decrease").trim();
     const muscle = String(req.body?.muscle || "toned").trim();
+    const gender = String(req.body?.gender || "").trim();
+    const frame = String(req.body?.frame || "average").trim();
+    const shape = String(req.body?.shape || "").trim();
+    const outcomes = Array.isArray(req.body?.outcomes)
+      ? req.body.outcomes.map(String)
+      : String(req.body?.outcomes || "")
+          .split(",")
+          .map((z) => z.trim())
+          .filter(Boolean);
+    const bmi = req.body?.bmi;
+    const bmiAdjusted = req.body?.bmiAdjusted;
     const bfNow = req.body?.bfNow;
     const bfGoal = req.body?.bfGoal;
     const medicine = Boolean(req.body?.medicine);
@@ -65,6 +76,12 @@ async function handler(req, res) {
       zones: zones.length ? zones : zone ? [zone] : [],
       fat,
       muscle,
+      gender,
+      frame,
+      shape,
+      outcomes,
+      bmi,
+      bmiAdjusted,
       bfNow,
       bfGoal,
       medicine,
