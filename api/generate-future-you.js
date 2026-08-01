@@ -95,7 +95,7 @@ async function handler(req, res) {
       ok: true,
       ...generated,
       disclaimer:
-        "Motivational visualization only — not a medical prediction of your body.",
+        "Realistic motivational visualization from your parameters (especially body-fat %) — not a medical prediction or flattering ideal.",
     });
   } catch (error) {
     console.error("[generate-future-you]", error);

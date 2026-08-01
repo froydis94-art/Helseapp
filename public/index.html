@@ -175,7 +175,41 @@
         font-size: 1.15rem;
         margin: 8px 0 4px;
       }
-      .hint { color: var(--muted); font-size: 0.84rem; line-height: 1.5; margin: 0 0 8px; }
+      .smart-warn {
+        display: none;
+        margin-top: 10px;
+        padding: 12px 14px;
+        border-radius: 12px;
+        border: 1px solid rgba(227, 161, 92, 0.45);
+        background: rgba(227, 161, 92, 0.12);
+        color: #f0d2a8;
+        font-size: 0.84rem;
+        line-height: 1.45;
+      }
+      .smart-warn.open { display: block; }
+      .smart-warn b { color: #ffd9a8; }
+      .smart-warn-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 10px;
+      }
+      .smart-warn-actions button {
+        border: 1px solid rgba(227, 161, 92, 0.5);
+        background: rgba(0,0,0,0.25);
+        color: #ffd9a8;
+        font-family: inherit;
+        font-size: 0.78rem;
+        font-weight: 700;
+        padding: 7px 10px;
+        border-radius: 999px;
+        cursor: pointer;
+      }
+      .smart-warn-actions button.primary-soft {
+        background: rgba(227, 161, 92, 0.28);
+        color: #10140f;
+        border-color: transparent;
+      }
 
       label { display: block; margin-top: 14px; font-size: 0.84rem; color: var(--muted); }
       input, select {
@@ -806,6 +840,10 @@
           </div>
           <p class="hint" id="bmiHint"></p>
           <p class="hint" id="healthWarn" hidden style="color:var(--warn)"></p>
+          <div class="smart-warn" id="paramConflict" role="status" aria-live="polite">
+            <div id="paramConflictText"></div>
+            <div class="smart-warn-actions" id="paramConflictActions"></div>
+          </div>
         </div>
 
         <div class="choice-block">
@@ -838,6 +876,9 @@
         <p class="hint" id="intensityHint"></p>
 
         <div class="prompt-preview" id="promptPreview"></div>
+        <p class="hint" data-i18n="realismDisclaimer">
+          Målbildet er en realistisk visualisering ut fra parametrene dine — ikke en «perfekt» atletisk flattering. Fett-% styrer utseendet.
+        </p>
 
         <label>
           <span data-i18n="labelSourceImage">Utgangsbilde</span>
@@ -858,6 +899,9 @@
           <div>
             <p class="shot-label" data-i18n="labelGoalImage">Målbilde</p>
             <img id="after" alt="" />
+            <p class="hint" data-i18n="goalImageRealismNote" style="margin-top:8px">
+              Realistisk estimat ut fra fett-%, fasong og fokus — ikke medisinsk prediksjon.
+            </p>
           </div>
         </div>
 
@@ -1280,6 +1324,19 @@
             "BMI er under 18,5. Appen oppmuntrer ikke til ytterligere fettnedgang — snakk med helsepersonell.",
           healthWarnBlockGenerate:
             "Kan ikke generere målbilde for ytterligere fettnedgang mens BMI er under normalvekt. Juster målet eller snakk med fagperson.",
+          paramConflictLean: (bf, goals) =>
+            `Merk: ${bf}% fett gir en rundere og mykere kroppsform, mens profilen din peker mot «${goals}». AI følger fett-% for realistisk utseende — eller juster retning/mål.`,
+          paramConflictShape: (bf, shape) =>
+            `Merk: ${bf}% fett og kroppsfasong «${shape}» kan se motstridende ut. Vi beholder skjelettfasongen, men mykere vev må øke med fett-% — ikke shredded V-form.`,
+          paramConflictMedicine:
+            "Slankemedisin passer ikke med økt fett-% — AI ignorerer medisinmodus for dette bildet.",
+          paramConflictFixDecrease: "Bytt til Minske",
+          paramConflictFixKeepFat: "Behold fett-% (realistisk)",
+          paramConflictFixEditProfile: "Rediger profilmål",
+          realismDisclaimer:
+            "Målbildet er en realistisk visualisering ut fra parametrene dine — ikke en «perfekt» atletisk flattering. Fett-% styrer utseendet.",
+          goalImageRealismNote:
+            "Realistisk estimat ut fra fett-%, fasong og fokus — ikke medisinsk prediksjon.",
           zoneNeedOne: "Velg minst én kroppsdel.",
           labelMuscle: "Muskelstruktur",
           muscleToned: "Slank / tonet",
@@ -1355,8 +1412,8 @@
           coachDietMeat: "Mye kjøtt er ok for protein — balansér med fiber/grønnsaker for metthet og restitusjon.",
           coachDietNote: (note) => `Du skrev: «${note}». La det styre konkrete bytter i hverdagen.`,
           coachDietFocus: "Kosthold er like viktig som trening for at målbildet skal bli realistisk å nå.",
-          promptPreview: (goal, horizon, fat, shape, zone, intensity, outcomes) =>
-            `AI-brief: ${horizon} · ${fat} · ${shape} · ${zone}${outcomes ? ` · ${outcomes}` : ""} · ${intensity}${goal ? ` · <b>${goal}</b>` : ""}`,
+          promptPreview: (goal, horizon, fat, shape, zone, intensity, outcomes, bfLine) =>
+            `AI-brief: ${horizon} · ${fat}${bfLine ? ` · ${bfLine}` : ""} · ${shape} · ${zone}${outcomes ? ` · ${outcomes}` : ""} · ${intensity}${goal ? ` · <b>${goal}</b>` : ""}`,
           hintHorizon4w: "Innsats er ditt valg — kortere tid = mer forsiktig endring i bildet.",
           hintHorizon8w: "Innsats er ditt valg — tydeligere midtveis-endring i bildet.",
           hintHorizon12w: "Innsats er ditt valg — merkbart fittere, fortsatt realistisk.",
@@ -1615,6 +1672,19 @@
             "BMI is under 18.5. The app does not encourage further fat loss — talk to a health professional.",
           healthWarnBlockGenerate:
             "Cannot generate a further fat-loss goal image while BMI is under normal range. Adjust the goal or talk to a professional.",
+          paramConflictLean: (bf, goals) =>
+            `Note: ${bf}% body fat looks softer/rounder, but your profile goals say «${goals}». AI follows body-fat % for realism — or adjust direction/goals.`,
+          paramConflictShape: (bf, shape) =>
+            `Note: ${bf}% body fat with shape «${shape}» can conflict. We keep bone structure, but soft tissue must rise with body-fat % — not a shredded V-taper.`,
+          paramConflictMedicine:
+            "Weight-loss meds don’t fit an increased body-fat goal — AI ignores meds mode for this image.",
+          paramConflictFixDecrease: "Switch to Decrease",
+          paramConflictFixKeepFat: "Keep body-fat % (realistic)",
+          paramConflictFixEditProfile: "Edit profile goals",
+          realismDisclaimer:
+            "The goal image is a realistic visualization from your parameters — not flattering “perfect athlete” fiction. Body-fat % drives appearance.",
+          goalImageRealismNote:
+            "Realistic estimate from body-fat %, shape and focus — not a medical prediction.",
           zoneNeedOne: "Pick at least one body zone.",
           labelMuscle: "Muscle style",
           muscleToned: "Lean / toned",
@@ -1690,8 +1760,8 @@
           coachDietMeat: "Lots of meat is fine for protein — balance with fiber/veg for fullness and recovery.",
           coachDietNote: (note) => `You noted: “${note}”. Let that drive concrete daily swaps.`,
           coachDietFocus: "Nutrition matters as much as training for making the goal image achievable.",
-          promptPreview: (goal, horizon, fat, shape, zone, intensity, outcomes) =>
-            `AI brief: ${horizon} · ${fat} · ${shape} · ${zone}${outcomes ? ` · ${outcomes}` : ""} · ${intensity}${goal ? ` · <b>${goal}</b>` : ""}`,
+          promptPreview: (goal, horizon, fat, shape, zone, intensity, outcomes, bfLine) =>
+            `AI brief: ${horizon} · ${fat}${bfLine ? ` · ${bfLine}` : ""} · ${shape} · ${zone}${outcomes ? ` · ${outcomes}` : ""} · ${intensity}${goal ? ` · <b>${goal}</b>` : ""}`,
           hintHorizon4w: "Effort is your choice — shorter time = gentler change in the image.",
           hintHorizon8w: "Effort is your choice — clearer mid-plan change in the image.",
           hintHorizon12w: "Effort is your choice — noticeably fitter, still realistic.",
@@ -2139,6 +2209,121 @@
         return list.length ? list : ["stronger"];
       }
 
+      const LEAN_OUTCOME_IDS = new Set([
+        "leaner",
+        "shred",
+        "lighter",
+        "flatMid",
+        "endurance",
+        "tone",
+      ]);
+
+      /** Match server: body-fat % wins over conflicting profile goals. */
+      function getEffectiveOutcomes() {
+        let list = getSelectedOutcomes();
+        const fat = getSelectedFat();
+        const bfNow = Number(document.getElementById("bfNow")?.value);
+        const bfGoal = Number(document.getElementById("bfGoal")?.value);
+        const raising =
+          fat === "increase" ||
+          (Number.isFinite(bfGoal) && Number.isFinite(bfNow) && bfGoal > bfNow + 1);
+        const highFat = Number.isFinite(bfGoal) && bfGoal >= 28;
+        if (raising || highFat) {
+          list = list.filter((o) => !LEAN_OUTCOME_IDS.has(o));
+          if (!list.length) list = ["stronger", "health"];
+        }
+        return list;
+      }
+
+      function updateParamConflictHint() {
+        const box = document.getElementById("paramConflict");
+        const textEl = document.getElementById("paramConflictText");
+        const actions = document.getElementById("paramConflictActions");
+        if (!box || !textEl || !actions) return;
+
+        const fat = getSelectedFat();
+        const bfNow = Number(document.getElementById("bfNow")?.value);
+        const bfGoal = Number(document.getElementById("bfGoal")?.value);
+        const raw = getSelectedOutcomes();
+        const shape = getSelectedShape();
+        const raising =
+          fat === "increase" ||
+          (Number.isFinite(bfGoal) && Number.isFinite(bfNow) && bfGoal > bfNow + 1);
+        const highFat = Number.isFinite(bfGoal) && bfGoal > 30;
+        const leanClash =
+          (raising || highFat) && raw.some((o) => LEAN_OUTCOME_IDS.has(o));
+        const shapeClash =
+          (raising || highFat) && (shape === "meso" || shape === "athletic" || shape === "ecto");
+        const medClash = fat === "increase" && isMedicineOn();
+
+        const showActions = (mode) => {
+          actions.innerHTML = "";
+          const addBtn = (label, className, onClick) => {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.textContent = label;
+            if (className) btn.className = className;
+            btn.addEventListener("click", onClick);
+            actions.appendChild(btn);
+          };
+          if (mode === "lean" || mode === "shape") {
+            addBtn(t("paramConflictFixDecrease"), "primary-soft", () => {
+              document
+                .querySelectorAll("#fatChoices .choice")
+                .forEach((b) => b.classList.remove("active"));
+              document
+                .querySelector('#fatChoices .choice[data-fat="decrease"]')
+                ?.classList.add("active");
+              updatePromptPreview();
+            });
+            addBtn(t("paramConflictFixKeepFat"), "", () => {
+              box.classList.remove("open");
+              box.dataset.dismissed = `${fat}:${bfGoal}`;
+            });
+            addBtn(t("paramConflictFixEditProfile"), "", () => {
+              if (typeof openProfileEditor === "function") openProfileEditor();
+              else document.getElementById("editProfileBtn")?.click();
+            });
+          }
+        };
+
+        const dismissedKey = `${fat}:${bfGoal}`;
+        if (box.dataset.dismissed === dismissedKey && !leanClash && !medClash) {
+          box.classList.remove("open");
+          return;
+        }
+
+        if (leanClash) {
+          const clashGoals = raw
+            .filter((o) => LEAN_OUTCOME_IDS.has(o))
+            .map(outcomeLabel)
+            .join(", ");
+          textEl.textContent = t(
+            "paramConflictLean",
+            Number.isFinite(bfGoal) ? bfGoal : "–",
+            clashGoals || shapeLabel(shape)
+          );
+          box.classList.add("open");
+          showActions("lean");
+        } else if (shapeClash) {
+          textEl.textContent = t(
+            "paramConflictShape",
+            Number.isFinite(bfGoal) ? bfGoal : "–",
+            shapeLabel(shape)
+          );
+          box.classList.add("open");
+          showActions("shape");
+        } else if (medClash) {
+          textEl.textContent = t("paramConflictMedicine");
+          box.classList.add("open");
+          actions.innerHTML = "";
+        } else {
+          box.classList.remove("open");
+          textEl.textContent = "";
+          actions.innerHTML = "";
+        }
+      }
+
       /** Derive legacy muscle style from outcome chips for prompts/coaching. */
       function getSelectedMuscle() {
         const outcomes = getSelectedOutcomes();
@@ -2299,6 +2484,7 @@
           warn.hidden = true;
           warn.textContent = "";
         }
+        updateParamConflictHint();
 
         if (plan.maintain) {
           preview.innerHTML = t("bodyPlanMaintain");
@@ -2910,6 +3096,18 @@
         const preview = document.getElementById("promptPreview");
         if (!preview) return;
         const maal = document.getElementById("maal").value.trim();
+        const bfNow = Number(document.getElementById("bfNow")?.value);
+        const bfGoal = Number(document.getElementById("bfGoal")?.value);
+        const bfLine =
+          Number.isFinite(bfNow) && Number.isFinite(bfGoal)
+            ? `${bfNow}% → ${bfGoal}%`
+            : "";
+        const effective = getEffectiveOutcomes();
+        const raw = getSelectedOutcomes();
+        const dropped = raw.filter((o) => !effective.includes(o));
+        const outcomeText = dropped.length
+          ? `${outcomesLabel(effective)} (${dropped.map(outcomeLabel).join(", ")} overstyrt av fett-%)`
+          : outcomesLabel(effective);
         preview.innerHTML = t(
           "promptPreview",
           maal,
@@ -2918,7 +3116,8 @@
           shapeLabel(getSelectedShape()),
           zonesLabel(getSelectedZones()),
           intensityLabel(document.getElementById("intensity").value),
-          outcomesLabel(getSelectedOutcomes())
+          outcomeText,
+          bfLine
         );
         updateBodyPlanPreview();
       }
@@ -3357,7 +3556,7 @@
         const gender = getSelectedGender();
         const frame = getSelectedFrame();
         const shape = getSelectedShape();
-        const outcomes = getSelectedOutcomes();
+        const outcomes = getEffectiveOutcomes();
         const { goal, pace } = renderPace();
         const { horizonDate, occasionLabel } = getCustomHorizonMeta();
         const plan = updateBodyPlanPreview();
@@ -3423,7 +3622,7 @@
               bmiAdjusted: plan?.bmiAdj ?? null,
               bfNow: Number(document.getElementById("bfNow").value),
               bfGoal: Number(document.getElementById("bfGoal").value),
-              medicine: isMedicineOn(),
+              medicine: getSelectedFat() === "decrease" && isMedicineOn(),
               paceLabel: pace?.label || "",
               goalTitle: goal?.title || "",
               horizonDate: horizon === "custom" ? horizonDate : "",
