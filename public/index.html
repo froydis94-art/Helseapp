@@ -1326,12 +1326,15 @@
             "Kan ikke generere målbilde for ytterligere fettnedgang mens BMI er under normalvekt. Juster målet eller snakk med fagperson.",
           paramConflictLean: (bf, goals) =>
             `Merk: ${bf}% fett gir en rundere og mykere kroppsform, mens profilen din peker mot «${goals}». AI følger fett-% for realistisk utseende — eller juster retning/mål.`,
+          paramConflictSoftLean: (bf, goals) =>
+            `Merk: Ved ${bf}% fett blir «${goals}» mer mykt atletisk enn shredded/contest-lean. AI følger fett-% — ikke forvent hard shredded look.`,
           paramConflictShape: (bf, shape) =>
             `Merk: ${bf}% fett og kroppsfasong «${shape}» kan se motstridende ut. Vi beholder skjelettfasongen, men mykere vev må øke med fett-% — ikke shredded V-form.`,
           paramConflictMedicine:
             "Slankemedisin passer ikke med økt fett-% — AI ignorerer medisinmodus for dette bildet.",
           paramConflictFixDecrease: "Bytt til Minske",
           paramConflictFixKeepFat: "Behold fett-% (realistisk)",
+          paramConflictFixDropLean: "Fjern shred/slank-mål",
           paramConflictFixEditProfile: "Rediger profilmål",
           realismDisclaimer:
             "Målbildet er en realistisk visualisering ut fra parametrene dine — ikke en «perfekt» atletisk flattering. Fett-% styrer utseendet.",
@@ -1679,12 +1682,15 @@
             "Cannot generate a further fat-loss goal image while BMI is under normal range. Adjust the goal or talk to a professional.",
           paramConflictLean: (bf, goals) =>
             `Note: ${bf}% body fat looks softer/rounder, but your profile goals say «${goals}». AI follows body-fat % for realism — or adjust direction/goals.`,
+          paramConflictSoftLean: (bf, goals) =>
+            `Note: At ${bf}% body fat, «${goals}» reads soft-athletic — not contest shredded. AI follows body-fat % for realism.`,
           paramConflictShape: (bf, shape) =>
             `Note: ${bf}% body fat with shape «${shape}» can conflict. We keep bone structure, but soft tissue must rise with body-fat % — not a shredded V-taper.`,
           paramConflictMedicine:
             "Weight-loss meds don’t fit an increased body-fat goal — AI ignores meds mode for this image.",
           paramConflictFixDecrease: "Switch to Decrease",
           paramConflictFixKeepFat: "Keep body-fat % (realistic)",
+          paramConflictFixDropLean: "Drop shred/lean goals",
           paramConflictFixEditProfile: "Edit profile goals",
           realismDisclaimer:
             "The goal image is a realistic visualization from your parameters — not flattering “perfect athlete” fiction. Body-fat % drives appearance.",
@@ -2258,12 +2264,28 @@
         const raising =
           fat === "increase" ||
           (Number.isFinite(bfGoal) && Number.isFinite(bfNow) && bfGoal > bfNow + 1);
-        const highFat = Number.isFinite(bfGoal) && bfGoal > 30;
+        // Align with server: high BF ≥28 blocks shredded/lean expectations.
+        const highFat = Number.isFinite(bfGoal) && bfGoal >= 28;
+        const softHighFat =
+          Number.isFinite(bfGoal) && bfGoal >= 25 && bfGoal < 28;
         const leanClash =
           (raising || highFat) && raw.some((o) => LEAN_OUTCOME_IDS.has(o));
+        const softLeanClash =
+          !leanClash &&
+          softHighFat &&
+          raw.some((o) => o === "shred" || o === "leaner" || o === "flatMid");
         const shapeClash =
-          (raising || highFat) && (shape === "meso" || shape === "athletic" || shape === "ecto");
+          (raising || highFat) &&
+          (shape === "meso" || shape === "athletic" || shape === "ecto");
         const medClash = fat === "increase" && isMedicineOn();
+
+        const dropLeanOutcomes = () => {
+          const next = raw.filter((o) => !LEAN_OUTCOME_IDS.has(o));
+          prefs.outcomes = next.length ? next : ["stronger", "health"];
+          savePrefs();
+          box.dataset.dismissed = "";
+          updatePromptPreview();
+        };
 
         const showActions = (mode) => {
           actions.innerHTML = "";
@@ -2275,19 +2297,28 @@
             btn.addEventListener("click", onClick);
             actions.appendChild(btn);
           };
-          if (mode === "lean" || mode === "shape") {
-            addBtn(t("paramConflictFixDecrease"), "primary-soft", () => {
-              document
-                .querySelectorAll("#fatChoices .choice")
-                .forEach((b) => b.classList.remove("active"));
-              document
-                .querySelector('#fatChoices .choice[data-fat="decrease"]')
-                ?.classList.add("active");
-              updatePromptPreview();
-            });
+          if (mode === "lean" || mode === "shape" || mode === "softLean") {
+            if (mode === "lean" || mode === "softLean") {
+              addBtn(t("paramConflictFixDropLean"), "primary-soft", dropLeanOutcomes);
+            }
+            if (raising || highFat) {
+              addBtn(t("paramConflictFixDecrease"), "primary-soft", () => {
+                document
+                  .querySelectorAll("#fatChoices .choice")
+                  .forEach((b) => b.classList.remove("active"));
+                document
+                  .querySelector('#fatChoices .choice[data-fat="decrease"]')
+                  ?.classList.add("active");
+                updatePromptPreview();
+              });
+            }
             addBtn(t("paramConflictFixKeepFat"), "", () => {
-              box.classList.remove("open");
-              box.dataset.dismissed = `${fat}:${bfGoal}`;
+              // Soft-adjust: keep BF target but drop illogical lean/shred goals.
+              if (mode === "lean") dropLeanOutcomes();
+              else {
+                box.classList.remove("open");
+                box.dataset.dismissed = `${fat}:${bfGoal}:${mode}`;
+              }
             });
             addBtn(t("paramConflictFixEditProfile"), "", () => {
               openOnboard({ edit: true });
@@ -2296,7 +2327,13 @@
         };
 
         const dismissedKey = `${fat}:${bfGoal}`;
-        if (box.dataset.dismissed === dismissedKey && !leanClash && !medClash) {
+        const dismissed = box.dataset.dismissed || "";
+        if (
+          (dismissed === dismissedKey ||
+            dismissed.startsWith(`${dismissedKey}:`)) &&
+          !leanClash &&
+          !medClash
+        ) {
           box.classList.remove("open");
           return;
         }
@@ -2313,6 +2350,18 @@
           );
           box.classList.add("open");
           showActions("lean");
+        } else if (softLeanClash) {
+          const clashGoals = raw
+            .filter((o) => o === "shred" || o === "leaner" || o === "flatMid")
+            .map(outcomeLabel)
+            .join(", ");
+          textEl.textContent = t(
+            "paramConflictSoftLean",
+            Number.isFinite(bfGoal) ? bfGoal : "–",
+            clashGoals
+          );
+          box.classList.add("open");
+          showActions("softLean");
         } else if (shapeClash) {
           textEl.textContent = t(
             "paramConflictShape",
