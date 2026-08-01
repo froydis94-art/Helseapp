@@ -266,6 +266,13 @@
         color: var(--muted);
         margin-bottom: 8px;
       }
+      .horizon-progress-hint {
+        margin: 8px 0 0;
+        font-size: 0.78rem;
+        line-height: 1.35;
+        color: var(--muted);
+        opacity: 0.9;
+      }
       .choices {
         display: flex;
         flex-wrap: wrap;
@@ -793,6 +800,7 @@
             <button type="button" class="choice" data-horizon="24w" data-i18n="horizon24w">Om 6 måneder</button>
             <button type="button" class="choice" data-horizon="12m" data-i18n="horizon12m">Om 12 måneder</button>
           </div>
+          <p class="horizon-progress-hint" data-i18n="horizonProgressHint">Tidlig synlig endring er raskest; deretter avtar tempoet mot målet.</p>
           <!-- Custom date kept in DOM for apply-bf-date / API compat; not shown in main ladder -->
           <div class="custom-horizon" id="customHorizonFields" hidden>
             <label>
@@ -1418,11 +1426,12 @@
             `AI-brief: ${horizon} · ${fat}${bfLine ? ` · ${bfLine}` : ""} · ${shape} · ${zone}${outcomes ? ` · ${outcomes}` : ""} · ${intensity}${goal ? ` · <b>${goal}</b>` : ""}`,
           hintHorizon4w: "Innsats er ditt valg — kortere tid = mer forsiktig endring i bildet.",
           hintHorizon8w: "Innsats er ditt valg — tydeligere midtveis-endring i bildet.",
-          hintHorizon12w: "Innsats er ditt valg — synlig baseline-endring (~3 mnd trening).",
-          hintHorizon24w: "Innsats er ditt valg — omtrent dobbelt så stor endring som 3 mnd.",
-          hintHorizon12m: "Innsats er ditt valg — mest dramatisk trinn (~2× 6 mnd), fortsatt fotorealistisk.",
-          hintHorizon18m: "Innsats er ditt valg — mest dramatisk trinn (~2× 6 mnd), fortsatt fotorealistisk.",
+          hintHorizon12w: "Innsats er ditt valg — synlig baseline (~halve reisen på 3 mnd).",
+          hintHorizon24w: "Innsats er ditt valg — videre mot målet; endringen avtar litt etter tidlig fase.",
+          hintHorizon12m: "Innsats er ditt valg — nær målet, finpuss (ikke 4× mer dramatikk).",
+          hintHorizon18m: "Innsats er ditt valg — nær målet, finpuss (ikke 4× mer dramatikk).",
           hintHorizonCustom: "Innsats er ditt valg — tilpasset din anledning.",
+          horizonProgressHint: "Tidlig synlig endring er raskest; deretter avtar tempoet mot målet.",
           hintBehind: "Tips: høyere innsats hjelper når aktivitet/kost er bak — men du velger selv.",
           hintAhead: "Tips: du er foran planen — du kan fortsatt velge høy innsats om du vil se mer endring.",
           hintOnTrack: "Tips: du er i rute — velg innsats ut fra hvor motiverende målbildet skal være.",
@@ -1785,11 +1794,12 @@
             `AI brief: ${horizon} · ${fat}${bfLine ? ` · ${bfLine}` : ""} · ${shape} · ${zone}${outcomes ? ` · ${outcomes}` : ""} · ${intensity}${goal ? ` · <b>${goal}</b>` : ""}`,
           hintHorizon4w: "Effort is your choice — shorter time = gentler change in the image.",
           hintHorizon8w: "Effort is your choice — clearer mid-plan change in the image.",
-          hintHorizon12w: "Effort is your choice — visible baseline change (~3 months training).",
-          hintHorizon24w: "Effort is your choice — roughly twice the change of 3 months.",
-          hintHorizon12m: "Effort is your choice — most dramatic step (~2× 6 months), still photoreal.",
-          hintHorizon18m: "Effort is your choice — most dramatic step (~2× 6 months), still photoreal.",
+          hintHorizon12w: "Effort is your choice — visible baseline (~half the journey by 3 months).",
+          hintHorizon24w: "Effort is your choice — further toward the goal; change slows after the early phase.",
+          hintHorizon12m: "Effort is your choice — near-goal polish (not 4× more drama).",
+          hintHorizon18m: "Effort is your choice — near-goal polish (not 4× more drama).",
           hintHorizonCustom: "Effort is your choice — tailored to your occasion.",
+          horizonProgressHint: "Visible change is fastest early; then progress slows toward the goal.",
           labelSourceImage: "Source photo",
           btnGenerate: "Generate visualization",
           btnSyncPace: "Pull motivation text from Pace",
