@@ -3664,7 +3664,7 @@
           const sec = Math.round((Date.now() - startedAt) / 1000);
           statusEl.textContent = t("generatingWait", sec);
         }, 1000);
-        const timeoutMs = 100000;
+        const timeoutMs = 170000;
         const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
         try {

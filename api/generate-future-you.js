@@ -111,7 +111,7 @@ handler.config = {
       sizeLimit: "10mb",
     },
   },
-  maxDuration: 120,
+  maxDuration: 180,
 };
 
 module.exports = handler;
