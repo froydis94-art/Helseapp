@@ -1576,6 +1576,11 @@
           toastPaceUpdated: "Motivasjonstekst oppdatert",
           needImageGoal: "Velg bilde først.",
           generating: "Genererer via Replicate… dette kan ta 20–60 sek.",
+          generatingWait: (sec) => `Genererer… ${sec}s — vanligvis 20–60 sek. Ikke lukk siden.`,
+          generateTimeout:
+            "Generering tok for lang tid (timeout). Prøv igjen — ofte hjelper et mindre bilde eller lavere innsats.",
+          generateNetwork:
+            "Nettverksfeil under generering. Sjekk tilkobling og prøv igjen.",
           doneFallback: "Ferdig (brukte reservedriftsmodell pga. sikkerhetsfilter).",
           doneSdxl: "Ferdig (nødfallback — kan se mindre realistisk ut). Prøv igjen.",
           done: "Ferdig.",
@@ -1924,6 +1929,10 @@
           toastPaceUpdated: "Motivation text updated",
           needImageGoal: "Choose a photo first.",
           generating: "Generating via Replicate… this can take 20–60 sec.",
+          generatingWait: (sec) => `Generating… ${sec}s — usually 20–60 sec. Don’t close the page.`,
+          generateTimeout:
+            "Generation timed out. Try again — a smaller photo or lower effort often helps.",
+          generateNetwork: "Network error while generating. Check your connection and try again.",
           doneFallback: "Done (used fallback model due to safety filter).",
           doneSdxl: "Done (emergency fallback — may look less realistic). Try again.",
           done: "Done.",
@@ -2281,8 +2290,7 @@
               box.dataset.dismissed = `${fat}:${bfGoal}`;
             });
             addBtn(t("paramConflictFixEditProfile"), "", () => {
-              if (typeof openProfileEditor === "function") openProfileEditor();
-              else document.getElementById("editProfileBtn")?.click();
+              openOnboard({ edit: true });
             });
           }
         };
@@ -3594,15 +3602,27 @@
         }
 
         const btn = document.getElementById("run");
+        if (btn.dataset.busy === "1") return;
+        btn.dataset.busy = "1";
         btn.disabled = true;
         statusEl.className = "status";
         statusEl.textContent = t("generating");
         document.getElementById("coachPanel").classList.remove("open");
 
+        const controller = new AbortController();
+        const startedAt = Date.now();
+        const tick = setInterval(() => {
+          const sec = Math.round((Date.now() - startedAt) / 1000);
+          statusEl.textContent = t("generatingWait", sec);
+        }, 1000);
+        const timeoutMs = 100000;
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
         try {
           const response = await fetch(`${apiBase}/api/generate-future-you`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            signal: controller.signal,
             body: JSON.stringify({
               imageBase64,
               mimeType,
@@ -3629,8 +3649,15 @@
               occasionLabel,
             }),
           });
-          const result = await response.json();
-          if (!response.ok) throw new Error(result.error || "Error");
+          let result;
+          try {
+            result = await response.json();
+          } catch {
+            throw new Error(
+              response.ok ? t("generateNetwork") : `Error ${response.status}`
+            );
+          }
+          if (!response.ok) throw new Error(result.error || `Error ${response.status}`);
           after.src = result.imageUrl;
           if (!result.usedFallback) {
             statusEl.textContent = t("done");
@@ -3641,12 +3668,28 @@
           } else {
             statusEl.textContent = t("doneFallback");
           }
-          renderCoachPanel();
+          try {
+            renderCoachPanel();
+          } catch (coachErr) {
+            console.warn("[helseapp coach]", coachErr);
+          }
         } catch (error) {
-          statusEl.textContent = error.message;
+          if (error?.name === "AbortError") {
+            statusEl.textContent = t("generateTimeout");
+          } else if (
+            error instanceof TypeError ||
+            /failed to fetch|network/i.test(String(error?.message || ""))
+          ) {
+            statusEl.textContent = t("generateNetwork");
+          } else {
+            statusEl.textContent = error.message || t("generateNetwork");
+          }
           statusEl.className = "status error";
         } finally {
+          clearInterval(tick);
+          clearTimeout(timeoutId);
           btn.disabled = false;
+          btn.dataset.busy = "0";
         }
       });
 
