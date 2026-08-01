@@ -1,0 +1,36 @@
+---
+description: Always commit and push completed web app changes to origin
+alwaysApply: true
+---
+
+# Always commit and push completed Helseapp web work
+
+After finishing a feature or fix for the Vercel web app (`public/`, `api/`, `lib/`), **automatically commit and push to `origin`** without waiting to be asked.
+
+## When to commit and push
+
+- Do this once the work is complete and ready (not mid-experiment).
+- Skip if Frøydis explicitly says not to commit/push for that change.
+- Skip if there is nothing relevant to commit.
+- Skip (and warn) if the only changes are secrets or high-risk files (e.g. `.env`, credentials).
+
+## Git safety (always)
+
+- Never force push.
+- Never amend unless all standard amend conditions are met.
+- Never skip hooks (`--no-verify`, etc.).
+- Never update git config.
+- Never commit secrets (`.env`, credentials.json, and similar).
+
+## What to include
+
+- Only stage files related to the completed work.
+- Leave unrelated Expo / server / Terra / Pace / local noise uncommitted unless it was part of the task.
+- Prefer clear, why-focused commit messages (1–2 sentences).
+
+## After push
+
+Briefly tell Frøydis:
+
+1. The commit hash (short SHA is fine).
+2. That Vercel will deploy from `origin`.
