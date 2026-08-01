@@ -1580,16 +1580,16 @@
           needImageGoal: "Velg bilde først.",
           generating: "Genererer… prøver beste modell først (Max/Pro), reservedrift ved behov.",
           generatingWait: (sec) => {
-            if (sec < 25) {
+            if (sec < 20) {
               return `Genererer… ${sec}s — prøver beste modell. Ikke lukk siden.`;
             }
-            if (sec < 55) {
+            if (sec < 45) {
               return `Genererer… ${sec}s — bytter modell ved behov. Ofte ferdig innen ~1 min.`;
             }
             return `Genererer… ${sec}s — reservedrift kan ta litt lenger. Ikke lukk siden.`;
           },
           generateTimeout:
-            "Generering tok for lang tid (timeout). Prøv igjen — ofte hjelper et mindre bilde eller lavere innsats.",
+            "Generering tok for lang tid. Prøv igjen — neste forsøk bytter ofte til raskere reservedrift. Mindre bilde eller lavere innsats kan også hjelpe.",
           generateNetwork:
             "Nettverksfeil under generering. Sjekk tilkobling og prøv igjen.",
           doneFallback: "Ferdig (brukte reservedriftsmodell pga. sikkerhetsfilter).",
@@ -1944,16 +1944,16 @@
           needImageGoal: "Choose a photo first.",
           generating: "Generating… trying best model first (Max/Pro), fallback if needed.",
           generatingWait: (sec) => {
-            if (sec < 25) {
+            if (sec < 20) {
               return `Generating… ${sec}s — trying best model. Don’t close the page.`;
             }
-            if (sec < 55) {
+            if (sec < 45) {
               return `Generating… ${sec}s — switching models if needed. Often done within ~1 min.`;
             }
             return `Generating… ${sec}s — fallback may take a bit longer. Don’t close the page.`;
           },
           generateTimeout:
-            "Generation timed out. Try again — a smaller photo or lower effort often helps.",
+            "Generation timed out. Try again — the next run often switches to a faster fallback. A smaller photo or lower effort can also help.",
           generateNetwork: "Network error while generating. Check your connection and try again.",
           doneFallback: "Done (used fallback model due to safety filter).",
           doneSdxl: "Done (emergency fallback — may look less realistic). Try again.",
@@ -3680,7 +3680,9 @@
           const sec = Math.round((Date.now() - startedAt) / 1000);
           statusEl.textContent = t("generatingWait", sec);
         }, 1000);
-        const timeoutMs = 170000;
+        // Client waits slightly longer than server cascade (155s) / Vercel (180s)
+        // so reservedrift can finish before the browser aborts.
+        const timeoutMs = 175000;
         const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
         try {
