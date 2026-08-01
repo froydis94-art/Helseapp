@@ -1578,8 +1578,16 @@
           toastPaceCopied: "Motivasjonstekst hentet fra Tempo",
           toastPaceUpdated: "Motivasjonstekst oppdatert",
           needImageGoal: "Velg bilde først.",
-          generating: "Genererer via Replicate… dette kan ta 20–60 sek.",
-          generatingWait: (sec) => `Genererer… ${sec}s — vanligvis 20–60 sek. Ikke lukk siden.`,
+          generating: "Genererer… prøver beste modell først (Max/Pro), reservedrift ved behov.",
+          generatingWait: (sec) => {
+            if (sec < 25) {
+              return `Genererer… ${sec}s — prøver beste modell. Ikke lukk siden.`;
+            }
+            if (sec < 55) {
+              return `Genererer… ${sec}s — bytter modell ved behov. Ofte ferdig innen ~1 min.`;
+            }
+            return `Genererer… ${sec}s — reservedrift kan ta litt lenger. Ikke lukk siden.`;
+          },
           generateTimeout:
             "Generering tok for lang tid (timeout). Prøv igjen — ofte hjelper et mindre bilde eller lavere innsats.",
           generateNetwork:
@@ -1934,8 +1942,16 @@
           toastPaceCopied: "Motivation text pulled from Pace",
           toastPaceUpdated: "Motivation text updated",
           needImageGoal: "Choose a photo first.",
-          generating: "Generating via Replicate… this can take 20–60 sec.",
-          generatingWait: (sec) => `Generating… ${sec}s — usually 20–60 sec. Don’t close the page.`,
+          generating: "Generating… trying best model first (Max/Pro), fallback if needed.",
+          generatingWait: (sec) => {
+            if (sec < 25) {
+              return `Generating… ${sec}s — trying best model. Don’t close the page.`;
+            }
+            if (sec < 55) {
+              return `Generating… ${sec}s — switching models if needed. Often done within ~1 min.`;
+            }
+            return `Generating… ${sec}s — fallback may take a bit longer. Don’t close the page.`;
+          },
           generateTimeout:
             "Generation timed out. Try again — a smaller photo or lower effort often helps.",
           generateNetwork: "Network error while generating. Check your connection and try again.",
