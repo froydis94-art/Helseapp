@@ -522,7 +522,9 @@
       }
       .onboard[hidden] { display: none; }
       .onboard-card {
-        width: min(100%, 420px);
+        width: min(100%, 480px);
+        max-height: min(92vh, 720px);
+        overflow: auto;
         background: linear-gradient(160deg, var(--panel), var(--panel-2));
         border: 1px solid var(--line);
         border-radius: 18px;
@@ -545,6 +547,107 @@
         letter-spacing: 0.04em;
         text-transform: uppercase;
         margin: 4px 0 8px;
+      }
+      .onboard-step { display: none; }
+      .onboard-step.active { display: block; }
+      .onboard-progress {
+        display: flex;
+        gap: 6px;
+        margin: 0 0 14px;
+      }
+      .onboard-progress span {
+        flex: 1;
+        height: 4px;
+        border-radius: 99px;
+        background: rgba(255,255,255,0.1);
+      }
+      .onboard-progress span.on {
+        background: var(--accent);
+      }
+      .onboard-nav {
+        display: flex;
+        gap: 10px;
+        margin-top: 16px;
+      }
+      .onboard-nav .primary,
+      .onboard-nav .secondary { flex: 1; margin-top: 0; }
+      .onboard-card .choices { margin-bottom: 8px; }
+      .onboard-card .diet-grid { margin-top: 8px; }
+      .profile-card {
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 12px 14px;
+        margin-bottom: 14px;
+        background: rgba(255,255,255,0.03);
+      }
+      .profile-card-top {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 8px;
+      }
+      .profile-card-top b {
+        font-family: "Syne", sans-serif;
+        font-size: 0.95rem;
+      }
+      .profile-card-top button {
+        border: 1px solid var(--line);
+        background: transparent;
+        color: var(--accent);
+        font-family: inherit;
+        font-size: 0.78rem;
+        font-weight: 700;
+        padding: 6px 10px;
+        border-radius: 999px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .profile-summary {
+        color: var(--muted);
+        font-size: 0.82rem;
+        line-height: 1.45;
+        margin: 0;
+      }
+      .profile-device-cta {
+        width: 100%;
+        margin-top: 10px;
+        border: 1px dashed rgba(196, 232, 140, 0.35);
+        background: rgba(196, 232, 140, 0.08);
+        color: var(--text);
+        font-family: inherit;
+        font-size: 0.84rem;
+        font-weight: 650;
+        padding: 10px 12px;
+        border-radius: 12px;
+        cursor: pointer;
+        text-align: left;
+        line-height: 1.35;
+      }
+      .profile-device-cta:hover {
+        background: rgba(196, 232, 140, 0.14);
+      }
+      .profile-device-cta small {
+        display: block;
+        margin-top: 3px;
+        font-weight: 500;
+        font-size: 0.74rem;
+        color: var(--muted);
+      }
+      .choice.choice-desc {
+        flex-direction: column;
+        align-items: flex-start;
+        text-align: left;
+        gap: 3px;
+        max-width: 100%;
+        white-space: normal;
+      }
+      .choice.choice-desc small {
+        font-weight: 500;
+        font-size: 0.72rem;
+        line-height: 1.3;
+        opacity: 0.78;
+        color: inherit;
       }
       .soon-banner {
         margin: 12px 0 16px;
@@ -626,6 +729,20 @@
       </div>
 
       <section id="panel-future" class="panel active">
+        <div class="profile-card" id="profileCard">
+          <div class="profile-card-top">
+            <div>
+              <b data-i18n="profileCardTitle">Din profil</b>
+              <p class="profile-summary" id="profileSummary"></p>
+            </div>
+            <button type="button" id="editProfileBtn" data-i18n="btnEditProfile">Rediger profil</button>
+          </div>
+          <button type="button" class="profile-device-cta" id="profileDeviceCta">
+            <span data-i18n="btnDeviceAutofill">Koble enhet for å autofylle</span>
+            <small data-i18n="btnDeviceAutofillHint">Hent vekt/aktivitet fra klokken i stedet for å skrive inn manuelt</small>
+          </button>
+        </div>
+
         <p class="hint" data-i18n="futureHint">
           Tips: tydelig kroppsbilde fungerer best — synlig hud/overkropp er helt greit for fremgangsvisualisering.
         </p>
@@ -658,7 +775,7 @@
         </div>
 
         <div class="choice-block">
-          <span class="choice-label" data-i18n="labelFat">Fettprosent</span>
+          <span class="choice-label" data-i18n="labelFat">Fettprosent for dette målet</span>
           <div class="choices" id="fatChoices">
             <button type="button" class="choice active" data-fat="decrease" data-i18n="fatDecrease">Minske</button>
             <button type="button" class="choice" data-fat="maintain" data-i18n="fatMaintain">Beholde</button>
@@ -673,28 +790,11 @@
               <span data-i18n="labelBfGoal">Ønsket fett-%</span>
               <input id="bfGoal" type="number" step="0.5" min="5" max="55" value="16" />
             </label>
-            <label>
-              <span data-i18n="labelHeightCm">Høyde (cm)</span>
-              <input id="heightCm" type="number" step="1" min="120" max="230" value="175" />
-            </label>
-            <label>
-              <span data-i18n="labelWeightKg">Vekt (kg)</span>
-              <input id="weightKg" type="number" step="0.1" min="35" max="300" value="80" />
-            </label>
-            <label>
-              <span data-i18n="labelBmi">BMI (auto — kan korrigeres)</span>
-              <input id="bmiValue" type="number" step="0.1" min="12" max="60" value="26.1" />
-            </label>
           </div>
-          <div class="choice-block" style="margin-top:10px">
-            <span class="choice-label" data-i18n="labelFrame">Kroppstype / ramme</span>
-            <div class="choices" id="frameChoices">
-              <button type="button" class="choice" data-frame="narrow" data-i18n="frameNarrow">Smalere</button>
-              <button type="button" class="choice active" data-frame="average" data-i18n="frameAverage">Normal</button>
-              <button type="button" class="choice" data-frame="wide" data-i18n="frameWide">Bredere</button>
-            </div>
-            <p class="hint" data-i18n="frameHint">Ramme justerer BMI-tolkning litt (smal −0,5 / bred +0,5). Ikke medisinsk diagnose.</p>
-          </div>
+          <!-- Profile body metrics synced from prefs for BMI planning -->
+          <input id="heightCm" type="hidden" value="175" />
+          <input id="weightKg" type="hidden" value="80" />
+          <input id="bmiValue" type="hidden" value="26.1" />
           <div class="prompt-preview" id="bodyPlanPreview" style="margin-top:10px"></div>
           <div class="choices" style="margin-top:8px">
             <button type="button" class="choice" id="toggleMedicine" data-i18n="medicineOff">
@@ -709,22 +809,7 @@
         </div>
 
         <div class="choice-block">
-          <span class="choice-label" data-i18n="labelGender">Kjønn</span>
-          <div class="choices" id="genderChoices">
-            <button type="button" class="choice" data-gender="female" data-i18n="genderFemale">Kvinne</button>
-            <button type="button" class="choice" data-gender="male" data-i18n="genderMale">Mann</button>
-            <button type="button" class="choice" data-gender="unspecified" data-i18n="genderSkip">Hopper over</button>
-          </div>
-        </div>
-
-        <div class="choice-block">
-          <span class="choice-label" data-i18n="labelShape">Kroppsfasong</span>
-          <div class="choices" id="shapeChoices"></div>
-          <p class="hint" id="shapeHint" data-i18n="shapeHint">Velg den silhuetten som ligner mest — brukes for realistisk AI-målbilde.</p>
-        </div>
-
-        <div class="choice-block">
-          <span class="choice-label" data-i18n="labelZone">Fokus / kroppsdel (flervalg)</span>
+          <span class="choice-label" data-i18n="labelZone">Fokus for dette bildet (flervalg)</span>
           <div class="choices" id="zoneChoices">
             <button type="button" class="choice active" data-zone="abs" data-i18n="zoneAbs">Mage</button>
             <button type="button" class="choice" data-zone="glutes" data-i18n="zoneGlutes">Rumpe</button>
@@ -734,23 +819,6 @@
             <button type="button" class="choice" data-zone="shoulders" data-i18n="zoneShoulders">Skuldre / overkropp</button>
             <button type="button" class="choice" data-zone="back" data-i18n="zoneBack">Rygg</button>
             <button type="button" class="choice" data-zone="posture" data-i18n="zonePosture">Holdning</button>
-          </div>
-        </div>
-
-        <div class="choice-block">
-          <span class="choice-label" data-i18n="labelOutcomes">Ønsket resultat (flervalg)</span>
-          <div class="choices" id="outcomeChoices">
-            <button type="button" class="choice active" data-outcome="stronger" data-i18n="outcomeStronger">Sterkere</button>
-            <button type="button" class="choice" data-outcome="leaner" data-i18n="outcomeLeaner">Slankere</button>
-            <button type="button" class="choice" data-outcome="tone" data-i18n="outcomeTone">Tone / strammere</button>
-            <button type="button" class="choice" data-outcome="bulk" data-i18n="outcomeBulk">Bulke</button>
-            <button type="button" class="choice" data-outcome="shred" data-i18n="outcomeShred">Shredde</button>
-            <button type="button" class="choice" data-outcome="lighter" data-i18n="outcomeLighter">Lettere</button>
-            <button type="button" class="choice" data-outcome="performance" data-i18n="outcomePerformance">Bedre prestasjon</button>
-            <button type="button" class="choice" data-outcome="endurance" data-i18n="outcomeEndurance">Bedre utholdenhet</button>
-            <button type="button" class="choice" data-outcome="curves" data-i18n="outcomeCurves">Mer fasong / kurver</button>
-            <button type="button" class="choice" data-outcome="vshape" data-i18n="outcomeVshape">Bredere skuldre / V-form</button>
-            <button type="button" class="choice" data-outcome="confidence" data-i18n="outcomeConfidence">Mer selvtillit i speilet</button>
           </div>
         </div>
 
@@ -768,45 +836,6 @@
           </select>
         </div>
         <p class="hint" id="intensityHint"></p>
-
-        <div class="choice-block">
-          <span class="choice-label" data-i18n="labelTrainPrefs">Treningsformer du liker (flervalg)</span>
-          <div class="choices" id="trainChoices">
-            <button type="button" class="choice active" data-train="strength" data-i18n="trainStrength">Styrke</button>
-            <button type="button" class="choice" data-train="cardio" data-i18n="trainCardio">Kondisjon</button>
-            <button type="button" class="choice" data-train="hiit" data-i18n="trainHiit">HIIT</button>
-            <button type="button" class="choice" data-train="walking" data-i18n="trainWalking">Gåturer</button>
-            <button type="button" class="choice" data-train="yoga" data-i18n="trainYoga">Yoga / mobilitet</button>
-            <button type="button" class="choice" data-train="sports" data-i18n="trainSports">Ballspill / sport</button>
-            <button type="button" class="choice" data-train="home" data-i18n="trainHome">Hjemmetrening</button>
-          </div>
-        </div>
-
-        <div class="choice-block">
-          <span class="choice-label" data-i18n="labelDietNow">Kosthold i dag</span>
-          <div class="choices" id="dietChoices">
-            <button type="button" class="choice active" data-diet="mixed" data-i18n="dietMixed">Blandet</button>
-            <button type="button" class="choice" data-diet="vegetarian" data-i18n="dietVegetarian">Vegetar</button>
-            <button type="button" class="choice" data-diet="vegan" data-i18n="dietVegan">Vegan</button>
-            <button type="button" class="choice" data-diet="meat" data-i18n="dietMeat">Mye kjøtt</button>
-            <button type="button" class="choice" data-diet="fastfood" data-i18n="dietFastfood">Mye fast food</button>
-            <button type="button" class="choice" data-diet="irregular" data-i18n="dietIrregular">Uregelmessig</button>
-          </div>
-          <label style="margin-top:10px">
-            <span data-i18n="labelDietNote">Presisering (valgfritt)</span>
-            <input id="dietNote" type="text" data-i18n-placeholder="dietNotePlaceholder" placeholder="F.eks. lite grønnsaker, mye snacks…" />
-          </label>
-          <div class="diet-grid">
-            <label>
-              <span data-i18n="labelFutureKcal">Typisk kcal / dag</span>
-              <input id="futureKcal" type="number" step="50" value="2200" />
-            </label>
-            <label>
-              <span data-i18n="labelFutureProtein">Typisk protein / dag (g)</span>
-              <input id="futureProtein" type="number" step="5" value="100" />
-            </label>
-          </div>
-        </div>
 
         <div class="prompt-preview" id="promptPreview"></div>
 
@@ -848,7 +877,7 @@
           <summary data-i18n="advancedApi">Avansert: API-adresse</summary>
           <label>
             <span data-i18n="labelApiBase">API-base</span>
-            <input id="apiBase" type="text" />
+            <input id="apiBase" type="url" />
           </label>
         </details>
       </section>
@@ -1032,25 +1061,125 @@
 
     <div id="onboard" class="onboard" hidden>
       <div class="onboard-card">
-        <h2 data-i18n="onboardTitle">Velkommen</h2>
-        <p data-i18n="onboardBody">Velg språk, målesystem og kjønn. Du kan endre dette senere.</p>
-        <span class="onboard-label" data-i18n="onboardLang">Språk</span>
-        <div class="seg" role="group">
-          <button type="button" data-onboard-lang="no">Norsk</button>
-          <button type="button" data-onboard-lang="en">English</button>
+        <div class="onboard-progress" id="onboardProgress" aria-hidden="true"></div>
+
+        <div class="onboard-step active" data-step="0">
+          <h2 data-i18n="onboardTitleLang">Velkommen</h2>
+          <p data-i18n="onboardBodyLang">Velg språk og målesystem. Profilen lagres på denne enheten.</p>
+          <span class="onboard-label" data-i18n="onboardLang">Språk</span>
+          <div class="seg" role="group">
+            <button type="button" data-onboard-lang="no">Norsk</button>
+            <button type="button" data-onboard-lang="en">English</button>
+          </div>
+          <span class="onboard-label" data-i18n="onboardUnits">Målesystem</span>
+          <div class="seg" role="group">
+            <button type="button" data-onboard-units="metric">Metric (kg, km)</button>
+            <button type="button" data-onboard-units="us">US (lb, mi)</button>
+          </div>
         </div>
-        <span class="onboard-label" data-i18n="onboardUnits">Målesystem</span>
-        <div class="seg" role="group">
-          <button type="button" data-onboard-units="metric">Metric (kg, km)</button>
-          <button type="button" data-onboard-units="us">US (lb, mi)</button>
+
+        <div class="onboard-step" data-step="1">
+          <h2 data-i18n="onboardTitleGender">La oss skreddersy opplevelsen din</h2>
+          <p data-i18n="onboardBodyGender">Hvilket utgangspunkt passer best for kroppsfasong og realistiske målbilder?</p>
+          <div class="choices" id="obGenderChoices">
+            <button type="button" class="choice" data-gender="female" data-i18n="genderFemale">Kvinne</button>
+            <button type="button" class="choice" data-gender="male" data-i18n="genderMale">Mann</button>
+            <button type="button" class="choice" data-gender="unspecified" data-i18n="genderSkip">Hopp over</button>
+          </div>
         </div>
-        <span class="onboard-label" data-i18n="onboardGender">Kjønn (for kroppsfasong)</span>
-        <div class="seg" role="group">
-          <button type="button" data-onboard-gender="female" data-i18n="genderFemale">Kvinne</button>
-          <button type="button" data-onboard-gender="male" data-i18n="genderMale">Mann</button>
-          <button type="button" data-onboard-gender="unspecified" data-i18n="genderSkip">Hopper over</button>
+
+        <div class="onboard-step" data-step="2">
+          <h2 data-i18n="onboardTitleShape">Kroppsfasong</h2>
+          <p data-i18n="onboardBodyShape">Velg silhuetten som ligner mest — ikke en medisinsk test.</p>
+          <div class="choices" id="obShapeChoices"></div>
         </div>
-        <button class="primary" id="onboardContinue" type="button" data-i18n="onboardContinue">Fortsett</button>
+
+        <div class="onboard-step" data-step="3">
+          <h2 data-i18n="onboardTitleBody">Høyde, vekt og ramme</h2>
+          <p data-i18n="onboardBodyBody">BMI regnes automatisk og kan korrigeres hvis du har målt annerledes.</p>
+          <div class="diet-grid">
+            <label>
+              <span data-i18n="labelHeightCm">Høyde (cm)</span>
+              <input id="obHeightCm" type="number" step="1" min="120" max="230" value="175" />
+            </label>
+            <label>
+              <span data-i18n="labelWeightKg">Vekt (kg)</span>
+              <input id="obWeightKg" type="number" step="0.1" min="35" max="300" value="80" />
+            </label>
+            <label>
+              <span data-i18n="labelBmi">BMI (auto — kan korrigeres)</span>
+              <input id="obBmiValue" type="number" step="0.1" min="12" max="60" value="26.1" />
+            </label>
+          </div>
+          <span class="onboard-label" data-i18n="labelFrame">Kroppstype / ramme</span>
+          <div class="choices" id="obFrameChoices">
+            <button type="button" class="choice" data-frame="narrow" data-i18n="frameNarrow">Smalere</button>
+            <button type="button" class="choice active" data-frame="average" data-i18n="frameAverage">Normal</button>
+            <button type="button" class="choice" data-frame="wide" data-i18n="frameWide">Bredere</button>
+          </div>
+          <p class="hint" data-i18n="frameHint">Ramme justerer BMI-tolkning litt (smal −0,5 / bred +0,5). Ikke medisinsk diagnose.</p>
+          <p class="hint" id="obBmiHint"></p>
+        </div>
+
+        <div class="onboard-step" data-step="4">
+          <h2 data-i18n="onboardTitleGoals">Hva ønsker du å oppnå?</h2>
+          <p id="obGoalsHint" data-i18n="onboardBodyGoals">Velg ett eller flere motiverende mål — foreslått ut fra fasongen din.</p>
+          <div class="choices" id="obOutcomeChoices"></div>
+          <span class="onboard-label" data-i18n="labelZoneDefault">Standard fokusområder</span>
+          <div class="choices" id="obZoneChoices">
+            <button type="button" class="choice" data-zone="abs" data-i18n="zoneAbs">Mage</button>
+            <button type="button" class="choice" data-zone="glutes" data-i18n="zoneGlutes">Rumpe</button>
+            <button type="button" class="choice" data-zone="thighs" data-i18n="zoneThighs">Lår</button>
+            <button type="button" class="choice" data-zone="arms" data-i18n="zoneArms">Armer</button>
+            <button type="button" class="choice" data-zone="chest" data-i18n="zoneChest">Bryst</button>
+            <button type="button" class="choice" data-zone="shoulders" data-i18n="zoneShoulders">Skuldre / overkropp</button>
+            <button type="button" class="choice" data-zone="back" data-i18n="zoneBack">Rygg</button>
+            <button type="button" class="choice" data-zone="posture" data-i18n="zonePosture">Holdning</button>
+          </div>
+        </div>
+
+        <div class="onboard-step" data-step="5">
+          <h2 data-i18n="onboardTitleLifestyle">Trening og kosthold</h2>
+          <p data-i18n="onboardBodyLifestyle">Kort om hva du liker — brukes i coaching etter målbildet.</p>
+          <span class="onboard-label" data-i18n="labelTrainPrefs">Treningsformer du liker</span>
+          <div class="choices" id="obTrainChoices">
+            <button type="button" class="choice" data-train="strength" data-i18n="trainStrength">Styrke</button>
+            <button type="button" class="choice" data-train="cardio" data-i18n="trainCardio">Kondisjon</button>
+            <button type="button" class="choice" data-train="hiit" data-i18n="trainHiit">HIIT</button>
+            <button type="button" class="choice" data-train="walking" data-i18n="trainWalking">Gåturer</button>
+            <button type="button" class="choice" data-train="yoga" data-i18n="trainYoga">Yoga / mobilitet</button>
+            <button type="button" class="choice" data-train="sports" data-i18n="trainSports">Ballspill / sport</button>
+            <button type="button" class="choice" data-train="home" data-i18n="trainHome">Hjemmetrening</button>
+          </div>
+          <span class="onboard-label" data-i18n="labelDietNow">Kosthold i dag</span>
+          <div class="choices" id="obDietChoices">
+            <button type="button" class="choice active" data-diet="mixed" data-i18n="dietMixed">Blandet</button>
+            <button type="button" class="choice" data-diet="vegetarian" data-i18n="dietVegetarian">Vegetar</button>
+            <button type="button" class="choice" data-diet="vegan" data-i18n="dietVegan">Vegan</button>
+            <button type="button" class="choice" data-diet="meat" data-i18n="dietMeat">Mye kjøtt</button>
+            <button type="button" class="choice" data-diet="fastfood" data-i18n="dietFastfood">Mye fast food</button>
+            <button type="button" class="choice" data-diet="irregular" data-i18n="dietIrregular">Uregelmessig</button>
+          </div>
+          <label style="margin-top:10px">
+            <span data-i18n="labelDietNote">Presisering (valgfritt)</span>
+            <input id="obDietNote" type="text" data-i18n-placeholder="dietNotePlaceholder" placeholder="F.eks. lite grønnsaker…" />
+          </label>
+          <div class="diet-grid">
+            <label>
+              <span data-i18n="labelFutureKcal">Typisk kcal / dag</span>
+              <input id="obFutureKcal" type="number" step="50" value="2200" />
+            </label>
+            <label>
+              <span data-i18n="labelFutureProtein">Typisk protein / dag (g)</span>
+              <input id="obFutureProtein" type="number" step="5" value="100" />
+            </label>
+          </div>
+        </div>
+
+        <div class="onboard-nav">
+          <button class="secondary" id="onboardBack" type="button" data-i18n="onboardBack" hidden>Tilbake</button>
+          <button class="primary" id="onboardNext" type="button" data-i18n="onboardContinue">Fortsett</button>
+        </div>
       </div>
     </div>
 
@@ -1090,7 +1219,7 @@
           labelOccasion: "Anledning (valgfritt)",
           occasionPlaceholder: "Bryllup, ferie, konkurranse…",
           needCustomDate: "Velg en måldato for egen tidshorisont.",
-          labelFat: "Fettprosent",
+          labelFat: "Fettprosent for dette målet",
           fatDecrease: "Minske",
           fatMaintain: "Beholde",
           fatIncrease: "Øke",
@@ -1116,7 +1245,7 @@
           labelGender: "Kjønn",
           genderFemale: "Kvinne",
           genderMale: "Mann",
-          genderSkip: "Hopper over",
+          genderSkip: "Hopp over",
           labelShape: "Kroppsfasong",
           shapeHint: "Velg den silhuetten som ligner mest — brukes for realistisk AI-målbilde.",
           shapeEcto: "Smal / ektomorf",
@@ -1308,11 +1437,55 @@
           terraAuthSuccess: "Enhet koblet via Terra",
           terraAuthFailure: "Terra-kobling ble avbrutt",
           onboardTitle: "Velkommen",
-          onboardBody: "Velg språk, målesystem og kjønn. Du kan endre dette senere.",
+          onboardBody: "Velg språk og målesystem. Du kan endre dette senere.",
+          onboardTitleLang: "Velkommen",
+          onboardBodyLang: "Velg språk og målesystem. Profilen lagres på denne enheten.",
+          onboardTitleGender: "La oss skreddersy opplevelsen din",
+          onboardBodyGender: "Hvilket utgangspunkt passer best for kroppsfasong og realistiske målbilder?",
+          onboardTitleShape: "Kroppsfasong",
+          onboardBodyShape: "Velg silhuetten som ligner mest — ikke en medisinsk test.",
+          onboardTitleBody: "Høyde, vekt og ramme",
+          onboardBodyBody: "BMI regnes automatisk og kan korrigeres hvis du har målt annerledes.",
+          onboardTitleGoals: "Hva ønsker du å oppnå?",
+          onboardBodyGoals: "Velg ett eller flere motiverende mål — foreslått ut fra fasongen din.",
+          onboardTitleLifestyle: "Trening og kosthold",
+          onboardBodyLifestyle: "Kort om hva du liker — brukes i coaching etter målbildet.",
           onboardLang: "Språk",
           onboardUnits: "Målesystem",
           onboardGender: "Kjønn (for kroppsfasong)",
           onboardContinue: "Fortsett",
+          onboardBack: "Tilbake",
+          onboardFinish: "Lagre profil",
+          onboardSave: "Lagre endringer",
+          profileCardTitle: "Din profil",
+          btnEditProfile: "Rediger profil",
+          btnDeviceAutofill: "Koble enhet for å autofylle",
+          btnDeviceAutofillHint: "Hent vekt/aktivitet fra klokken i stedet for å skrive inn manuelt",
+          deviceAutofillSoon:
+            "Enhets-autofyll kommer snart via Terra — se Enheter. Bruk profil manuelt inntil videre.",
+          profileSummaryEmpty: "Fullfør profilen for mer realistiske målbilder.",
+          profileSummaryLine: (parts) => parts.filter(Boolean).join(" · "),
+          labelZoneDefault: "Standard fokusområder",
+          shapeDescHourglass: "Skuldre ≈ hofter, markert midje",
+          shapeDescPear: "Bredere hofter og lår enn skuldre",
+          shapeDescApple: "Mer rundt midje / overkropp",
+          shapeDescRectangle: "Jevn linje — skuldre, midje, hofter",
+          shapeDescEcto: "Smalt skjelett, slanke lemmer",
+          shapeDescMeso: "Brede skuldre, naturlig V-form",
+          shapeDescEndo: "Robust bygning, mer midje",
+          shapeDescAthletic: "Jevn / atletisk silhuett",
+          outcomeBalance: "Balansere over- og underkropp",
+          outcomeHourglassFx: "Mer timeglass-effekt",
+          outcomeFlatMid: "Strammere midje / flatere mage",
+          outcomeHealth: "Styrke og helse",
+          goalsHintPear: "Pæreform: ofte nyttig å bygge overkropp og beholde underkroppsfasong.",
+          goalsHintApple: "Epleform: midje og overkropp er typiske fokusområder.",
+          goalsHintRectangle: "Rektangel: definisjon og kurver skaper mer fasong.",
+          goalsHintHourglass: "Timeglass: beholde kurver mens du strammer og toner.",
+          goalsHintEcto: "Smal type: volum og styrke er ofte mest motiverende.",
+          goalsHintMeso: "Atletisk type: shred / prestasjon passer ofte godt.",
+          goalsHintEndo: "Robust type: slankere midje med realistisk tempo.",
+          goalsHintDefault: "Velg mål som motiverer deg — AI-en bruker dem i målbildet.",
           presetSessions: "Økter/uke",
           presetSteps: "Skritt",
           presetWeight: "Vekt",
@@ -1381,7 +1554,7 @@
           labelOccasion: "Occasion (optional)",
           occasionPlaceholder: "Wedding, holiday, competition…",
           needCustomDate: "Pick a target date for your custom horizon.",
-          labelFat: "Body fat",
+          labelFat: "Body fat for this goal",
           fatDecrease: "Decrease",
           fatMaintain: "Maintain",
           fatIncrease: "Increase",
@@ -1594,11 +1767,55 @@
           terraAuthSuccess: "Device connected via Terra",
           terraAuthFailure: "Terra connection was cancelled",
           onboardTitle: "Welcome",
-          onboardBody: "Choose language, units, and gender. You can change this later.",
+          onboardBody: "Choose language and units. You can change this later.",
+          onboardTitleLang: "Welcome",
+          onboardBodyLang: "Choose language and units. Your profile is saved on this device.",
+          onboardTitleGender: "Let’s tailor your experience",
+          onboardBodyGender: "Which starting point fits best for body shape and realistic goal images?",
+          onboardTitleShape: "Body shape",
+          onboardBodyShape: "Pick the silhouette that looks most like you — not a medical test.",
+          onboardTitleBody: "Height, weight & frame",
+          onboardBodyBody: "BMI is calculated automatically and can be corrected if a scan says otherwise.",
+          onboardTitleGoals: "What do you want to achieve?",
+          onboardBodyGoals: "Pick one or more motivational goals — suggested from your shape.",
+          onboardTitleLifestyle: "Training & nutrition",
+          onboardBodyLifestyle: "A short snapshot of what you like — used in coaching after the goal image.",
           onboardLang: "Language",
           onboardUnits: "Units",
           onboardGender: "Gender (for body shape)",
           onboardContinue: "Continue",
+          onboardBack: "Back",
+          onboardFinish: "Save profile",
+          onboardSave: "Save changes",
+          profileCardTitle: "Your profile",
+          btnEditProfile: "Edit profile",
+          btnDeviceAutofill: "Connect device to auto-fill",
+          btnDeviceAutofillHint: "Pull weight/activity from your watch instead of typing it in",
+          deviceAutofillSoon:
+            "Device auto-fill is coming soon via Terra — see Devices. Use your profile manually for now.",
+          profileSummaryEmpty: "Finish your profile for more realistic goal images.",
+          profileSummaryLine: (parts) => parts.filter(Boolean).join(" · "),
+          labelZoneDefault: "Default focus zones",
+          shapeDescHourglass: "Shoulders ≈ hips, defined waist",
+          shapeDescPear: "Fuller hips/thighs than shoulders",
+          shapeDescApple: "More around midsection / upper body",
+          shapeDescRectangle: "Even line — shoulders, waist, hips",
+          shapeDescEcto: "Narrow frame, slender limbs",
+          shapeDescMeso: "Broader shoulders, natural V-taper",
+          shapeDescEndo: "Solid build, fuller midsection",
+          shapeDescAthletic: "Even / athletic silhouette",
+          outcomeBalance: "Balance upper & lower body",
+          outcomeHourglassFx: "More hourglass effect",
+          outcomeFlatMid: "Tighter waist / flatter midsection",
+          outcomeHealth: "Strength & health",
+          goalsHintPear: "Pear: building upper body while keeping lower-body shape often helps.",
+          goalsHintApple: "Apple: midsection and upper body are typical focus areas.",
+          goalsHintRectangle: "Rectangle: definition and curves create more shape.",
+          goalsHintHourglass: "Hourglass: keep curves while tightening and toning.",
+          goalsHintEcto: "Lean frame: volume and strength are often most motivating.",
+          goalsHintMeso: "Athletic frame: shred / performance often fits well.",
+          goalsHintEndo: "Solid frame: leaner midsection at a realistic pace.",
+          goalsHintDefault: "Pick goals that motivate you — AI uses them in the goal image.",
           goalTitleDefault: "Athletic shape",
           maalDefault: "",
           presetSessions: "Sessions/week",
@@ -1660,7 +1877,19 @@
           gender: "unspecified",
           frame: "average",
           shape: "",
+          heightCm: 175,
+          weightKg: 80,
+          bmi: null,
+          bmiLocked: false,
+          outcomes: ["stronger"],
+          zones: ["abs"],
+          trains: ["strength"],
+          diet: "mixed",
+          dietNote: "",
+          futureKcal: 2200,
+          futureProtein: 100,
           onboarded: false,
+          profileComplete: false,
         };
       }
 
@@ -1675,6 +1904,9 @@
       }
 
       let prefs = loadPrefs();
+      let onboardStep = 0;
+      let onboardEditMode = false;
+      const ONBOARD_STEPS = 6;
 
       function savePrefs() {
         localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
@@ -1753,9 +1985,8 @@
         }
         updatePromptPreview();
         syncCustomHorizonUi();
-        syncGenderChips();
-        syncFrameChips();
-        renderShapeChoices();
+        syncProfileToDom();
+        updateProfileSummary();
       }
 
       function daysFromNow(days) {
@@ -1892,33 +2123,19 @@
       }
 
       function getSelectedGender() {
-        return (
-          document.querySelector("#genderChoices .choice.active")?.dataset.gender ||
-          prefs.gender ||
-          "unspecified"
-        );
+        return prefs.gender || "unspecified";
       }
 
       function getSelectedFrame() {
-        return (
-          document.querySelector("#frameChoices .choice.active")?.dataset.frame ||
-          prefs.frame ||
-          "average"
-        );
+        return prefs.frame || "average";
       }
 
       function getSelectedShape() {
-        return (
-          document.querySelector("#shapeChoices .choice.active")?.dataset.shape ||
-          prefs.shape ||
-          ""
-        );
+        return prefs.shape || "";
       }
 
       function getSelectedOutcomes() {
-        const list = [...document.querySelectorAll("#outcomeChoices .choice.active")].map(
-          (b) => b.dataset.outcome
-        );
+        const list = Array.isArray(prefs.outcomes) ? prefs.outcomes.filter(Boolean) : [];
         return list.length ? list : ["stronger"];
       }
 
@@ -1942,11 +2159,15 @@
         return 0;
       }
 
-      function calcBmiAuto() {
-        const cm = Number(document.getElementById("heightCm").value);
-        const kg = Number(document.getElementById("weightKg").value);
+      function calcBmiFrom(cm, kg) {
         if (!cm || !kg || cm < 100) return null;
         return Math.round((kg / ((cm / 100) ** 2)) * 10) / 10;
+      }
+
+      function calcBmiAuto() {
+        const cm = Number(document.getElementById("heightCm")?.value || prefs.heightCm);
+        const kg = Number(document.getElementById("weightKg")?.value || prefs.weightKg);
+        return calcBmiFrom(cm, kg);
       }
 
       function syncBmiFromHw({ force } = {}) {
@@ -1961,7 +2182,30 @@
         return auto;
       }
 
+      function syncProfileToDom() {
+        const h = document.getElementById("heightCm");
+        const w = document.getElementById("weightKg");
+        const b = document.getElementById("bmiValue");
+        if (h) h.value = prefs.heightCm ?? 175;
+        if (w) w.value = prefs.weightKg ?? 80;
+        if (b) {
+          const auto = calcBmiFrom(prefs.heightCm, prefs.weightKg);
+          b.value = prefs.bmi != null ? prefs.bmi : auto != null ? auto : 26.1;
+          b.dataset.userLocked = prefs.bmiLocked ? "1" : "0";
+        }
+        const zones = Array.isArray(prefs.zones) && prefs.zones.length ? prefs.zones : ["abs"];
+        document.querySelectorAll("#zoneChoices .choice").forEach((btn) => {
+          btn.classList.toggle("active", zones.includes(btn.dataset.zone));
+        });
+        if (!document.querySelector("#zoneChoices .choice.active")) {
+          document.querySelector('#zoneChoices .choice[data-zone="abs"]')?.classList.add("active");
+        }
+      }
+
       function getBmiValue() {
+        if (prefs.bmiLocked && Number.isFinite(Number(prefs.bmi))) {
+          return Math.round(Number(prefs.bmi) * 10) / 10;
+        }
         const el = document.getElementById("bmiValue");
         const typed = Number(el?.value);
         if (Number.isFinite(typed) && typed > 0) return Math.round(typed * 10) / 10;
@@ -2003,7 +2247,6 @@
           };
         }
 
-        // Body-fat percentage points per week (rough planning model).
         let rate =
           intensity === "strong" ? 0.4 : intensity === "subtle" ? 0.25 : 0.33;
         if (medicine) rate += 0.22;
@@ -2031,19 +2274,15 @@
         const medBtn = document.getElementById("toggleMedicine");
         if (!preview) return;
 
-        syncBmiFromHw();
+        syncProfileToDom();
         const plan = estimateBfPlan();
         medBtn.textContent = isMedicineOn() ? t("medicineOn") : t("medicineOff");
         medBtn.classList.toggle("active", isMedicineOn());
 
-        const bmiInput = document.getElementById("bmiValue");
         const auto = calcBmiAuto();
         if (plan.bmi != null) {
-          if (bmiInput?.dataset.userLocked === "1") {
-            bmiEl.textContent = t("bmiHintManual", plan.bmi, auto);
-          } else {
-            bmiEl.textContent = t("bmiHintOk", plan.bmi, plan.bmiAdj);
-          }
+          if (prefs.bmiLocked) bmiEl.textContent = t("bmiHintManual", plan.bmi, auto);
+          else bmiEl.textContent = t("bmiHintOk", plan.bmi, plan.bmiAdj);
         } else {
           bmiEl.textContent = "";
         }
@@ -2078,40 +2317,130 @@
       function shapesForGender(gender) {
         if (gender === "male") {
           return [
-            { id: "ecto", labelKey: "shapeEcto" },
-            { id: "meso", labelKey: "shapeMeso" },
-            { id: "endo", labelKey: "shapeEndo" },
+            { id: "ecto", labelKey: "shapeEcto", descKey: "shapeDescEcto" },
+            { id: "meso", labelKey: "shapeMeso", descKey: "shapeDescMeso" },
+            { id: "endo", labelKey: "shapeEndo", descKey: "shapeDescEndo" },
           ];
         }
         if (gender === "female") {
           return [
-            { id: "hourglass", labelKey: "shapeHourglass" },
-            { id: "pear", labelKey: "shapePear" },
-            { id: "apple", labelKey: "shapeApple" },
-            { id: "rectangle", labelKey: "shapeRectangle" },
-            { id: "spoon", labelKey: "shapeSpoon" },
+            { id: "hourglass", labelKey: "shapeHourglass", descKey: "shapeDescHourglass" },
+            { id: "pear", labelKey: "shapePear", descKey: "shapeDescPear" },
+            { id: "apple", labelKey: "shapeApple", descKey: "shapeDescApple" },
+            { id: "rectangle", labelKey: "shapeRectangle", descKey: "shapeDescRectangle" },
           ];
         }
         return [
-          { id: "athletic", labelKey: "shapeAthletic" },
-          { id: "ecto", labelKey: "shapeEcto" },
-          { id: "endo", labelKey: "shapeEndo" },
-          { id: "hourglass", labelKey: "shapeHourglass" },
-          { id: "pear", labelKey: "shapePear" },
+          { id: "athletic", labelKey: "shapeAthletic", descKey: "shapeDescAthletic" },
+          { id: "ecto", labelKey: "shapeEcto", descKey: "shapeDescEcto" },
+          { id: "endo", labelKey: "shapeEndo", descKey: "shapeDescEndo" },
+          { id: "hourglass", labelKey: "shapeHourglass", descKey: "shapeDescHourglass" },
+          { id: "pear", labelKey: "shapePear", descKey: "shapeDescPear" },
         ];
       }
 
-      function renderShapeChoices() {
-        const host = document.getElementById("shapeChoices");
+      function suggestedOutcomesForShape(shape) {
+        const map = {
+          pear: ["balance", "vshape", "tone", "stronger"],
+          apple: ["flatMid", "leaner", "lighter", "tone"],
+          rectangle: ["curves", "hourglassFx", "tone", "stronger"],
+          hourglass: ["tone", "shred", "confidence", "stronger"],
+          ecto: ["bulk", "stronger", "vshape", "performance"],
+          meso: ["shred", "performance", "stronger", "tone"],
+          endo: ["leaner", "lighter", "flatMid", "stronger"],
+          athletic: ["stronger", "tone", "performance", "health"],
+          spoon: ["balance", "tone", "curves", "stronger"],
+        };
+        return map[shape] || ["stronger", "tone", "leaner", "health"];
+      }
+
+      function goalsHintForShape(shape) {
+        const map = {
+          pear: "goalsHintPear",
+          apple: "goalsHintApple",
+          rectangle: "goalsHintRectangle",
+          hourglass: "goalsHintHourglass",
+          ecto: "goalsHintEcto",
+          meso: "goalsHintMeso",
+          endo: "goalsHintEndo",
+        };
+        return t(map[shape] || "goalsHintDefault");
+      }
+
+      function suggestedZonesForShape(shape) {
+        const map = {
+          pear: ["shoulders", "arms", "chest"],
+          apple: ["abs", "back"],
+          rectangle: ["glutes", "shoulders", "abs"],
+          hourglass: ["abs", "glutes"],
+          ecto: ["chest", "shoulders", "arms"],
+          meso: ["abs", "shoulders"],
+          endo: ["abs", "back"],
+          athletic: ["abs", "arms"],
+          spoon: ["shoulders", "glutes"],
+        };
+        return map[shape] || ["abs"];
+      }
+
+      function updateProfileSummary() {
+        const el = document.getElementById("profileSummary");
+        if (!el) return;
+        if (!prefs.profileComplete) {
+          el.textContent = t("profileSummaryEmpty");
+          return;
+        }
+        const genderLabel =
+          prefs.gender === "female"
+            ? t("genderFemale")
+            : prefs.gender === "male"
+              ? t("genderMale")
+              : t("genderSkip");
+        const shape = shapeLabel(prefs.shape);
+        const frame =
+          prefs.frame === "narrow"
+            ? t("frameNarrow")
+            : prefs.frame === "wide"
+              ? t("frameWide")
+              : t("frameAverage");
+        const outcomes = outcomesLabel(getSelectedOutcomes());
+        const bmi = getBmiValue();
+        el.textContent = t("profileSummaryLine", [
+          genderLabel,
+          shape,
+          frame,
+          bmi != null ? `BMI ${bmi}` : "",
+          outcomes,
+        ]);
+      }
+
+      function setActiveMulti(selector, values) {
+        const set = new Set(values || []);
+        document.querySelectorAll(selector).forEach((btn) => {
+          const key =
+            btn.dataset.outcome ||
+            btn.dataset.zone ||
+            btn.dataset.train ||
+            btn.dataset.diet ||
+            btn.dataset.gender ||
+            btn.dataset.frame ||
+            btn.dataset.shape;
+          btn.classList.toggle("active", set.has(key));
+        });
+      }
+
+      function readActiveMulti(selector, attr) {
+        return [...document.querySelectorAll(`${selector}.active`)].map((b) => b.dataset[attr]);
+      }
+
+      function renderObShapeChoices() {
+        const host = document.getElementById("obShapeChoices");
         if (!host) return;
-        const gender = getSelectedGender();
-        const shapes = shapesForGender(gender);
-        const prev = getSelectedShape();
-        const keep = shapes.some((s) => s.id === prev) ? prev : shapes[0]?.id;
+        const shapes = shapesForGender(prefs.gender || "unspecified");
+        const keep = shapes.some((s) => s.id === prefs.shape) ? prefs.shape : shapes[0]?.id;
         host.innerHTML = shapes
           .map(
             (s) =>
-              `<button type="button" class="choice${s.id === keep ? " active" : ""}" data-shape="${s.id}">${t(s.labelKey)}</button>`
+              `<button type="button" class="choice choice-desc${s.id === keep ? " active" : ""}" data-shape="${s.id}"><span>${t(s.labelKey)}</span><small>${t(s.descKey)}</small></button>`
           )
           .join("");
         host.querySelectorAll(".choice").forEach((btn) => {
@@ -2119,41 +2448,220 @@
             host.querySelectorAll(".choice").forEach((b) => b.classList.remove("active"));
             btn.classList.add("active");
             prefs.shape = btn.dataset.shape;
-            savePrefs();
-            updatePromptPreview();
           });
         });
         prefs.shape = keep;
+      }
+
+      function renderObOutcomeChoices() {
+        const host = document.getElementById("obOutcomeChoices");
+        const hint = document.getElementById("obGoalsHint");
+        if (!host) return;
+        const shape = prefs.shape || "";
+        if (hint) hint.textContent = goalsHintForShape(shape);
+        const suggested = suggestedOutcomesForShape(shape);
+        const all = [
+          ...suggested,
+          "stronger",
+          "leaner",
+          "tone",
+          "bulk",
+          "shred",
+          "lighter",
+          "performance",
+          "endurance",
+          "curves",
+          "vshape",
+          "confidence",
+          "balance",
+          "hourglassFx",
+          "flatMid",
+          "health",
+        ];
+        const unique = [...new Set(all)];
+        const selected =
+          Array.isArray(prefs.outcomes) && prefs.outcomes.length
+            ? prefs.outcomes
+            : suggested.slice(0, 2);
+        const labelMap = {
+          stronger: "outcomeStronger",
+          leaner: "outcomeLeaner",
+          tone: "outcomeTone",
+          bulk: "outcomeBulk",
+          shred: "outcomeShred",
+          lighter: "outcomeLighter",
+          performance: "outcomePerformance",
+          endurance: "outcomeEndurance",
+          curves: "outcomeCurves",
+          vshape: "outcomeVshape",
+          confidence: "outcomeConfidence",
+          balance: "outcomeBalance",
+          hourglassFx: "outcomeHourglassFx",
+          flatMid: "outcomeFlatMid",
+          health: "outcomeHealth",
+        };
+        host.innerHTML = unique
+          .map((id) => {
+            const starred = suggested.includes(id) ? " ★" : "";
+            return `<button type="button" class="choice${selected.includes(id) ? " active" : ""}" data-outcome="${id}">${t(labelMap[id] || id)}${starred}</button>`;
+          })
+          .join("");
+        host.querySelectorAll(".choice").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            btn.classList.toggle("active");
+            if (!readActiveMulti("#obOutcomeChoices .choice", "outcome").length) {
+              btn.classList.add("active");
+            }
+          });
+        });
+        const zones = Array.isArray(prefs.zones) && prefs.zones.length
+          ? prefs.zones
+          : suggestedZonesForShape(shape);
+        setActiveMulti("#obZoneChoices .choice", zones);
+      }
+
+      function fillOnboardFromPrefs() {
+        setActiveMulti("#obGenderChoices .choice", [prefs.gender || "unspecified"]);
+        document.querySelectorAll("#obFrameChoices .choice").forEach((btn) => {
+          btn.classList.toggle("active", btn.dataset.frame === (prefs.frame || "average"));
+        });
+        const oh = document.getElementById("obHeightCm");
+        const ow = document.getElementById("obWeightKg");
+        const ob = document.getElementById("obBmiValue");
+        if (oh) oh.value = prefs.heightCm ?? 175;
+        if (ow) ow.value = prefs.weightKg ?? 80;
+        if (ob) {
+          const auto = calcBmiFrom(Number(oh?.value), Number(ow?.value));
+          ob.value = prefs.bmi != null ? prefs.bmi : auto ?? 26.1;
+          ob.dataset.userLocked = prefs.bmiLocked ? "1" : "0";
+        }
+        setActiveMulti("#obTrainChoices .choice", prefs.trains?.length ? prefs.trains : ["strength"]);
+        document.querySelectorAll("#obDietChoices .choice").forEach((btn) => {
+          btn.classList.toggle("active", btn.dataset.diet === (prefs.diet || "mixed"));
+        });
+        const note = document.getElementById("obDietNote");
+        if (note) note.value = prefs.dietNote || "";
+        const kcal = document.getElementById("obFutureKcal");
+        const protein = document.getElementById("obFutureProtein");
+        if (kcal) kcal.value = prefs.futureKcal ?? 2200;
+        if (protein) protein.value = prefs.futureProtein ?? 100;
+        renderObShapeChoices();
+        renderObOutcomeChoices();
+        updateObBmiHint();
+      }
+
+      function updateObBmiHint() {
+        const hint = document.getElementById("obBmiHint");
+        const oh = document.getElementById("obHeightCm");
+        const ow = document.getElementById("obWeightKg");
+        const ob = document.getElementById("obBmiValue");
+        if (!hint || !ob) return;
+        const auto = calcBmiFrom(Number(oh?.value), Number(ow?.value));
+        const frame = document.querySelector("#obFrameChoices .choice.active")?.dataset.frame || prefs.frame;
+        const typed = Number(ob.value);
+        const bmi = Number.isFinite(typed) ? typed : auto;
+        const adj =
+          bmi != null ? Math.round((bmi + frameBmiNudge(frame)) * 10) / 10 : null;
+        if (ob.dataset.userLocked === "1") hint.textContent = t("bmiHintManual", bmi, auto);
+        else if (bmi != null) hint.textContent = t("bmiHintOk", bmi, adj);
+        else hint.textContent = "";
+      }
+
+      function showOnboardStep(step) {
+        onboardStep = Math.max(0, Math.min(ONBOARD_STEPS - 1, step));
+        document.querySelectorAll(".onboard-step").forEach((el) => {
+          el.classList.toggle("active", Number(el.dataset.step) === onboardStep);
+        });
+        const prog = document.getElementById("onboardProgress");
+        if (prog) {
+          prog.innerHTML = Array.from({ length: ONBOARD_STEPS }, (_, i) =>
+            `<span class="${i <= onboardStep ? "on" : ""}"></span>`
+          ).join("");
+        }
+        const back = document.getElementById("onboardBack");
+        const next = document.getElementById("onboardNext");
+        if (back) back.hidden = onboardStep === 0;
+        if (next) {
+          const last = onboardStep === ONBOARD_STEPS - 1;
+          next.textContent = last
+            ? onboardEditMode
+              ? t("onboardSave")
+              : t("onboardFinish")
+            : t("onboardContinue");
+        }
+        if (onboardStep === 2) renderObShapeChoices();
+        if (onboardStep === 4) renderObOutcomeChoices();
+        if (onboardStep === 3) updateObBmiHint();
+      }
+
+      function openOnboard({ edit } = {}) {
+        onboardEditMode = Boolean(edit);
+        fillOnboardFromPrefs();
+        document.getElementById("onboard").hidden = false;
+        showOnboardStep(edit ? 1 : 0);
+      }
+
+      function closeOnboard() {
+        document.getElementById("onboard").hidden = true;
+        syncProfileToDom();
+        updateProfileSummary();
+        updatePromptPreview();
+      }
+
+      function captureOnboardStep(step) {
+        if (step === 1) {
+          prefs.gender =
+            document.querySelector("#obGenderChoices .choice.active")?.dataset.gender ||
+            prefs.gender ||
+            "unspecified";
+        }
+        if (step === 2) {
+          prefs.shape =
+            document.querySelector("#obShapeChoices .choice.active")?.dataset.shape ||
+            prefs.shape;
+        }
+        if (step === 3) {
+          prefs.heightCm = Number(document.getElementById("obHeightCm").value) || prefs.heightCm;
+          prefs.weightKg = Number(document.getElementById("obWeightKg").value) || prefs.weightKg;
+          prefs.frame =
+            document.querySelector("#obFrameChoices .choice.active")?.dataset.frame || "average";
+          const ob = document.getElementById("obBmiValue");
+          prefs.bmiLocked = ob?.dataset.userLocked === "1";
+          prefs.bmi = Number(ob?.value) || calcBmiFrom(prefs.heightCm, prefs.weightKg);
+        }
+        if (step === 4) {
+          const outcomes = readActiveMulti("#obOutcomeChoices .choice", "outcome");
+          prefs.outcomes = outcomes.length ? outcomes : suggestedOutcomesForShape(prefs.shape);
+          const zones = readActiveMulti("#obZoneChoices .choice", "zone");
+          prefs.zones = zones.length ? zones : suggestedZonesForShape(prefs.shape);
+        }
+        if (step === 5) {
+          const trains = readActiveMulti("#obTrainChoices .choice", "train");
+          prefs.trains = trains.length ? trains : ["strength"];
+          prefs.diet =
+            document.querySelector("#obDietChoices .choice.active")?.dataset.diet || "mixed";
+          prefs.dietNote = document.getElementById("obDietNote")?.value.trim() || "";
+          prefs.futureKcal = Number(document.getElementById("obFutureKcal")?.value) || 2200;
+          prefs.futureProtein = Number(document.getElementById("obFutureProtein")?.value) || 100;
+        }
         savePrefs();
       }
 
-      function syncGenderChips() {
-        const g = prefs.gender || "unspecified";
-        document.querySelectorAll("#genderChoices .choice").forEach((btn) => {
-          btn.classList.toggle("active", btn.dataset.gender === g);
-        });
-        document.querySelectorAll("[data-onboard-gender]").forEach((btn) => {
-          btn.classList.toggle("active", btn.dataset.onboardGender === g);
-        });
-      }
-
-      function syncFrameChips() {
-        const f = prefs.frame || "average";
-        document.querySelectorAll("#frameChoices .choice").forEach((btn) => {
-          btn.classList.toggle("active", btn.dataset.frame === f);
-        });
+      function finishOnboard() {
+        for (let i = 0; i < ONBOARD_STEPS; i++) captureOnboardStep(i);
+        prefs.onboarded = true;
+        prefs.profileComplete = true;
+        savePrefs();
+        closeOnboard();
+        showToast(onboardEditMode ? t("onboardSave") : t("onboardFinish"));
       }
 
       function getSelectedTrains() {
-        return [...document.querySelectorAll("#trainChoices .choice.active")].map(
-          (b) => b.dataset.train
-        );
+        return Array.isArray(prefs.trains) && prefs.trains.length ? prefs.trains : ["strength"];
       }
 
       function getSelectedDiet() {
-        return (
-          document.querySelector("#dietChoices .choice.active")?.dataset.diet || "mixed"
-        );
+        return prefs.diet || "mixed";
       }
 
       function trainLabel(key) {
@@ -2176,9 +2684,9 @@
         const intensity = document.getElementById("intensity").value;
         const trains = getSelectedTrains();
         const diet = getSelectedDiet();
-        const dietNote = document.getElementById("dietNote").value.trim();
-        const kcalNow = Number(document.getElementById("futureKcal").value) || 2200;
-        const proteinNow = Number(document.getElementById("futureProtein").value) || 100;
+        const dietNote = prefs.dietNote || "";
+        const kcalNow = Number(prefs.futureKcal) || 2200;
+        const proteinNow = Number(prefs.futureProtein) || 100;
 
         const trainTips = [];
         if (muscle === "volume" || zones.includes("arms") || zones.includes("chest") || zones.includes("thighs") || zones.includes("glutes")) {
@@ -2380,6 +2888,10 @@
           curves: t("outcomeCurves"),
           vshape: t("outcomeVshape"),
           confidence: t("outcomeConfidence"),
+          balance: t("outcomeBalance"),
+          hourglassFx: t("outcomeHourglassFx"),
+          flatMid: t("outcomeFlatMid"),
+          health: t("outcomeHealth"),
         };
         return map[outcome] || outcome;
       }
@@ -2611,34 +3123,90 @@
       document.querySelectorAll("[data-onboard-lang]").forEach((btn) => {
         btn.addEventListener("click", () => {
           prefs.lang = btn.dataset.onboardLang;
+          savePrefs();
           applyI18n();
         });
       });
       document.querySelectorAll("[data-onboard-units]").forEach((btn) => {
         btn.addEventListener("click", () => {
           prefs.units = btn.dataset.onboardUnits;
-          applyI18n();
-        });
-      });
-      document.querySelectorAll("[data-onboard-gender]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          prefs.gender = btn.dataset.onboardGender;
           savePrefs();
-          syncGenderChips();
-          renderShapeChoices();
           applyI18n();
         });
       });
-      document.getElementById("onboardContinue").addEventListener("click", () => {
-        prefs.onboarded = true;
-        prefs.gender =
-          document.querySelector("[data-onboard-gender].active")?.dataset.onboardGender ||
-          prefs.gender ||
-          "unspecified";
-        savePrefs();
-        document.getElementById("onboard").hidden = true;
+
+      document.getElementById("onboardBack").addEventListener("click", () => {
+        captureOnboardStep(onboardStep);
+        showOnboardStep(onboardStep - 1);
+      });
+      document.getElementById("onboardNext").addEventListener("click", () => {
+        captureOnboardStep(onboardStep);
+        if (onboardStep >= ONBOARD_STEPS - 1) finishOnboard();
+        else showOnboardStep(onboardStep + 1);
+      });
+
+      document.querySelectorAll("#obGenderChoices .choice").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          document.querySelectorAll("#obGenderChoices .choice").forEach((b) => b.classList.remove("active"));
+          btn.classList.add("active");
+          prefs.gender = btn.dataset.gender;
+        });
+      });
+      document.querySelectorAll("#obFrameChoices .choice").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          document.querySelectorAll("#obFrameChoices .choice").forEach((b) => b.classList.remove("active"));
+          btn.classList.add("active");
+          updateObBmiHint();
+        });
+      });
+      document.querySelectorAll("#obZoneChoices .choice").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          btn.classList.toggle("active");
+          if (!readActiveMulti("#obZoneChoices .choice", "zone").length) btn.classList.add("active");
+        });
+      });
+      document.querySelectorAll("#obTrainChoices .choice").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          btn.classList.toggle("active");
+          if (!readActiveMulti("#obTrainChoices .choice", "train").length) btn.classList.add("active");
+        });
+      });
+      document.querySelectorAll("#obDietChoices .choice").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          document.querySelectorAll("#obDietChoices .choice").forEach((b) => b.classList.remove("active"));
+          btn.classList.add("active");
+        });
+      });
+      ["obHeightCm", "obWeightKg"].forEach((id) => {
+        document.getElementById(id).addEventListener("input", () => {
+          const ob = document.getElementById("obBmiValue");
+          ob.dataset.userLocked = "0";
+          const auto = calcBmiFrom(
+            Number(document.getElementById("obHeightCm").value),
+            Number(document.getElementById("obWeightKg").value)
+          );
+          if (auto != null) ob.value = String(auto);
+          updateObBmiHint();
+        });
+      });
+      document.getElementById("obBmiValue").addEventListener("input", () => {
+        document.getElementById("obBmiValue").dataset.userLocked = "1";
+        updateObBmiHint();
+      });
+
+      document.getElementById("editProfileBtn").addEventListener("click", () => {
         applyI18n();
-        renderPace();
+        openOnboard({ edit: true });
+      });
+
+      document.getElementById("profileDeviceCta").addEventListener("click", () => {
+        if (!TERRA_LIVE) {
+          showToast(t("deviceAutofillSoon"));
+          document.querySelector('.tab[data-tab="devices"]')?.click();
+          return;
+        }
+        document.querySelector('.tab[data-tab="devices"]')?.click();
+        document.getElementById("connectTerra")?.click();
       });
 
       document.getElementById("maal").addEventListener("input", () => {
@@ -2686,17 +3254,6 @@
       }
 
       bindChoiceGroup("#fatChoices .choice");
-      bindChoiceGroup("#dietChoices .choice");
-      bindChoiceGroup("#frameChoices .choice", (btn) => {
-        prefs.frame = btn.dataset.frame;
-        savePrefs();
-      });
-      bindChoiceGroup("#genderChoices .choice", (btn) => {
-        prefs.gender = btn.dataset.gender;
-        savePrefs();
-        syncGenderChips();
-        renderShapeChoices();
-      });
       bindChoiceGroup("#intensityChoices .choice", (btn) => {
         setIntensityValue(btn.dataset.intensity, { lock: true });
       });
@@ -2705,22 +3262,8 @@
         btn.addEventListener("click", () => {
           btn.classList.toggle("active");
           if (!getSelectedZones().length) btn.classList.add("active");
-          updatePromptPreview();
-        });
-      });
-
-      document.querySelectorAll("#outcomeChoices .choice").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          btn.classList.toggle("active");
-          if (!getSelectedOutcomes().length) btn.classList.add("active");
-          updatePromptPreview();
-        });
-      });
-
-      document.querySelectorAll("#trainChoices .choice").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          btn.classList.toggle("active");
-          if (!getSelectedTrains().length) btn.classList.add("active");
+          prefs.zones = getSelectedZones();
+          savePrefs();
           updatePromptPreview();
         });
       });
@@ -2744,20 +3287,9 @@
         showToast(t("btnApplyBfDate") + ": " + plan.date);
       });
 
-      ["dietNote", "futureKcal", "futureProtein", "bfNow", "bfGoal"].forEach(
+      ["bfNow", "bfGoal"].forEach(
         (id) => document.getElementById(id).addEventListener("input", updatePromptPreview)
       );
-      ["heightCm", "weightKg"].forEach((id) => {
-        document.getElementById(id).addEventListener("input", () => {
-          document.getElementById("bmiValue").dataset.userLocked = "0";
-          syncBmiFromHw({ force: true });
-          updatePromptPreview();
-        });
-      });
-      document.getElementById("bmiValue").addEventListener("input", () => {
-        document.getElementById("bmiValue").dataset.userLocked = "1";
-        updatePromptPreview();
-      });
 
       document.querySelectorAll(".tab").forEach((tab) => {
         tab.addEventListener("click", () => {
@@ -2933,10 +3465,12 @@
           document.getElementById("endDate").value = daysFromNow(84);
         }
 
-        if (!prefs.onboarded) {
-          document.getElementById("onboard").hidden = false;
+        if (!prefs.profileComplete) {
+          openOnboard({ edit: false });
         }
 
+        syncProfileToDom();
+        updateProfileSummary();
         renderPace();
         renderHistory();
       } catch (error) {
@@ -3256,14 +3790,21 @@
         const { goal, pace } = renderPace();
         document.getElementById("maal").value = motivationText(goal, pace);
         document.getElementById("maal").dataset.touched = "1";
-        document.getElementById("futureKcal").value = goal.kcalCurrent || goal.kcalTarget || 2200;
-        document.getElementById("futureProtein").value =
-          goal.proteinCurrent || goal.proteinTarget || 100;
+        prefs.futureKcal = goal.kcalCurrent || goal.kcalTarget || prefs.futureKcal || 2200;
+        prefs.futureProtein =
+          goal.proteinCurrent || goal.proteinTarget || prefs.futureProtein || 100;
         if (isWeightMetric(goal.metricLabel) && prefs.units === "metric") {
-          document.getElementById("weightKg").value = goal.currentValue || goal.startValue || 80;
+          prefs.weightKg = goal.currentValue || goal.startValue || prefs.weightKg || 80;
+          prefs.bmiLocked = false;
+          prefs.bmi = calcBmiFrom(prefs.heightCm, prefs.weightKg);
+          savePrefs();
+          syncProfileToDom();
+        } else {
+          savePrefs();
         }
         suggestIntensity();
         updatePromptPreview();
+        updateProfileSummary();
         renderPace();
       }
 
