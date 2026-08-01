@@ -1592,7 +1592,7 @@
             "Generering tok for lang tid. Prøv igjen — neste forsøk bytter ofte til raskere reservedrift. Mindre bilde eller lavere innsats kan også hjelpe.",
           generateNetwork:
             "Nettverksfeil under generering. Sjekk tilkobling og prøv igjen.",
-          doneFallback: "Ferdig (brukte reservedriftsmodell pga. sikkerhetsfilter).",
+          doneFallback: "Ferdig via reservedrift (primærmodellen ble filtrert — bildet er klart).",
           doneSdxl: "Ferdig (nødfallback — kan se mindre realistisk ut). Prøv igjen.",
           done: "Ferdig.",
           focusBehind: "sterkere motivasjon for å ta igjen planen",
@@ -1955,7 +1955,7 @@
           generateTimeout:
             "Generation timed out. Try again — the next run often switches to a faster fallback. A smaller photo or lower effort can also help.",
           generateNetwork: "Network error while generating. Check your connection and try again.",
-          doneFallback: "Done (used fallback model due to safety filter).",
+          doneFallback: "Done via fallback model (primary was filtered — your image is ready).",
           doneSdxl: "Done (emergency fallback — may look less realistic). Try again.",
           done: "Done.",
           focusBehind: "stronger motivation to catch up to the plan",
@@ -3731,7 +3731,7 @@
           } else if (String(result.attempt || "").includes("sdxl")) {
             statusEl.textContent = t("doneSdxl");
           } else if (String(result.attempt || "").includes("flux")) {
-            statusEl.textContent = t("done") + " (Flux reservedrift).";
+            statusEl.textContent = t("done") + " via Flux reservedrift.";
           } else {
             statusEl.textContent = t("doneFallback");
           }
