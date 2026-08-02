@@ -1,5 +1,7 @@
 # Helseapp
 
+[![AI Quality Gate](https://github.com/froydis94-art/Helseapp/actions/workflows/ai-quality-gate.yml/badge.svg)](https://github.com/froydis94-art/Helseapp/actions/workflows/ai-quality-gate.yml)
+
 Web-app (Vercel) som viser et motivasjonsbilde av deg basert på planen, og sier fra om du er dager foran eller bak målet. Helseenheter kobles via **Terra**.
 
 Live: https://helseapp-2.vercel.app  
