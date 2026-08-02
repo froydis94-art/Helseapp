@@ -266,6 +266,119 @@ describe("aiOsV2Harness — DEMAND_008", () => {
         e.includes("forbidden sensitive or transport content")
       )
     );
+    assert.equal(/https?:\/\//i.test(JSON.stringify(sanitized)), false);
+    assert.ok(sanitized.warnings.includes("[REDACTED_FORBIDDEN_CONTENT]"));
+  });
+
+  it("24a. sanitizeHarnessReport redacts forbidden strings (PATCH 008A)", () => {
+    const FORBIDDEN_ERROR =
+      "Harness report contained forbidden sensitive or transport content.";
+    const REDACTED = "[REDACTED_FORBIDDEN_CONTENT]";
+    const longB64 = `${"A".repeat(80)}==`;
+    const stackLike = "at Object.run (harness.ts:10:5)";
+
+    const report = runAiOsV2Harness(validRecompositionFixture);
+    const original: AiOsV2HarnessReport = {
+      ...report,
+      success: true,
+      warnings: [
+        ...report.warnings,
+        "data:image/png;base64,abc",
+        "Bearer leaked-token",
+        "Authorization: secret",
+        "REPLICATE_API_TOKEN=xyz",
+        "my api key value",
+        "http://insecure.example/path",
+        "https://evil.example/leak",
+        longB64,
+        stackLike,
+      ],
+      summary: {
+        ...report.summary,
+        visualIntensity: "https://should-redact.example",
+      },
+      artifacts: report.artifacts
+        ? {
+            ...report.artifacts,
+            formattedRequest: report.artifacts.formattedRequest
+              ? {
+                  ...report.artifacts.formattedRequest,
+                  prompt: `see https://nested.example and Bearer x`,
+                }
+              : undefined,
+          }
+        : undefined,
+    };
+    const before = structuredClone(original);
+
+    const sanitized = sanitizeHarnessReport(original);
+
+    // 7. Does not mutate original
+    assert.deepEqual(original, before);
+
+    // 4. success false
+    assert.equal(sanitized.success, false);
+
+    // 5. Exactly one forbidden-content error (idempotent add)
+    assert.equal(
+      sanitized.errors.filter((e) => e === FORBIDDEN_ERROR).length,
+      1
+    );
+
+    // 3. Forbidden strings replaced with redaction marker
+    assert.ok(sanitized.warnings.includes(REDACTED));
+    assert.equal(sanitized.summary.visualIntensity, REDACTED);
+    assert.equal(sanitized.artifacts?.formattedRequest?.prompt, REDACTED);
+
+    // 6. Preserve safe structure and non-sensitive values
+    assert.equal(sanitized.traceId, original.traceId);
+    assert.deepEqual(
+      sanitized.stages.map((s) => s.stage),
+      original.stages.map((s) => s.stage)
+    );
+    assert.equal(sanitized.versions.formatterName, original.versions.formatterName);
+    assert.equal(
+      sanitized.summary.approvedChangeCount,
+      original.summary.approvedChangeCount
+    );
+    assert.deepEqual(
+      sanitized.summary.approvedChangeIds,
+      original.summary.approvedChangeIds
+    );
+
+    // 10. Returned report contains NONE of the forbidden classes
+    const json = JSON.stringify(sanitized);
+    assert.equal(/data:image\//i.test(json), false);
+    assert.equal(/\bBearer\b/i.test(json), false);
+    assert.equal(/\bAuthorization\b/i.test(json), false);
+    assert.equal(/REPLICATE_API_TOKEN/i.test(json), false);
+    assert.equal(/\bapi[_-]?key\b/i.test(json), false);
+    assert.equal(/https?:\/\//i.test(json), false);
+    assert.equal(/(?:[A-Za-z0-9+/]{80,}={0,2})/.test(json), false);
+    assert.equal(/\bat\s+\S+\s+\([^)]+\.\w+:\d+:\d+\)/i.test(json), false);
+
+    // 8. Deterministic
+    const again = sanitizeHarnessReport(original);
+    assert.deepEqual(sanitized, again);
+
+    // 5 + 9. Idempotent: sanitize(sanitize(report)) === sanitize(report)
+    const twice = sanitizeHarnessReport(sanitized);
+    assert.deepEqual(twice, sanitized);
+    assert.equal(
+      twice.errors.filter((e) => e === FORBIDDEN_ERROR).length,
+      1
+    );
+
+    // Already-present error is not duplicated
+    const withError: AiOsV2HarnessReport = {
+      ...original,
+      errors: [...original.errors, FORBIDDEN_ERROR],
+    };
+    const once = sanitizeHarnessReport(withError);
+    assert.equal(
+      once.errors.filter((e) => e === FORBIDDEN_ERROR).length,
+      1
+    );
   });
 
   it("25. stage durations are non-negative", () => {

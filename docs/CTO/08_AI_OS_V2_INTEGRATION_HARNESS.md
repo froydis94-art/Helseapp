@@ -94,7 +94,7 @@ Reports must remain JSON-serializable and free of image data, Base64, tokens, UR
 - no real user data
 - sanitized output via `sanitizeHarnessReport`
 
-Unsafe content detection forces `success: false` and adds an explicit error. It never silently marks an unsafe report successful.
+Unsafe strings are **redacted** (replaced with `[REDACTED_FORBIDDEN_CONTENT]`), not merely detected. Redaction forces `success: false` and adds exactly one explicit error. It never silently marks an unsafe report successful, and never leaves forbidden content in the returned report.
 
 ## Running
 

@@ -183,36 +183,71 @@ export function buildHarnessTraceId(
   return `aiosv2-${digest}`;
 }
 
-function collectStringValues(value: unknown, out: string[]): void {
-  if (typeof value === "string") {
-    out.push(value);
-    return;
+const REDACTED_FORBIDDEN_CONTENT = "[REDACTED_FORBIDDEN_CONTENT]";
+
+const FORBIDDEN_CONTENT_ERROR =
+  "Harness report contained forbidden sensitive or transport content.";
+
+function stringMatchesForbidden(text: string): boolean {
+  for (const pattern of FORBIDDEN_SENSITIVE_PATTERNS) {
+    if (pattern.test(text)) return true;
   }
-  if (Array.isArray(value)) {
-    for (const item of value) collectStringValues(item, out);
-    return;
-  }
-  if (value !== null && typeof value === "object") {
-    for (const nested of Object.values(value as Record<string, unknown>)) {
-      collectStringValues(nested, out);
-    }
-  }
+  return false;
 }
 
 function containsForbiddenContent(value: unknown): boolean {
-  const strings: string[] = [];
-  collectStringValues(value, strings);
-  for (const text of strings) {
-    for (const pattern of FORBIDDEN_SENSITIVE_PATTERNS) {
-      if (pattern.test(text)) return true;
-    }
+  if (typeof value === "string") {
+    return stringMatchesForbidden(value);
+  }
+  if (Array.isArray(value)) {
+    return value.some((item) => containsForbiddenContent(item));
+  }
+  if (value !== null && typeof value === "object") {
+    return Object.values(value as Record<string, unknown>).some((nested) =>
+      containsForbiddenContent(nested)
+    );
   }
   return false;
 }
 
 /**
+ * Recursively replace string values that match forbidden patterns.
+ * Mutates only the provided clone; preserves safe structure and non-string values.
+ */
+function redactForbiddenStrings(value: unknown): void {
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) {
+      const item = value[i];
+      if (typeof item === "string") {
+        if (stringMatchesForbidden(item)) {
+          value[i] = REDACTED_FORBIDDEN_CONTENT;
+        }
+      } else {
+        redactForbiddenStrings(item);
+      }
+    }
+    return;
+  }
+  if (value !== null && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    for (const key of Object.keys(record)) {
+      const nested = record[key];
+      if (typeof nested === "string") {
+        if (stringMatchesForbidden(nested)) {
+          record[key] = REDACTED_FORBIDDEN_CONTENT;
+        }
+      } else {
+        redactForbiddenStrings(nested);
+      }
+    }
+  }
+}
+
+/**
  * Ensures harness reports never carry images, URLs, tokens, or Base64-like blobs.
- * Does not silently mark an unsafe report as successful.
+ * Forbidden string values are redacted; the report is marked failed with an explicit error.
+ * Does not silently mark an unsafe report as successful. Does not mutate the input.
+ * Deterministic and idempotent: sanitize(sanitize(report)) deep-equals sanitize(report).
  */
 export function sanitizeHarnessReport(
   report: AiOsV2HarnessReport
@@ -222,11 +257,10 @@ export function sanitizeHarnessReport(
     return clone;
   }
 
+  redactForbiddenStrings(clone);
   clone.success = false;
-  const message =
-    "Harness report contained forbidden sensitive or transport content.";
-  if (!clone.errors.includes(message)) {
-    clone.errors = [...clone.errors, message];
+  if (!clone.errors.includes(FORBIDDEN_CONTENT_ERROR)) {
+    clone.errors = [...clone.errors, FORBIDDEN_CONTENT_ERROR];
   }
   return clone;
 }
