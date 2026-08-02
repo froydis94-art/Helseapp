@@ -144,6 +144,23 @@ export {
   validateFormattedImageRequest,
 } from "./formatters";
 
+/** Non-production AI OS v2 dry-run integration harness. */
+export type {
+  AiOsV2HarnessInput,
+  AiOsV2HarnessReport,
+  HarnessStage,
+  HarnessStageResult,
+} from "./harness";
+export {
+  buildHarnessTraceId,
+  invalidPriorityFixture,
+  missingBodyFatFixture,
+  runAiOsV2Harness,
+  sanitizeHarnessReport,
+  shortTimelineFixture,
+  validRecompositionFixture,
+} from "./harness";
+
 export {
   TRANSFORM_PROGRESS_TAU,
   bfAtHorizon,
