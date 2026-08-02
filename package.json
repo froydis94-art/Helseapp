@@ -10,7 +10,7 @@
     "server": "npm --prefix server start",
     "server:install": "npm --prefix server install",
     "typecheck": "tsc --noEmit",
-    "test:ai": "tsx --test src/ai/__tests__/foundation.test.ts src/ai/__tests__/progressCurve.test.cjs src/ai/__tests__/pipelineContract.test.ts src/ai/__tests__/modelAdapter.test.ts src/ai/__tests__/visualDirector.test.ts src/ai/__tests__/renderPlan.test.ts src/ai/__tests__/providerFormatter.test.ts src/ai/__tests__/aiOsV2Harness.test.ts src/ai/__tests__/resultValidator.test.ts",
+    "test:ai": "tsx --test src/ai/__tests__/foundation.test.ts src/ai/__tests__/progressCurve.test.cjs src/ai/__tests__/pipelineContract.test.ts src/ai/__tests__/modelAdapter.test.ts src/ai/__tests__/visualDirector.test.ts src/ai/__tests__/renderPlan.test.ts src/ai/__tests__/providerFormatter.test.ts src/ai/__tests__/aiOsV2Harness.test.ts src/ai/__tests__/resultValidator.test.ts src/ai/__tests__/replicateTransportAdapter.test.ts",
     "harness:ai": "tsx scripts/run-ai-os-v2-harness.ts"
   },
   "dependencies": {

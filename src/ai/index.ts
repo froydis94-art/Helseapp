@@ -217,6 +217,47 @@ export {
 } from "./progressCurve";
 export type { ProgressBand } from "./progressCurve";
 
+/** Server-side Replicate transport (disabled by default — not production-wired). */
+export type {
+  ReplicateCreatePredictionBody,
+  ReplicatePredictionPayload,
+  ReplicatePredictionStatus,
+  ReplicateSourceImage,
+  ReplicateTransportConfig,
+  ReplicateTransportDependencies,
+  ReplicateTransportErrorCode,
+  ReplicateTransportFailure,
+  ReplicateTransportInput,
+  ReplicateTransportInputValidation,
+  ReplicateTransportResult,
+  ReplicateTransportSuccess,
+} from "./transport";
+export {
+  DEFAULT_CREATE_TIMEOUT_MS,
+  DEFAULT_MAX_POLL_ATTEMPTS,
+  DEFAULT_POLL_INTERVAL_MS,
+  DEFAULT_REPLICATE_API_BASE_URL,
+  DEFAULT_REPLICATE_TRANSPORT_CONFIG,
+  DEFAULT_REPLICATE_TRANSPORT_MODEL,
+  DEFAULT_TOTAL_TIMEOUT_MS,
+  MAX_DATA_URI_CHARS,
+  MAX_SAFE_PROVIDER_ERROR_LENGTH,
+  NEGATIVE_PROMPT_APPENDIX_LABEL,
+  ReplicateTransportAdapter,
+  buildReplicateCreatePredictionBody,
+  createReplicateTransportConfigFromEnv,
+  extractReplicateImageUrl,
+  isAllowedReplicatePollUrl,
+  isValidReplicateTransportModel,
+  mapHttpStatusToTransportError,
+  normalizeHttpFailure,
+  normalizeReplicateFailure,
+  normalizeReplicateStatus,
+  sanitizeProviderErrorMessage,
+  toSafeReplicateTransportConfigView,
+  validateReplicateTransportInput,
+} from "./transport";
+
 export {
   GOAL_RANGES,
   PROFILE_RANGES,
