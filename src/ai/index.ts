@@ -62,7 +62,25 @@ export type {
   PromptPackage,
   StructuredPromptOutput,
 } from "./PromptBuilder";
-export { StubPromptBuilder, buildPromptPackage } from "./PromptBuilder";
+export {
+  StubPromptBuilder,
+  buildDirectedPromptPackage,
+  buildPromptPackage,
+} from "./PromptBuilder";
+
+/** Photographic presentation layer (foundation only — not production-integrated). */
+export type {
+  ChangeVisibility,
+  PresentationStyle,
+  PostureTreatment,
+  TextureStyle,
+  VisualDirection,
+} from "./visual";
+export {
+  VISUAL_DIRECTOR_RULES_VERSION,
+  VisualDirector,
+  directVisual,
+} from "./visual";
 
 export {
   StubTransformationValidator,

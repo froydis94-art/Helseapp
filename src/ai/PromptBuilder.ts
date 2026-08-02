@@ -6,6 +6,7 @@
 import type { BodyProfile } from "./BodyProfile";
 import type { TransformationGoal } from "./TransformationGoal";
 import type { TransformationPlan } from "./TransformationPlan";
+import type { VisualDirection } from "./visual/VisualDirection";
 
 /** Structured prompt bundle (legacy stub shape — kept for compatibility). */
 export interface StructuredPromptOutput {
@@ -210,6 +211,88 @@ export function buildPromptPackage(
     identityConstraints,
     anatomyConstraints,
     transformationInstructions: uniqueNonEmpty(transformationInstructions),
+    metadata: {
+      rulesVersion: plan.rulesVersion,
+      visualIntensity: plan.visualIntensity,
+      estimateReliability: plan.estimateReliability,
+    },
+  };
+}
+
+/**
+ * Build a PromptPackage guided by an existing VisualDirection.
+ * Consumes direction as-is — does not rerun VisualDirector or recalculate physiology.
+ */
+export function buildDirectedPromptPackage(
+  _profile: BodyProfile,
+  _goal: TransformationGoal,
+  plan: TransformationPlan,
+  direction: VisualDirection
+): PromptPackage {
+  const preserveLabels: string[] = [];
+  if (direction.preserve.identity) preserveLabels.push("facial identity");
+  if (direction.preserve.apparentAge) preserveLabels.push("apparent age");
+  if (direction.preserve.hair) preserveLabels.push("hair");
+  if (direction.preserve.skinTone) preserveLabels.push("skin tone");
+  if (direction.preserve.skeletalFrame) preserveLabels.push("skeletal frame");
+  if (direction.preserve.pose) preserveLabels.push("pose");
+  if (direction.preserve.cameraPerspective) {
+    preserveLabels.push("camera perspective");
+  }
+  if (direction.preserve.lighting) preserveLabels.push("lighting");
+  if (direction.preserve.clothing) preserveLabels.push("clothing");
+  if (direction.preserve.accessories) preserveLabels.push("accessories");
+  if (direction.preserve.background) preserveLabels.push("background");
+
+  const preserveLines = uniqueNonEmpty([
+    ...preserveLabels.map((label) => `preserve ${label}`),
+    ...direction.photographicInstructions,
+  ]).map((line) => `- ${line}`);
+
+  const changeLines = uniqueNonEmpty([
+    `presentation style: ${direction.presentationStyle}`,
+    `change visibility: ${direction.changeVisibility}`,
+    `texture style: ${direction.textureStyle}`,
+    `posture treatment: ${direction.postureTreatment}`,
+    ...direction.emphasisInstructions,
+  ]).map((line) => `- ${line}`);
+
+  const realismLines = uniqueNonEmpty(direction.realismConstraints).map(
+    (line) => `- ${line}`
+  );
+
+  const primaryPrompt = [
+    "SOURCE:",
+    "- edit this exact source photograph",
+    "- keep the same person",
+    "",
+    "PRESERVE:",
+    preserveLines.join("\n"),
+    "",
+    "CHANGE:",
+    changeLines.join("\n"),
+    "",
+    "REALISM:",
+    realismLines.join("\n"),
+  ].join("\n");
+
+  const negativePrompt = uniqueNonEmpty([
+    ...direction.exclusions,
+    ...NEGATIVE_PROMPT.split(","),
+  ]).join(", ");
+
+  return {
+    primaryPrompt,
+    negativePrompt,
+    identityConstraints: uniqueNonEmpty([
+      "Keep the same person as the source photograph",
+      "Preserve facial identity and apparent age",
+      "Preserve hair, skin tone, tattoos, and scars",
+      "Preserve skeletal frame and limb count",
+      "Preserve pose, camera perspective, lighting, clothing, accessories, and background",
+    ]),
+    anatomyConstraints: uniqueNonEmpty([...direction.realismConstraints]),
+    transformationInstructions: uniqueNonEmpty(direction.emphasisInstructions),
     metadata: {
       rulesVersion: plan.rulesVersion,
       visualIntensity: plan.visualIntensity,
