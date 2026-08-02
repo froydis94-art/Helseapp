@@ -15,6 +15,7 @@ import {
   DEFAULT_CREATE_TIMEOUT_MS,
   DEFAULT_MAX_POLL_ATTEMPTS,
   DEFAULT_POLL_INTERVAL_MS,
+  DEFAULT_REPLICATE_API_BASE_URL,
   DEFAULT_REPLICATE_TRANSPORT_CONFIG,
   DEFAULT_REPLICATE_TRANSPORT_MODEL,
   DEFAULT_TOTAL_TIMEOUT_MS,
@@ -32,6 +33,7 @@ import {
   type ReplicateTransportInput,
   type ReplicateTransportResult,
 } from "../transport";
+import { resolveOfficialReplicateApiBaseUrl } from "../transport/ReplicateTransportAdapter";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const transportDir = join(__dirname, "..", "transport");
@@ -923,6 +925,169 @@ describe("DEMAND_011 Replicate transport adapter", () => {
       assert.equal(result.success, true);
       if (result.success) {
         assert.equal(result.metadata.pollingAttempts, 3);
+      }
+    });
+  });
+
+  describe("apiBaseUrl allowlist (CTO PATCH 011A)", () => {
+    async function generateWithBaseUrl(apiBaseUrl: string): Promise<{
+      result: ReplicateTransportResult;
+      fetches: number;
+      requestedUrls: string[];
+    }> {
+      let fetches = 0;
+      const requestedUrls: string[] = [];
+      const adapter = new ReplicateTransportAdapter(
+        enabledConfig({ apiBaseUrl }),
+        {
+          fetchFn: (async (url) => {
+            fetches += 1;
+            requestedUrls.push(String(url));
+            return jsonResponse(201, {
+              id: "pred_base",
+              status: "succeeded",
+              output: IMAGE_HTTPS,
+            });
+          }) as typeof fetch,
+          now: () => 1,
+          sleep: async () => undefined,
+        }
+      );
+      const result = await adapter.generate(sampleInput());
+      return { result, fetches, requestedUrls };
+    }
+
+    function assertInvalidBaseConfig(
+      result: ReplicateTransportResult,
+      rejectedUrl: string
+    ): void {
+      assert.equal(result.success, false);
+      if (!result.success) {
+        assert.equal(result.error.code, "invalid_request");
+        assert.equal(result.error.retryable, false);
+        assert.equal(
+          result.error.message,
+          "Replicate transport configuration is invalid."
+        );
+      }
+      const serialized = JSON.stringify(result);
+      if (rejectedUrl) {
+        assert.equal(serialized.includes(rejectedUrl), false);
+      }
+      assert.equal(serialized.includes(FAKE_TOKEN), false);
+      assert.equal(/Authorization/i.test(serialized), false);
+    }
+
+    it("exact official base URL is accepted", async () => {
+      assert.equal(
+        resolveOfficialReplicateApiBaseUrl(DEFAULT_REPLICATE_API_BASE_URL),
+        DEFAULT_REPLICATE_API_BASE_URL
+      );
+      const { result, fetches, requestedUrls } = await generateWithBaseUrl(
+        DEFAULT_REPLICATE_API_BASE_URL
+      );
+      assert.equal(result.success, true);
+      assert.equal(fetches, 1);
+      assert.equal(
+        requestedUrls[0],
+        `${DEFAULT_REPLICATE_API_BASE_URL}/models/${DEFAULT_REPLICATE_TRANSPORT_MODEL}/predictions`
+      );
+    });
+
+    it("official base URL with one trailing slash is normalized and accepted", async () => {
+      const withSlash = `${DEFAULT_REPLICATE_API_BASE_URL}/`;
+      assert.equal(
+        resolveOfficialReplicateApiBaseUrl(withSlash),
+        DEFAULT_REPLICATE_API_BASE_URL
+      );
+      const { result, fetches, requestedUrls } =
+        await generateWithBaseUrl(withSlash);
+      assert.equal(result.success, true);
+      assert.equal(fetches, 1);
+      assert.equal(
+        requestedUrls[0],
+        `${DEFAULT_REPLICATE_API_BASE_URL}/models/${DEFAULT_REPLICATE_TRANSPORT_MODEL}/predictions`
+      );
+      assert.equal(requestedUrls[0].includes("//models"), false);
+    });
+
+    it("malicious hostname performs zero fetch calls", async () => {
+      const evil = "https://evil.example/v1";
+      assert.equal(resolveOfficialReplicateApiBaseUrl(evil), null);
+      const { result, fetches } = await generateWithBaseUrl(evil);
+      assert.equal(fetches, 0);
+      assertInvalidBaseConfig(result, evil);
+    });
+
+    it("Replicate-looking subdomain performs zero fetch calls", async () => {
+      const evil = "https://evil.api.replicate.com/v1";
+      assert.equal(resolveOfficialReplicateApiBaseUrl(evil), null);
+      const { result, fetches } = await generateWithBaseUrl(evil);
+      assert.equal(fetches, 0);
+      assertInvalidBaseConfig(result, evil);
+    });
+
+    it("HTTP URL performs zero fetch calls", async () => {
+      const evil = "http://api.replicate.com/v1";
+      assert.equal(resolveOfficialReplicateApiBaseUrl(evil), null);
+      const { result, fetches } = await generateWithBaseUrl(evil);
+      assert.equal(fetches, 0);
+      assertInvalidBaseConfig(result, evil);
+    });
+
+    it("URL containing credentials performs zero fetch calls", async () => {
+      const evil = "https://user:pass@api.replicate.com/v1";
+      assert.equal(resolveOfficialReplicateApiBaseUrl(evil), null);
+      const { result, fetches } = await generateWithBaseUrl(evil);
+      assert.equal(fetches, 0);
+      assertInvalidBaseConfig(result, evil);
+    });
+
+    it("URL containing query or fragment performs zero fetch calls", async () => {
+      const withQuery = "https://api.replicate.com/v1?x=1";
+      const withHash = "https://api.replicate.com/v1#leak";
+      assert.equal(resolveOfficialReplicateApiBaseUrl(withQuery), null);
+      assert.equal(resolveOfficialReplicateApiBaseUrl(withHash), null);
+
+      const queryCase = await generateWithBaseUrl(withQuery);
+      assert.equal(queryCase.fetches, 0);
+      assertInvalidBaseConfig(queryCase.result, withQuery);
+
+      const hashCase = await generateWithBaseUrl(withHash);
+      assert.equal(hashCase.fetches, 0);
+      assertInvalidBaseConfig(hashCase.result, withHash);
+    });
+
+    it("custom port performs zero fetch calls", async () => {
+      const evil = "https://api.replicate.com:8443/v1";
+      assert.equal(resolveOfficialReplicateApiBaseUrl(evil), null);
+      const { result, fetches } = await generateWithBaseUrl(evil);
+      assert.equal(fetches, 0);
+      assertInvalidBaseConfig(result, evil);
+    });
+
+    it("invalid URL never appears in returned result and token is absent", async () => {
+      const evil = "https://attacker.example/exfil/v1";
+      const { result, fetches } = await generateWithBaseUrl(evil);
+      assert.equal(fetches, 0);
+      assertInvalidBaseConfig(result, evil);
+      assert.equal(JSON.stringify(result).includes("attacker.example"), false);
+      assertNoSecrets(result, sampleInput().formattedRequest.prompt);
+    });
+
+    it("malformed and non-/v1 paths are rejected with zero fetch", async () => {
+      const cases = [
+        "not-a-url",
+        "https://api.replicate.com/v2",
+        "https://api.replicate.com/v1/extra",
+        "https://api.replicate.com/",
+        "",
+      ];
+      for (const evil of cases) {
+        assert.equal(resolveOfficialReplicateApiBaseUrl(evil), null);
+        const { result, fetches } = await generateWithBaseUrl(evil);
+        assert.equal(fetches, 0, evil);
+        assertInvalidBaseConfig(result, evil);
       }
     });
   });

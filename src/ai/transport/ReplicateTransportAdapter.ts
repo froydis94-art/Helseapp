@@ -17,7 +17,10 @@ import {
   normalizeReplicateStatus,
   parsePredictionPayload,
 } from "./ReplicateResponseNormalizer";
-import type { ReplicateTransportConfig } from "./ReplicateTransportConfig";
+import {
+  DEFAULT_REPLICATE_API_BASE_URL,
+  type ReplicateTransportConfig,
+} from "./ReplicateTransportConfig";
 import type {
   ReplicateCreatePredictionBody,
   ReplicateTransportInput,
@@ -268,6 +271,36 @@ export function isAllowedReplicatePollUrl(url: string): boolean {
   }
 }
 
+/**
+ * Resolve apiBaseUrl to the official Replicate API origin only.
+ * Accepts an optional single trailing slash; rejects all other variants.
+ * Returns the canonical base URL, or null when the value is untrusted.
+ */
+export function resolveOfficialReplicateApiBaseUrl(
+  apiBaseUrl: string
+): string | null {
+  if (typeof apiBaseUrl !== "string") return null;
+  const trimmed = apiBaseUrl.trim();
+  if (!trimmed) return null;
+  try {
+    const u = new URL(trimmed);
+    if (u.protocol !== "https:") return null;
+    if (u.username || u.password) return null;
+    if (u.hostname !== "api.replicate.com") return null;
+    if (u.port !== "") return null;
+    if (u.search !== "") return null;
+    if (u.hash !== "") return null;
+    let pathname = u.pathname;
+    if (pathname.length > 1 && pathname.endsWith("/")) {
+      pathname = pathname.slice(0, -1);
+    }
+    if (pathname !== "/v1") return null;
+    return DEFAULT_REPLICATE_API_BASE_URL;
+  } catch {
+    return null;
+  }
+}
+
 function linkAbortSignals(
   signals: Array<AbortSignal | undefined>
 ): AbortController {
@@ -343,9 +376,23 @@ export class ReplicateTransportAdapter {
         });
       }
 
+      const apiBaseUrl = resolveOfficialReplicateApiBaseUrl(
+        this.config.apiBaseUrl
+      );
+      if (!apiBaseUrl) {
+        return normalizeReplicateFailure({
+          code: "invalid_request",
+          message: "Replicate transport configuration is invalid.",
+          retryable: false,
+          traceId,
+          generationTimeMs: elapsed(),
+          model: this.config.model,
+        });
+      }
+
       const body = buildReplicateCreatePredictionBody(this.config, input);
       const [owner, name] = this.config.model.split("/");
-      const createUrl = `${this.config.apiBaseUrl}/models/${owner}/${name}/predictions`;
+      const createUrl = `${apiBaseUrl}/models/${owner}/${name}/predictions`;
 
       const totalController = new AbortController();
       const totalTimer = setTimeout(
@@ -522,7 +569,7 @@ export class ReplicateTransportAdapter {
         prediction.urls && typeof prediction.urls.get === "string"
           ? prediction.urls.get
           : predictionId
-            ? `${this.config.apiBaseUrl}/predictions/${predictionId}`
+            ? `${apiBaseUrl}/predictions/${predictionId}`
             : null;
 
       if (!pollUrlRaw || !isAllowedReplicatePollUrl(pollUrlRaw)) {
