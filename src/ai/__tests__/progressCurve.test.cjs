@@ -39,4 +39,19 @@ describe("diminishing-return progression (3 / 6 / 12 months)", () => {
     assert.equal(bfAtHorizon(undefined, 16, 3), null);
     assert.equal(bfAtHorizon(22, null, 3), null);
   });
+
+  it("matches analytical 1-exp(-m/4) at 1/3/6/12 months (tol 0.001)", () => {
+    // Compatibility contract with src/ai/progressCurve.ts (same formula + rounding).
+    for (const months of [1, 3, 6, 12]) {
+      const analytical =
+        Math.round(
+          Math.min(1, Math.max(0, 1 - Math.exp(-months / 4))) * 1000
+        ) / 1000;
+      const actual = transformProgress(months);
+      assert.ok(
+        Math.abs(actual - analytical) <= 0.001,
+        `month ${months}: got ${actual}, expected ${analytical}`
+      );
+    }
+  });
 });

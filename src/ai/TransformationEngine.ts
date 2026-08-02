@@ -15,11 +15,13 @@ import {
 import type { EffortLevel, TransformationGoal } from "./TransformationGoal";
 import type {
   EstimateReliability,
+  HeuristicKgRange,
   RegionalChangeTarget,
   TimelineCheckpoint,
   TransformationPlan,
   VisualIntensity,
 } from "./TransformationPlan";
+import { TRANSFORM_RULES_VERSION } from "./TransformationPlan";
 import {
   bfAtHorizon,
   progressBand,
@@ -33,6 +35,15 @@ function clamp(value: number, min: number, max: number): number {
 function round(value: number, digits = 2): number {
   const f = 10 ** digits;
   return Math.round(value * f) / f;
+}
+
+/** ±15% heuristic band around a positive magnitude estimate. */
+function heuristicRange(magnitude: number): HeuristicKgRange {
+  const center = Math.abs(magnitude);
+  return {
+    min: round(center * 0.85, 2),
+    max: round(center * 1.15, 2),
+  };
 }
 
 /**
@@ -434,10 +445,37 @@ export class TransformationEngine {
       goal.targetWeightKg
     );
 
+    const currentBodyFatPct = bfNow ?? null;
+    const targetBodyFatPct = goal.targetBodyFatPct ?? null;
+    const interimBodyFatPct = expectedBodyFatPct;
+
+    let estimatedFatLossKg: HeuristicKgRange | null = null;
+    if (estimatedFatChangeKg != null && estimatedFatChangeKg < 0) {
+      estimatedFatLossKg = heuristicRange(estimatedFatChangeKg);
+      assumptions.push(
+        "estimatedFatLossKg is a ±15% heuristic band around the signed fat-change estimate."
+      );
+    }
+
+    let estimatedMuscleGainKg: HeuristicKgRange | null = null;
+    if (estimatedLeanMassChangeKg != null && estimatedLeanMassChangeKg > 0) {
+      estimatedMuscleGainKg = heuristicRange(estimatedLeanMassChangeKg);
+      assumptions.push(
+        "estimatedMuscleGainKg is a ±15% heuristic band around the lean-gain estimate."
+      );
+    }
+
     return {
       schemaVersion: 1,
+      rulesVersion: TRANSFORM_RULES_VERSION,
+      progress,
+      currentBodyFatPct,
+      targetBodyFatPct,
+      interimBodyFatPct,
       estimatedFatChangeKg,
+      estimatedFatLossKg,
       estimatedLeanMassChangeKg,
+      estimatedMuscleGainKg,
       expectedWeightKg,
       expectedBodyFatPct,
       waistChangeCm,

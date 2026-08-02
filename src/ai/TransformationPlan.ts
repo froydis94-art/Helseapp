@@ -9,8 +9,23 @@
 /** Schema version for plan payloads. */
 export const TRANSFORMATION_PLAN_SCHEMA_VERSION = 1 as const;
 
+/**
+ * Physiology / planning rules version (traceability).
+ * Bump when TransformationEngine heuristics change materially.
+ */
+export const TRANSFORM_RULES_VERSION = "1.0" as const;
+
 /** Discrete visual change intensity for presentation layers. */
 export type VisualIntensity = "subtle" | "moderate" | "noticeable" | "dramatic";
+
+/**
+ * Heuristic kg range (product estimate — not a measured interval).
+ * Prefer ranges over false single-point precision when communicating estimates.
+ */
+export interface HeuristicKgRange {
+  min: number;
+  max: number;
+}
 
 /**
  * Heuristic product reliability band for estimates.
@@ -64,22 +79,60 @@ export interface TimelineCheckpoint {
 export interface TransformationPlan {
   schemaVersion: typeof TRANSFORMATION_PLAN_SCHEMA_VERSION;
 
+  /** Physiology / planning rules version used to compute this plan. */
+  rulesVersion: typeof TRANSFORM_RULES_VERSION | string;
+
+  /**
+   * Front-loaded progress fraction 0…1 at `effectiveTimelineWeeks`
+   * (shared progressCurve / tau=4).
+   */
+  progress: number;
+
+  /** Current BF% when known from profile; null if missing (never invented). */
+  currentBodyFatPct: number | null;
+
+  /** Goal target BF% when known; null if missing. */
+  targetBodyFatPct: number | null;
+
+  /**
+   * Interim BF% at the effective timeline (diminishing-returns curve).
+   * Null when current/target BF unavailable for interpolation.
+   */
+  interimBodyFatPct: number | null;
+
   /**
    * Signed fat-mass change (kg). Negative = loss, positive = gain.
    * Null when weight/BF inputs are insufficient.
+   * Kept for compatibility; prefer `estimatedFatLossKg` range when communicating loss.
    */
   estimatedFatChangeKg: number | null;
 
   /**
+   * Fat-loss magnitude (kg) as a heuristic range when loss is estimated.
+   * Null when no fat-loss estimate applies (maintain / gain / insufficient data).
+   */
+  estimatedFatLossKg: HeuristicKgRange | null;
+
+  /**
    * Signed lean-mass change (kg). Positive = gain.
    * Null when inputs are insufficient.
+   * Kept for compatibility; prefer `estimatedMuscleGainKg` range when communicating gain.
    */
   estimatedLeanMassChangeKg: number | null;
+
+  /**
+   * Muscle / lean-gain magnitude (kg) as a heuristic range when gain is estimated.
+   * Null when no lean-gain estimate applies.
+   */
+  estimatedMuscleGainKg: HeuristicKgRange | null;
 
   /** Expected end weight (kg), or null when unsupported. */
   expectedWeightKg: number | null;
 
-  /** Expected end body-fat %, or null when unsupported. */
+  /**
+   * Expected end body-fat %, or null when unsupported.
+   * When BF interpolation is used, equals `interimBodyFatPct`.
+   */
   expectedBodyFatPct: number | null;
 
   /**

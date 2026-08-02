@@ -39,9 +39,13 @@ export type {
   TransformationGoal,
 } from "./TransformationGoal";
 
-export { TRANSFORMATION_PLAN_SCHEMA_VERSION } from "./TransformationPlan";
+export {
+  TRANSFORMATION_PLAN_SCHEMA_VERSION,
+  TRANSFORM_RULES_VERSION,
+} from "./TransformationPlan";
 export type {
   EstimateReliability,
+  HeuristicKgRange,
   RegionalChangeTarget,
   TimelineCheckpoint,
   TransformationPlan,
@@ -53,8 +57,12 @@ export {
   toEstimateReliability,
 } from "./TransformationEngine";
 
-export type { PromptBuilder, StructuredPromptOutput } from "./PromptBuilder";
-export { StubPromptBuilder } from "./PromptBuilder";
+export type {
+  PromptBuilder,
+  PromptPackage,
+  StructuredPromptOutput,
+} from "./PromptBuilder";
+export { StubPromptBuilder, buildPromptPackage } from "./PromptBuilder";
 
 export {
   StubTransformationValidator,

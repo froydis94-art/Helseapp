@@ -1,15 +1,15 @@
 /**
- * progressCurve — TypeScript adapter for `lib/transformProgress.js`.
+ * progressCurve — canonical TypeScript progress implementation.
  *
- * Ports the front-loaded diminishing-returns formula so the domain layer
- * stays free of CommonJS / Node `require` coupling. Keep tau and math in
- * sync with the JS module when either side changes.
+ * Shared by TransformationEngine and GoalPlanner. Must stay numerically
+ * aligned with `lib/transformProgress.js` (production prompt pipeline).
+ * Do not duplicate tau or the formula in GoalPlanner / TransformationEngine.
  *
  * Formula: progress(months) = 1 - exp(-months / tau)
  * With tau = 4: ~3mo≈0.53, ~6mo≈0.78, ~12mo≈0.95.
  */
 
-/** Time constant in months (matches TRANSFORM_PROGRESS_TAU in lib). */
+/** Time constant in months (canonical; matches lib/transformProgress.js). */
 export const TRANSFORM_PROGRESS_TAU = 4;
 
 /**
