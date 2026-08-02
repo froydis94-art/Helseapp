@@ -161,6 +161,53 @@ export {
   validRecompositionFixture,
 } from "./harness";
 
+/** Result Validator foundation (deterministic policy — no real vision). */
+export type {
+  CandidateImageReference,
+  DimensionEvidence,
+  EvidenceConfidence,
+  EvidenceSource,
+  EvidenceValidationResult,
+  ResultValidatorInput,
+  RetryAdjustment,
+  RetryRecommendation,
+  ValidationDecision,
+  ValidationDimension,
+  ValidationEvidence,
+  ValidationFailureCode,
+  ValidationFinding,
+  ValidationOutcome,
+  ValidationSeverity,
+} from "./validation-result";
+export {
+  ACCEPTANCE_THRESHOLDS,
+  CRITICAL_CONFIDENCE_DIMENSIONS,
+  DEFAULT_VALIDATOR_ATTEMPT,
+  DEFAULT_VALIDATOR_MAX_ATTEMPTS,
+  DIMENSION_WEIGHTS,
+  HARD_GATE_THRESHOLDS,
+  MAX_MAX_ATTEMPTS,
+  MIN_ATTEMPT,
+  MIN_MAX_ATTEMPTS,
+  OVERALL_ACCEPTANCE_THRESHOLD,
+  REQUIRED_VALIDATION_DIMENSIONS,
+  RESULT_VALIDATOR_RULES_VERSION,
+  VALIDATION_EVIDENCE_SCHEMA_VERSION,
+  acceptedCandidateEvidence,
+  anatomyRetryEvidence,
+  borderlineEvidence,
+  computeOverallScore,
+  evaluateCandidate,
+  identityRetryEvidence,
+  invalidDuplicateDimensionEvidence,
+  lowConfidenceIdentityEvidence,
+  planAdherenceRetryEvidence,
+  roundOverallScore,
+  runResultValidatorFixture,
+  unsafeCandidateEvidence,
+  validateValidationEvidence,
+} from "./validation-result";
+
 export {
   TRANSFORM_PROGRESS_TAU,
   bfAtHorizon,
