@@ -258,6 +258,44 @@ export {
   validateReplicateTransportInput,
 } from "./transport";
 
+/** Retry Orchestrator foundation (deterministic policy — not production-wired). */
+export type {
+  RetryAction,
+  RetryAttemptState,
+  RetryHistoryEntry,
+  RetryOrchestratorDecision,
+  RetryOrchestratorInput,
+  RetryOrchestratorStage,
+  RetryReasonCode,
+  RetryStateValidationResult,
+  RetryTerminalOutcome,
+} from "./retry";
+export {
+  APPROVED_RETRY_ADJUSTMENTS,
+  DEFERRED_RETRY_ADJUSTMENTS,
+  NON_RETRYABLE_TRANSPORT_CODES,
+  RETRYABLE_TRANSPORT_CODES,
+  RETRY_ORCHESTRATOR_RULES_VERSION,
+  acceptedValidationDecisionFixture,
+  candidateMismatchStateFixture,
+  createInitialRetryState,
+  evaluateRetryTransition,
+  exhaustedRetryStateFixture,
+  initialRetryStateFixture,
+  isApprovedRetryAdjustment,
+  isDeferredRetryAdjustment,
+  isRetryableTransportFailure,
+  mergeAppliedAdjustments,
+  nonRetryableAuthFailureFixture,
+  retryValidationDecisionFixture,
+  retryableTimeoutFailureFixture,
+  safetyRejectDecisionFixture,
+  transportSuccessFixture,
+  unsupportedAdjustmentDecisionFixture,
+  validateRetryAdjustments,
+  validateRetryAttemptState,
+} from "./retry";
+
 export {
   GOAL_RANGES,
   PROFILE_RANGES,
