@@ -1,51 +1,51 @@
 /**
  * TransformationEngine — deterministic BodyProfile + TransformationGoal → TransformationPlan.
  *
- * Uses transparent, conservative physiology heuristics (not ML).
- * Does NOT generate image prompts, call APIs, or perform I/O.
- *
- * ## Documented assumptions
- *
- * 1. **Rate ceilings (conservative weekly max under high effort):**
- *    - Fat loss: ~0.5–0.9% of body weight / week depending on BF% and effort
- *      (higher BF% allows slightly faster loss; advanced trainees slightly slower).
- *    - Muscle gain: ~0.15–0.35 kg / month equivalent, scaled by training level
- *      (beginners higher; advanced near floor). Simultaneous cut reduces gain.
- *
- * 2. **Diminishing returns:** Training level and training age reduce muscle-gain
- *    multipliers. Very lean individuals get reduced fat-loss rates.
- *
- * 3. **Effort multipliers:** low 0.55, moderate 0.8, high 1.0, very_high 1.1
- *    (capped; does not unlock unsafe rates).
- *
- * 4. **Priority trade-off:** High fatLossPriority reduces muscle-gain estimates;
- *    high musclePriority reduces fat-loss rate slightly when both are high.
- *
- * 5. **Visual deltas:** Circumference / percent changes are rough morphometrics
- *    derived from fat/muscle mass deltas — illustrative, not clinical.
- *
- * 6. **No medical advice:** Outputs are planning heuristics for product UX.
+ * Pure TypeScript heuristics. No prompts, Replicate, fetch, or UI.
+ * Reuses the front-loaded diminishing-returns curve from `progressCurve`
+ * (ported from `lib/transformProgress.js`).
  */
 
-import type { BodyProfile, EffortLevel, TrainingLevel } from "./BodyProfile";
-import type { TransformationGoal } from "./TransformationGoal";
-import type { TransformationPlan, VisualIntensity } from "./TransformationPlan";
+import {
+  resolveBodyFatPct,
+  resolveSex,
+  type BodyProfile,
+  type FocusZone,
+} from "./BodyProfile";
+import type { EffortLevel, TransformationGoal } from "./TransformationGoal";
+import type {
+  EstimateReliability,
+  RegionalChangeTarget,
+  TimelineCheckpoint,
+  TransformationPlan,
+  VisualIntensity,
+} from "./TransformationPlan";
+import {
+  bfAtHorizon,
+  progressBand,
+  transformProgress,
+} from "./progressCurve";
 
-/** Clamp a number into [min, max]. */
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-/** Round to `digits` decimal places for stable plan output. */
 function round(value: number, digits = 2): number {
   const f = 10 ** digits;
   return Math.round(value * f) / f;
 }
 
 /**
- * Effort → rate multiplier. Caps aggressiveness so "very_high" is only +10%.
+ * Map heuristic score → band.
+ * Product score only — not a statistical/medical CI.
  */
-function effortMultiplier(effort: EffortLevel): number {
+export function toEstimateReliability(score: number): EstimateReliability {
+  if (score < 0.55) return "low";
+  if (score < 0.75) return "medium";
+  return "high";
+}
+
+function effortMultiplier(effort: EffortLevel | undefined): number {
   switch (effort) {
     case "low":
       return 0.55;
@@ -60,220 +60,394 @@ function effortMultiplier(effort: EffortLevel): number {
   }
 }
 
-/**
- * Muscle-gain potential by training level (relative to intermediate = 1.0).
- * Encodes diminishing returns for advanced trainees.
- */
-function trainingGainFactor(level: TrainingLevel): number {
-  switch (level) {
-    case "beginner":
-      return 1.45;
-    case "novice":
-      return 1.2;
-    case "intermediate":
-      return 1.0;
-    case "advanced":
-      return 0.65;
-    case "elite":
-      return 0.4;
-    default:
-      return 1.0;
-  }
-}
-
-/**
- * Extra dampening from years under the bar (soft asymptotic curve).
- */
-function trainingAgeDampener(years: number): number {
-  const y = Math.max(0, years);
-  // Approaches ~0.55 after many years; gentle early on.
-  return clamp(1 / (1 + y * 0.08), 0.55, 1);
-}
-
-/**
- * Weekly fat-loss rate as fraction of body weight (conservative).
- */
-function weeklyFatLossFraction(
-  bodyFat: number,
-  effort: EffortLevel,
-  fatLossPriority: number
-): number {
-  const base =
-    bodyFat >= 30 ? 0.0085 : bodyFat >= 22 ? 0.007 : bodyFat >= 15 ? 0.0055 : 0.0035;
-  const priority = clamp(fatLossPriority, 0, 1);
-  return base * effortMultiplier(effort) * (0.55 + 0.45 * priority);
-}
-
-/**
- * Monthly muscle-gain ceiling in kg before cut/priority adjustments.
- */
-function monthlyMuscleGainKg(
+function detectConflicts(
   profile: BodyProfile,
-  musclePriority: number
-): number {
-  const sexFactor =
-    profile.gender === "female" ? 0.65 : profile.gender === "male" ? 1.0 : 0.8;
-  const baseMonthly = 0.25 * sexFactor;
-  const level = trainingGainFactor(profile.trainingLevel);
-  const ageDamp = trainingAgeDampener(profile.trainingAgeYears);
-  const priority = clamp(musclePriority, 0, 1);
-  const effort = effortMultiplier(profile.effortLevel);
-  return baseMonthly * level * ageDamp * effort * (0.4 + 0.6 * priority);
+  goal: TransformationGoal,
+  bfNow: number | undefined
+): string[] {
+  const warnings: string[] = [];
+
+  if (
+    goal.fatDirection === "decrease" &&
+    goal.muscleDirection === "decrease"
+  ) {
+    warnings.push(
+      "Both fat and muscle directions are decrease — plan may look like overall mass loss; confirm intent."
+    );
+  }
+
+  if (
+    goal.fatDirection === "increase" &&
+    goal.outcomes?.includes("fat_loss")
+  ) {
+    warnings.push(
+      "Conflict: fatDirection is increase but outcomes include fat_loss."
+    );
+  }
+
+  if (
+    goal.muscleDirection === "decrease" &&
+    goal.outcomes?.some((o) => o === "muscle_gain" || o === "stronger")
+  ) {
+    warnings.push(
+      "Conflict: muscleDirection is decrease but outcomes request muscle gain/strength."
+    );
+  }
+
+  if (
+    bfNow != null &&
+    goal.targetBodyFatPct != null &&
+    goal.fatDirection === "decrease" &&
+    goal.targetBodyFatPct >= bfNow
+  ) {
+    warnings.push(
+      "Conflict: fat decrease requested but targetBodyFatPct is at or above current BF%."
+    );
+  }
+
+  if (
+    bfNow != null &&
+    goal.targetBodyFatPct != null &&
+    goal.fatDirection === "increase" &&
+    goal.targetBodyFatPct <= bfNow
+  ) {
+    warnings.push(
+      "Conflict: fat increase requested but targetBodyFatPct is at or below current BF%."
+    );
+  }
+
+  if (
+    profile.weightKg != null &&
+    goal.targetWeightKg != null &&
+    goal.fatDirection === "decrease" &&
+    goal.targetWeightKg > profile.weightKg * 1.02
+  ) {
+    warnings.push(
+      "Conflict: fat decrease with a higher targetWeightKg than current weight."
+    );
+  }
+
+  if (goal.timelineWeeks != null && goal.timelineWeeks < 4) {
+    warnings.push(
+      "Timeline under 4 weeks is too short for meaningful body-composition claims."
+    );
+  }
+
+  if (
+    bfNow != null &&
+    goal.targetBodyFatPct != null &&
+    Math.abs(bfNow - goal.targetBodyFatPct) >= 12 &&
+    (goal.timelineWeeks ?? 12) < 16
+  ) {
+    warnings.push(
+      "Large BF% delta on a short timeline — estimates are directional only."
+    );
+  }
+
+  return warnings;
 }
 
 function pickVisualIntensity(
-  fatLossKg: number,
-  muscleKg: number,
-  weeks: number
+  absFatKg: number,
+  absLeanKg: number,
+  progress: number
 ): VisualIntensity {
-  const score = (fatLossKg * 1.1 + muscleKg * 2.2) / Math.max(weeks / 4, 1);
-  if (score < 0.6) return "subtle";
-  if (score < 1.4) return "moderate";
-  if (score < 2.6) return "noticeable";
+  const score = (absFatKg * 1.1 + absLeanKg * 2.2) * progress;
+  if (score < 0.5) return "subtle";
+  if (score < 1.2) return "moderate";
+  if (score < 2.4) return "noticeable";
   return "dramatic";
+}
+
+function buildRegionalTargets(
+  focusZones: FocusZone[] | undefined,
+  fatChangeKg: number | null,
+  leanChangeKg: number | null
+): RegionalChangeTarget[] {
+  const zones =
+    focusZones && focusZones.length > 0
+      ? focusZones
+      : (["full_body"] as FocusZone[]);
+
+  const fatMag =
+    fatChangeKg == null ? 0 : clamp(fatChangeKg / 8, -1, 1);
+  const leanMag =
+    leanChangeKg == null ? 0 : clamp(leanChangeKg / 4, -1, 1);
+
+  return zones.map((region) => {
+    let magnitude = 0;
+    if (region === "waist" || region === "core") {
+      magnitude = round(-Math.abs(fatMag) * (fatChangeKg != null && fatChangeKg < 0 ? 1 : 0.3), 3);
+      if (fatChangeKg != null && fatChangeKg > 0) magnitude = round(Math.abs(fatMag) * 0.6, 3);
+    } else if (region === "full_body") {
+      magnitude = round(leanMag - fatMag * 0.5, 3);
+    } else {
+      magnitude = round(leanMag * 0.85 - fatMag * 0.25, 3);
+    }
+    return { region, magnitude };
+  });
+}
+
+function buildCheckpoints(
+  bfNow: number | undefined,
+  bfGoal: number | undefined,
+  startWeight: number | undefined,
+  goalWeightKg: number | undefined
+): TimelineCheckpoint[] {
+  // Product ladder horizons (aligned with Future You 3 / 6 / 12 months).
+  return [3, 6, 12].map((months) => {
+    const w = round(months * 4.345, 1);
+    const progress = transformProgress(months);
+    const expectedBodyFatPct =
+      bfNow != null && bfGoal != null
+        ? bfAtHorizon(bfNow, bfGoal, months)
+        : null;
+    let expectedWeightKg: number | null = null;
+    if (startWeight != null && goalWeightKg != null) {
+      expectedWeightKg = round(
+        startWeight + (goalWeightKg - startWeight) * progress,
+        1
+      );
+    }
+    return {
+      weeks: w,
+      months,
+      progress,
+      expectedBodyFatPct,
+      expectedWeightKg,
+      band: progressBand(months),
+    };
+  });
 }
 
 /**
  * Deterministic transformation estimator.
- *
- * @example
- * ```ts
- * const engine = new TransformationEngine();
- * const plan = engine.compute(profile, goal);
- * ```
  */
 export class TransformationEngine {
   /**
    * Compute a TransformationPlan from current profile and desired goal.
-   *
-   * Timeline is taken from `goal.timeline.weeks`, falling back to
-   * `profile.timelineWeeks`, then clamped to 4–52 weeks.
    */
   compute(profile: BodyProfile, goal: TransformationGoal): TransformationPlan {
-    const warnings: string[] = [];
+    const assumptions: string[] = [];
+    const bfNow = resolveBodyFatPct(profile);
+    const warnings = detectConflicts(profile, goal, bfNow);
 
-    const rawWeeks =
-      goal.timeline?.weeks ?? profile.timelineWeeks ?? 12;
+    const rawWeeks = goal.timelineWeeks ?? 12;
     const weeks = clamp(Math.round(rawWeeks), 4, 52);
     if (rawWeeks !== weeks) {
       warnings.push(
         `Timeline adjusted from ${rawWeeks} to ${weeks} weeks for realistic estimates.`
       );
+      assumptions.push("Timeline clamped to 4–52 weeks.");
     }
 
-    const months = weeks / 4.345; // average weeks per month
-
-    // --- Fat loss ---
-    const weeklyFrac = weeklyFatLossFraction(
-      profile.bodyFat,
-      profile.effortLevel,
-      goal.fatLossPriority
+    const months = weeks / 4.345;
+    const progress = transformProgress(months);
+    assumptions.push(
+      "Uses front-loaded diminishing-returns curve (tau=4 months) aligned with lib/transformProgress.js."
     );
-    let estimatedFatLossKg = profile.weightKg * weeklyFrac * weeks;
 
-    // Cap by target BF% when it implies less loss than the rate ceiling.
-    const currentFatKg = (profile.bodyFat / 100) * profile.weightKg;
-    const targetBf = clamp(goal.targetBodyFat, 5, 50);
-    if (targetBf >= profile.bodyFat) {
-      estimatedFatLossKg = 0;
-      if (goal.fatLossPriority > 0.3) {
+    const effort = effortMultiplier(goal.effortLevel);
+    const sex = resolveSex(profile);
+
+    // --- Fat change (signed) ---
+    let estimatedFatChangeKg: number | null = null;
+    if (profile.weightKg == null) {
+      assumptions.push(
+        "weightKg missing — fat-mass change left null (no invented weight)."
+      );
+    } else if (bfNow == null && goal.targetBodyFatPct == null) {
+      assumptions.push(
+        "bodyFatPct missing — fat-mass change left null."
+      );
+    } else {
+      const weeklyFracBase =
+        (bfNow ?? 22) >= 30
+          ? 0.0085
+          : (bfNow ?? 22) >= 22
+            ? 0.007
+            : (bfNow ?? 22) >= 15
+              ? 0.0055
+              : 0.0035;
+
+      if (goal.fatDirection === "maintain") {
+        estimatedFatChangeKg = 0;
+      } else if (goal.fatDirection === "decrease") {
+        // Target at/above current BF% → no fat-loss estimate (conflict already warned).
+        if (
+          bfNow != null &&
+          goal.targetBodyFatPct != null &&
+          goal.targetBodyFatPct >= bfNow
+        ) {
+          estimatedFatChangeKg = 0;
+        } else {
+          // Asymptotic full-journey loss, then scale by diminishing-returns progress.
+          const fullLoss =
+            profile.weightKg * weeklyFracBase * effort * 52 * 0.55;
+          let loss = fullLoss * progress;
+
+          if (bfNow != null && goal.targetBodyFatPct != null) {
+            const currentFatKg = (bfNow / 100) * profile.weightKg;
+            const leanKg = profile.weightKg - currentFatKg;
+            const targetBf = clamp(goal.targetBodyFatPct, 5, 50);
+            if (targetBf < bfNow) {
+              const targetWeightForBf = leanKg / (1 - targetBf / 100);
+              const fatLossToTarget = Math.max(
+                0,
+                profile.weightKg - targetWeightForBf
+              );
+              loss = Math.min(loss, fatLossToTarget * progress * 1.02);
+            }
+          }
+          estimatedFatChangeKg = -round(clamp(loss, 0, profile.weightKg * 0.25));
+        }
+      } else {
+        // increase
+        const gain = profile.weightKg * 0.004 * effort * 52 * 0.5 * progress;
+        estimatedFatChangeKg = round(clamp(gain, 0, profile.weightKg * 0.2));
+      }
+    }
+
+    // --- Lean mass change (signed) ---
+    let estimatedLeanMassChangeKg: number | null = null;
+    const sexFactor = sex === "female" ? 0.65 : sex === "male" ? 1.0 : 0.8;
+    const levelFactor =
+      profile.trainingLevel === "beginner"
+        ? 1.45
+        : profile.trainingLevel === "novice"
+          ? 1.2
+          : profile.trainingLevel === "advanced"
+            ? 0.65
+            : profile.trainingLevel === "elite"
+              ? 0.4
+              : 1.0;
+    const ageYears = profile.trainingAgeYears ?? 0;
+    const ageDamp = clamp(1 / (1 + ageYears * 0.08), 0.55, 1);
+    const monthlyCap = 0.25 * sexFactor * levelFactor * ageDamp * effort;
+
+    if (goal.muscleDirection === "maintain") {
+      estimatedLeanMassChangeKg = 0;
+    } else if (goal.muscleDirection === "increase") {
+      let gain = monthlyCap * 12 * progress;
+      if (goal.fatDirection === "decrease") gain *= 0.55;
+      if (profile.limitations && profile.limitations.length > 0) {
+        gain *= 0.9;
         warnings.push(
-          "Target body fat is at or above current; fat-loss estimate set to 0."
+          "Declared limitations present; lean-gain estimate reduced slightly."
         );
       }
-    } else {
-      // Approximate lean mass held constant for BF% target mass check.
-      const leanKg = profile.weightKg - currentFatKg;
-      const targetWeightForBf = leanKg / (1 - targetBf / 100);
-      const fatLossToTarget = Math.max(0, profile.weightKg - targetWeightForBf);
-      estimatedFatLossKg = Math.min(estimatedFatLossKg, fatLossToTarget * 1.05);
-    }
-
-    // Soft trade-off when heavily prioritizing muscle in a deficit context.
-    if (goal.musclePriority > 0.7 && goal.fatLossPriority > 0.5) {
-      estimatedFatLossKg *= 0.9;
-      warnings.push(
-        "High muscle and fat-loss priorities together; fat-loss rate reduced ~10%."
+      estimatedLeanMassChangeKg = round(clamp(gain, 0, 8));
+      assumptions.push(
+        "Lean-gain ceilings are conservative heuristics, not measured hypertrophy."
       );
+    } else {
+      // decrease — rare; small residual lean loss under aggressive cut
+      const loss =
+        goal.fatDirection === "decrease" ? monthlyCap * 4 * progress * 0.35 : 0;
+      estimatedLeanMassChangeKg = -round(clamp(loss, 0, 3));
     }
-
-    // --- Muscle gain ---
-    let estimatedMuscleGainKg =
-      monthlyMuscleGainKg(profile, goal.musclePriority) * months;
-
-    // Cutting blunts hypertrophy (priority-weighted).
-    const cutSeverity = clamp(goal.fatLossPriority, 0, 1);
-    estimatedMuscleGainKg *= 1 - 0.45 * cutSeverity;
 
     if (profile.trainingLevel === "advanced" || profile.trainingLevel === "elite") {
       warnings.push(
-        "Advanced training level: muscle-gain estimates use diminishing returns."
+        "Advanced training level: lean-gain estimates use diminishing returns."
       );
     }
 
-    if (profile.limitations.length > 0) {
-      estimatedMuscleGainKg *= 0.9;
-      estimatedFatLossKg *= 0.95;
+    // --- Expected end BF% / weight ---
+    let expectedBodyFatPct: number | null = null;
+    if (bfNow != null && goal.targetBodyFatPct != null) {
+      expectedBodyFatPct = bfAtHorizon(bfNow, goal.targetBodyFatPct, months);
+    } else if (bfNow != null && goal.fatDirection === "maintain") {
+      expectedBodyFatPct = bfNow;
+    } else if (bfNow == null) {
+      assumptions.push("expectedBodyFatPct null — current BF% unavailable.");
+    }
+
+    let expectedWeightKg: number | null = null;
+    if (profile.weightKg != null) {
+      if (goal.targetWeightKg != null) {
+        expectedWeightKg = round(
+          profile.weightKg +
+            (goal.targetWeightKg - profile.weightKg) * progress,
+          1
+        );
+      } else if (
+        estimatedFatChangeKg != null &&
+        estimatedLeanMassChangeKg != null
+      ) {
+        expectedWeightKg = round(
+          profile.weightKg + estimatedFatChangeKg + estimatedLeanMassChangeKg,
+          1
+        );
+      } else {
+        assumptions.push(
+          "expectedWeightKg partially unsupported — missing composition deltas."
+        );
+      }
+    }
+
+    // Waist: only when fat loss is estimated; else null (no invented cm).
+    let waistChangeCm: number | null = null;
+    if (estimatedFatChangeKg != null && estimatedFatChangeKg < 0) {
+      waistChangeCm = round(estimatedFatChangeKg * 0.85, 1); // negative
+      assumptions.push(
+        "waistChangeCm is a rough morphometric proxy (~0.85 cm per kg fat), not a measurement."
+      );
+    } else if (estimatedFatChangeKg == null) {
+      waistChangeCm = null;
+      assumptions.push("waistChangeCm null — insufficient fat-change inputs.");
+    } else {
+      waistChangeCm = null;
+      assumptions.push("waistChangeCm null — no fat-loss delta to map to waist.");
+    }
+
+    const regionalTargets = buildRegionalTargets(
+      goal.focusZones,
+      estimatedFatChangeKg,
+      estimatedLeanMassChangeKg
+    );
+
+    const absFat = Math.abs(estimatedFatChangeKg ?? 0);
+    const absLean = Math.abs(estimatedLeanMassChangeKg ?? 0);
+    const visualIntensity = pickVisualIntensity(absFat, absLean, progress);
+
+    let reliabilityScore = 0.72;
+    if (bfNow == null) reliabilityScore -= 0.12;
+    if (profile.weightKg == null) reliabilityScore -= 0.15;
+    if (profile.heightCm == null) reliabilityScore -= 0.03;
+    if (weeks < 8) reliabilityScore -= 0.1;
+    if (warnings.some((w) => w.startsWith("Conflict"))) reliabilityScore -= 0.12;
+    if (profile.nutritionQuality === "poor") reliabilityScore -= 0.06;
+    reliabilityScore = round(clamp(reliabilityScore, 0.3, 0.9), 2);
+    const estimateReliability = toEstimateReliability(reliabilityScore);
+
+    if (reliabilityScore < 0.55) {
       warnings.push(
-        "Declared limitations present; rates reduced slightly for conservatism."
+        "Estimate reliability is limited; treat estimates as directional only."
       );
     }
 
-    estimatedFatLossKg = round(clamp(estimatedFatLossKg, 0, profile.weightKg * 0.25));
-    estimatedMuscleGainKg = round(clamp(estimatedMuscleGainKg, 0, 8));
-
-    // --- Morphometric proxies (illustrative) ---
-    // Rough: ~1 cm waist per ~0.7–1.0 kg fat in typical android distribution.
-    const waistReductionCm = round(
-      clamp(estimatedFatLossKg * 0.85, 0, 20)
+    const timelineCheckpoints = buildCheckpoints(
+      bfNow,
+      goal.targetBodyFatPct,
+      profile.weightKg,
+      goal.targetWeightKg
     );
-    const focusBoost = (zone: string) =>
-      profile.focusZones.includes(zone as never) ? 1.15 : 1;
-
-    const shoulderIncreasePercent = round(
-      clamp(estimatedMuscleGainKg * 1.1 * focusBoost("shoulders"), 0, 8)
-    );
-    const chestIncreasePercent = round(
-      clamp(estimatedMuscleGainKg * 1.0 * focusBoost("chest"), 0, 8)
-    );
-    const armIncreasePercent = round(
-      clamp(estimatedMuscleGainKg * 1.25 * focusBoost("arms"), 0, 10)
-    );
-
-    const visualIntensity = pickVisualIntensity(
-      estimatedFatLossKg,
-      estimatedMuscleGainKg,
-      weeks
-    );
-
-    // --- Confidence ---
-    let confidence = 0.78;
-    if (weeks < 8) confidence -= 0.12;
-    if (weeks > 40) confidence -= 0.05;
-    if (Math.abs(profile.bodyFat - targetBf) > 15) confidence -= 0.1;
-    if (profile.nutritionQuality === "poor") confidence -= 0.08;
-    if (profile.effortLevel === "low") confidence -= 0.06;
-    if (goal.visualStyle === "competition_lean") confidence -= 0.08;
-    confidence = round(clamp(confidence, 0.35, 0.92), 2);
-
-    if (confidence < 0.55) {
-      warnings.push(
-        "Confidence is limited; treat estimates as directional only."
-      );
-    }
 
     return {
-      estimatedFatLossKg,
-      estimatedMuscleGainKg,
-      waistReductionCm,
-      shoulderIncreasePercent,
-      chestIncreasePercent,
-      armIncreasePercent,
+      schemaVersion: 1,
+      estimatedFatChangeKg,
+      estimatedLeanMassChangeKg,
+      expectedWeightKg,
+      expectedBodyFatPct,
+      waistChangeCm,
+      regionalTargets,
       visualIntensity,
-      confidenceScore: confidence,
+      estimateReliabilityScore: reliabilityScore,
+      estimateReliability,
+      assumptions,
       warnings,
-      sourceProfile: profile,
-      sourceGoal: goal,
+      timelineCheckpoints,
       effectiveTimelineWeeks: weeks,
       generatedAt: new Date().toISOString(),
     };

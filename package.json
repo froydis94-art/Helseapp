@@ -8,18 +8,25 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "server": "npm --prefix server start",
-    "server:install": "npm --prefix server install"
+    "server:install": "npm --prefix server install",
+    "typecheck": "tsc --noEmit",
+    "test:ai": "tsx --test src/ai/__tests__/foundation.test.ts src/ai/__tests__/progressCurve.test.cjs"
   },
   "dependencies": {
+    "@expo/vector-icons": "^15.0.3",
+    "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "~54.0.36",
+    "expo-file-system": "~19.0.23",
+    "expo-image-picker": "~17.0.11",
     "expo-status-bar": "~3.0.9",
     "react": "19.1.0",
     "react-native": "0.81.5",
-    "expo-file-system": "~19.0.23",
-    "expo-image-picker": "~17.0.11",
-    "@expo/vector-icons": "^15.0.3",
-    "react-native-paper": "4.9.2",
-    "@react-native-async-storage/async-storage": "2.2.0"
+    "react-native-paper": "4.9.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "tsx": "^4.23.2",
+    "typescript": "^5.9.3"
   },
   "private": true
 }

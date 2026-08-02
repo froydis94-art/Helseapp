@@ -1,21 +1,29 @@
 /**
- * BodyProfile — typed snapshot of a user's current physique and training context.
+ * BodyProfile — typed snapshot of current physique / training context.
  *
- * Used as the primary input to TransformationEngine and GoalPlanner.
- * All categorical fields use string unions for compile-time safety.
- * This module is pure data types; it performs no I/O or AI calls.
+ * Domain input for TransformationEngine and GoalPlanner.
+ * Pure types only — no I/O, prompts, or model calls.
+ *
+ * Optionality: only values the product already collects (or can derive)
+ * should be treated as commonly present. Uncertain measurements stay optional.
  */
 
-/** Biological / presentation sex used for heuristic body-composition formulas. */
-export type Gender = "female" | "male" | "nonbinary" | "unspecified";
-
-/** Skeletal frame size relative to height (wrist/ankle heuristic class). */
-export type BodyFrame = "small" | "medium" | "large";
+/** Schema version for forward-compatible profile payloads. */
+export const BODY_PROFILE_SCHEMA_VERSION = 1 as const;
 
 /**
- * Broad somatotype / appearance category.
- * Used only as a soft prior for visual intensity and muscle-gain ceilings.
+ * Sex / presentation values already used by the app (male/female)
+ * plus a soft unspecified fallback when unknown.
  */
+export type SexOrPresentation = "female" | "male" | "unspecified";
+
+/**
+ * Skeletal frame keys aligned with existing FRAME_COPY usage
+ * (`small` | `average` | `large`). `medium` kept as alias-friendly input.
+ */
+export type BodyFrame = "small" | "medium" | "average" | "large";
+
+/** Broad appearance / somatotype prior (soft signal only). */
 export type BodyType =
   | "ectomorph"
   | "mesomorph"
@@ -24,7 +32,7 @@ export type BodyType =
   | "average"
   | "soft";
 
-/** Current resistance-training experience band. */
+/** Resistance-training experience band. */
 export type TrainingLevel =
   | "beginner"
   | "novice"
@@ -32,15 +40,18 @@ export type TrainingLevel =
   | "advanced"
   | "elite";
 
-/** Primary transformation objective. */
-export type GoalType =
-  | "fat_loss"
-  | "muscle_gain"
-  | "recomp"
-  | "maintenance"
-  | "athletic_performance";
+/** Habitual daily activity outside structured training. */
+export type ActivityLevel =
+  | "sedentary"
+  | "light"
+  | "moderate"
+  | "active"
+  | "very_active";
 
-/** Regions the user wants emphasized in planning / future visuals. */
+/** Self-reported diet quality. */
+export type NutritionQuality = "poor" | "fair" | "good" | "excellent";
+
+/** Regions the user wants emphasized. */
 export type FocusZone =
   | "shoulders"
   | "chest"
@@ -52,85 +63,75 @@ export type FocusZone =
   | "legs"
   | "full_body";
 
-/** Habitual daily activity outside structured training. */
-export type ActivityLevel =
-  | "sedentary"
-  | "light"
-  | "moderate"
-  | "active"
-  | "very_active";
-
-/** Self-reported diet quality (affects calorie / protein recommendations). */
-export type NutritionQuality =
-  | "poor"
-  | "fair"
-  | "good"
-  | "excellent";
-
-/** How hard the user intends to push (training + adherence). */
-export type EffortLevel = "low" | "moderate" | "high" | "very_high";
-
 /**
- * Current-state body and lifestyle profile for transformation planning.
+ * Current-state body and lifestyle profile.
  *
- * Assumptions shared by consumers:
- * - Anthropometrics are self-reported or measured; BMI is expected to be
- *   consistent with heightCm / weightKg when both are present.
- * - bodyFat is percent body fat (e.g. 22 = 22%), not a fraction.
- * - trainingAgeYears is years of consistent training, not calendar age.
+ * Anthropometrics may be partial — engine/planner must tolerate missing BF%,
+ * age, training age, etc., and emit assumptions / warnings instead of inventing facts.
  */
 export interface BodyProfile {
-  /** Gender used for sex-specific composition heuristics. */
-  gender: Gender;
+  /** Payload schema version. */
+  schemaVersion: typeof BODY_PROFILE_SCHEMA_VERSION;
 
-  /** Age in whole years. */
-  age: number;
-
-  /** Standing height in centimetres. */
-  heightCm: number;
-
-  /** Current body weight in kilograms. */
-  weightKg: number;
-
-  /** Current body-fat percentage (0–60 typical range). */
-  bodyFat: number;
-
-  /** Body mass index; may be precomputed or derived from height/weight. */
-  bmi: number;
-
-  /** Skeletal frame classification. */
-  frame: BodyFrame;
-
-  /** Broad body-type prior. */
-  bodyType: BodyType;
-
-  /** Resistance-training experience band. */
-  trainingLevel: TrainingLevel;
-
-  /** Years of consistent structured training. */
-  trainingAgeYears: number;
-
-  /** Primary goal category. */
-  goalType: GoalType;
-
-  /** Body regions to prioritize. */
-  focusZones: FocusZone[];
-
-  /** Habitual non-training activity. */
-  activityLevel: ActivityLevel;
-
-  /** Self-reported nutrition quality. */
-  nutritionQuality: NutritionQuality;
-
-  /** User-requested planning horizon in weeks. */
-  timelineWeeks: number;
-
-  /** Intended effort / adherence intensity. */
-  effortLevel: EffortLevel;
+  /** Sex / presentation already used by the app. */
+  sex?: SexOrPresentation;
 
   /**
-   * Free-text or structured limitation notes (injuries, equipment, medical).
-   * Empty array means none declared.
+   * @deprecated Prefer `sex`. Kept for early foundation callers.
    */
-  limitations: string[];
+  gender?: SexOrPresentation | "nonbinary";
+
+  /** Age in whole years when available. */
+  age?: number;
+
+  /** Standing height in centimetres. */
+  heightCm?: number;
+
+  /** Current body weight in kilograms. */
+  weightKg?: number;
+
+  /** Current body-fat percentage (e.g. 22 = 22%). Prefer this name. */
+  bodyFatPct?: number;
+
+  /**
+   * @deprecated Prefer `bodyFatPct`.
+   */
+  bodyFat?: number;
+
+  /** BMI when provided or derived elsewhere. */
+  bmi?: number;
+
+  /** Skeletal frame classification. */
+  frame?: BodyFrame;
+
+  /** Broad body-type prior. */
+  bodyType?: BodyType;
+
+  /** Resistance-training experience band. */
+  trainingLevel?: TrainingLevel;
+
+  /** Years of consistent structured training. */
+  trainingAgeYears?: number;
+
+  /** Habitual non-training activity. */
+  activityLevel?: ActivityLevel;
+
+  /** Self-reported nutrition quality / profile. */
+  nutritionQuality?: NutritionQuality;
+
+  /** Free-text or structured limitation notes. */
+  limitations?: string[];
+}
+
+/** Resolve effective BF% from either field name. */
+export function resolveBodyFatPct(profile: BodyProfile): number | undefined {
+  const v = profile.bodyFatPct ?? profile.bodyFat;
+  return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+}
+
+/** Resolve sex/presentation from either field name. */
+export function resolveSex(profile: BodyProfile): SexOrPresentation {
+  const raw = profile.sex ?? profile.gender;
+  if (raw === "female" || raw === "male") return raw;
+  return "unspecified";
 }

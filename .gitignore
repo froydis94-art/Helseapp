@@ -1,4 +1,5 @@
 node_modules/
+.tools/
 .expo/
 dist/
 npm-debug.*
@@ -11,5 +12,6 @@ npm-debug.*
 web-build/
 server/node_modules/
 server/.env
+server/.cache/
 .env
 .DS_Store

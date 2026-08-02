@@ -1,73 +1,54 @@
 /**
- * PromptBuilder — stub API for future image / identity prompt assembly.
- *
- * Intentionally empty: methods accept typed context and return empty strings.
- * No prompt logic, no Replicate/Flux, no I/O. Safe to import without side effects.
+ * PromptBuilder — contract for turning a TransformationPlan into structured
+ * prompt output. No prompt wording is implemented in this foundation task.
  */
 
-import type { BodyProfile } from "./BodyProfile";
-import type { TransformationGoal } from "./TransformationGoal";
 import type { TransformationPlan } from "./TransformationPlan";
 
-/**
- * Optional context bag for future prompt composition.
- * All fields optional so callers can pass partial state during integration.
- */
-export interface PromptBuilderContext {
-  /** Current body profile. */
-  profile?: BodyProfile;
+/** Structured prompt bundle (empty strings until a later sprint). */
+export interface StructuredPromptOutput {
+  /** Main positive prompt text. */
+  prompt: string;
 
-  /** Desired transformation goal. */
-  goal?: TransformationGoal;
+  /** Negative prompt text. */
+  negativePrompt: string;
 
-  /** Engine output plan (deltas, intensity, warnings). */
-  plan?: TransformationPlan;
+  /** Identity-preservation instructions. */
+  identityPrompt: string;
+
+  /** Lighting direction. */
+  lightingPrompt: string;
+
+  /** Camera / framing instructions. */
+  cameraPrompt: string;
+
+  /** Optional machine-readable extras for adapters. */
+  meta?: Record<string, unknown>;
 }
 
 /**
- * Placeholder prompt builder.
- *
- * When wired later, these methods should compose strings for generation
- * pipelines. Today they only reserve the public surface area.
+ * Contract: accept a plan (and optional extras), return structured prompt parts.
+ * Implementations must not call image models.
  */
-export class PromptBuilder {
-  /**
-   * Build the main positive generation prompt.
-   * @returns Empty string until implemented.
-   */
-  buildPrompt(_context?: PromptBuilderContext): string {
-    return "";
-  }
+export interface PromptBuilder {
+  build(plan: TransformationPlan, extras?: Record<string, unknown>): StructuredPromptOutput;
+}
 
-  /**
-   * Build the negative prompt (artifacts / unwanted traits to avoid).
-   * @returns Empty string until implemented.
-   */
-  buildNegativePrompt(_context?: PromptBuilderContext): string {
-    return "";
-  }
-
-  /**
-   * Build identity-preservation instructions (face / distinguishing traits).
-   * @returns Empty string until implemented.
-   */
-  buildIdentityPrompt(_context?: PromptBuilderContext): string {
-    return "";
-  }
-
-  /**
-   * Build lighting direction for the scene.
-   * @returns Empty string until implemented.
-   */
-  buildLightingPrompt(_context?: PromptBuilderContext): string {
-    return "";
-  }
-
-  /**
-   * Build camera / framing instructions.
-   * @returns Empty string until implemented.
-   */
-  buildCameraPrompt(_context?: PromptBuilderContext): string {
-    return "";
+/**
+ * Stub PromptBuilder — returns empty structured fields.
+ */
+export class StubPromptBuilder implements PromptBuilder {
+  build(
+    _plan: TransformationPlan,
+    _extras?: Record<string, unknown>
+  ): StructuredPromptOutput {
+    return {
+      prompt: "",
+      negativePrompt: "",
+      identityPrompt: "",
+      lightingPrompt: "",
+      cameraPrompt: "",
+      meta: { stub: true },
+    };
   }
 }

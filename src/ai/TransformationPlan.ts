@@ -1,93 +1,126 @@
 /**
- * TransformationPlan — deterministic output of TransformationEngine.
+ * TransformationPlan — structured engine output (not prompt prose).
  *
- * Describes estimated physique deltas and confidence metadata for a given
- * BodyProfile + TransformationGoal. Pure data; no prompts or I/O.
+ * Calculations + visual-edit instructions as typed fields.
+ * Downstream PromptBuilder may later turn this into text; the plan itself
+ * must remain model-agnostic.
  */
 
-import type { BodyProfile } from "./BodyProfile";
-import type { TransformationGoal } from "./TransformationGoal";
+/** Schema version for plan payloads. */
+export const TRANSFORMATION_PLAN_SCHEMA_VERSION = 1 as const;
 
-/**
- * Discrete visual change intensity for downstream presentation layers.
- * Engine maps continuous heuristics into this band.
- */
+/** Discrete visual change intensity for presentation layers. */
 export type VisualIntensity = "subtle" | "moderate" | "noticeable" | "dramatic";
 
 /**
- * Estimated transformation outcomes over the goal timeline.
+ * Heuristic product reliability band for estimates.
  *
- * Conventions:
- * - Mass deltas are in kg (positive = gain / loss as named).
- * - Circumference / percent fields are signed in the direction named
- *   (e.g. waistReductionCm > 0 means a smaller waist).
- * - confidenceScore is 0–1 (higher = more trustworthy estimate).
+ * NOT a statistical confidence interval, medical certainty, or scientific CI.
+ * Derived from input completeness / conflict heuristics only.
+ */
+export type EstimateReliability = "low" | "medium" | "high";
+
+/** Normalized regional change (−1…1 typical; magnitude is relative, not cm). */
+export interface RegionalChangeTarget {
+  /** Region id (may match FocusZone or a finer key). */
+  region: string;
+
+  /**
+   * Signed relative magnitude.
+   * Positive ≈ growth / fullness; negative ≈ reduction / tightening.
+   */
+  magnitude: number;
+
+  /** Optional note for adapters (never prompt prose required). */
+  note?: string;
+}
+
+/** Checkpoint along the timeline (diminishing-returns aware). */
+export interface TimelineCheckpoint {
+  /** Weeks from start. */
+  weeks: number;
+
+  /** Approximate months (weeks / 4.345). */
+  months: number;
+
+  /** Front-loaded progress fraction 0…1 (see progressCurve). */
+  progress: number;
+
+  /** Expected BF% at this checkpoint when estimable; else null. */
+  expectedBodyFatPct: number | null;
+
+  /** Expected weight kg when estimable; else null. */
+  expectedWeightKg: number | null;
+
+  /** Band label aligned with lib/transformProgress. */
+  band: "early" | "mid" | "nearGoal";
+}
+
+/**
+ * Estimated transformation outcomes for a profile + goal.
+ *
+ * Prefer ranges, nullables, assumptions, and warnings over false precision.
  */
 export interface TransformationPlan {
-  /** Estimated fat mass lost over the timeline (kg). Always >= 0. */
-  estimatedFatLossKg: number;
-
-  /** Estimated lean/muscle mass gained over the timeline (kg). Always >= 0. */
-  estimatedMuscleGainKg: number;
-
-  /** Estimated reduction in waist circumference (cm). Always >= 0. */
-  waistReductionCm: number;
+  schemaVersion: typeof TRANSFORMATION_PLAN_SCHEMA_VERSION;
 
   /**
-   * Estimated relative increase in shoulder breadth / deltoid fullness (%).
-   * Always >= 0. Conservative; not a circumference in cm.
+   * Signed fat-mass change (kg). Negative = loss, positive = gain.
+   * Null when weight/BF inputs are insufficient.
    */
-  shoulderIncreasePercent: number;
+  estimatedFatChangeKg: number | null;
 
   /**
-   * Estimated relative increase in chest circumference / fullness (%).
-   * Always >= 0.
+   * Signed lean-mass change (kg). Positive = gain.
+   * Null when inputs are insufficient.
    */
-  chestIncreasePercent: number;
+  estimatedLeanMassChangeKg: number | null;
+
+  /** Expected end weight (kg), or null when unsupported. */
+  expectedWeightKg: number | null;
+
+  /** Expected end body-fat %, or null when unsupported. */
+  expectedBodyFatPct: number | null;
 
   /**
-   * Estimated relative increase in upper-arm circumference / fullness (%).
-   * Always >= 0.
+   * Expected waist change (cm). Negative = smaller waist.
+   * Null when unsupported (do not invent precision).
    */
-  armIncreasePercent: number;
+  waistChangeCm: number | null;
 
-  /**
-   * Band describing how visually obvious the change should appear.
-   * Derived from combined deltas and timeline length.
-   */
+  /** Regional change targets with normalized magnitudes. */
+  regionalTargets: RegionalChangeTarget[];
+
+  /** How visually obvious the change should appear. */
   visualIntensity: VisualIntensity;
 
   /**
-   * Heuristic confidence in the estimates (0–1).
-   * Lowered by extreme goals, short timelines, advanced trainees, or limitations.
+   * Heuristic product reliability score in 0…1.
+   *
+   * Renamed from DEMAND_001 `confidence` / `confidenceScore`.
+   * This is NOT a statistical, medical, or scientific confidence interval —
+   * only an internal product score from input completeness and conflict checks.
    */
-  confidenceScore: number;
+  estimateReliabilityScore: number;
 
   /**
-   * Human-readable caveats (e.g. aggressive cut, plateau risk).
-   * Empty when no issues detected.
+   * Discrete band for `estimateReliabilityScore`.
+   * low < 0.55 ≤ medium < 0.75 ≤ high.
    */
+  estimateReliability: EstimateReliability;
+
+  /** Explicit modeling assumptions. */
+  assumptions: string[];
+
+  /** Conflict / risk / data-quality warnings. */
   warnings: string[];
 
-  /**
-   * Optional echo of the profile used to produce this plan.
-   * Useful for debugging; not required by consumers.
-   */
-  sourceProfile?: BodyProfile;
+  /** Diminishing-return checkpoints (typically 3 / 6 / 12 months). */
+  timelineCheckpoints: TimelineCheckpoint[];
 
-  /**
-   * Optional echo of the goal used to produce this plan.
-   */
-  sourceGoal?: TransformationGoal;
+  /** Effective timeline used for estimates (weeks), after clamps. */
+  effectiveTimelineWeeks: number;
 
-  /**
-   * Timeline weeks the estimates were computed for
-   * (may differ from user request if clamped).
-   */
-  effectiveTimelineWeeks?: number;
-
-  /**
-   * ISO-8601 timestamp when the plan was generated (set by engine).
-   */
-  generatedAt?: string;
+  /** ISO-8601 generation timestamp. */
+  generatedAt: string;
 }
