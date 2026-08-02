@@ -97,6 +97,22 @@ export type {
 } from "./GoalPlanner";
 export { GoalPlanner } from "./GoalPlanner";
 
+/** Provider-neutral structured rendering contract (foundation only — not production-integrated). */
+export type {
+  RenderChange,
+  RenderChangeDirection,
+  RenderChangeKind,
+  RenderOperation,
+  RenderPlan,
+  RenderPlanValidationResult,
+} from "./render";
+export {
+  RENDER_PLAN_RULES_VERSION,
+  RENDER_PLAN_SCHEMA_VERSION,
+  buildRenderPlan,
+  validateRenderPlan,
+} from "./render";
+
 /** Provider-independent image generation boundary (stubs only — not wired to production). */
 export type {
   AspectRatio,
