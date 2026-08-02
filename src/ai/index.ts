@@ -79,6 +79,18 @@ export type {
 } from "./GoalPlanner";
 export { GoalPlanner } from "./GoalPlanner";
 
+/** Provider-independent image generation boundary (stubs only — not wired to production). */
+export type {
+  AspectRatio,
+  GenerationQuality,
+  GenerationStyle,
+  ImageGenerationRequest,
+  ImageGenerationResult,
+  ModelAdapter,
+  ReplicateAdapterRequestOptions,
+} from "./model";
+export { ModelRegistry, ReplicateAdapter } from "./model";
+
 export {
   TRANSFORM_PROGRESS_TAU,
   bfAtHorizon,
