@@ -125,6 +125,25 @@ export type {
 } from "./model";
 export { ModelRegistry, ReplicateAdapter } from "./model";
 
+/** Provider formatter layer (foundation only — not production-integrated). */
+export type {
+  FormatterCapability,
+  FormatterOptions,
+  FormatterWarning,
+  FormattedImageRequest,
+  FormattedRequestValidationResult,
+  ProviderFamily,
+  ProviderFormatter,
+} from "./formatters";
+export {
+  FLUX_FORMATTER_VERSION,
+  FluxFormatter,
+  SUPPORTED_FORMATTER_ASPECT_RATIOS,
+  fluxFormatter,
+  toImageGenerationRequest,
+  validateFormattedImageRequest,
+} from "./formatters";
+
 export {
   TRANSFORM_PROGRESS_TAU,
   bfAtHorizon,
