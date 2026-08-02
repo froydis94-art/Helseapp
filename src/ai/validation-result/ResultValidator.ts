@@ -485,15 +485,24 @@ export function evaluateCandidate(
     Number.isInteger(input.maxAttempts) &&
     input.maxAttempts >= MIN_MAX_ATTEMPTS &&
     input.maxAttempts <= MAX_MAX_ATTEMPTS;
+  const attemptExceedsMax =
+    attemptValid && maxAttemptsValid && input.attempt > input.maxAttempts;
 
-  if (!evidenceCheck.valid || !attemptValid || !maxAttemptsValid) {
+  if (
+    !evidenceCheck.valid ||
+    !attemptValid ||
+    !maxAttemptsValid ||
+    attemptExceedsMax
+  ) {
     const findings: ValidationFinding[] = [
       finding(
         "invalid_evidence",
         "critical",
-        evidenceCheck.valid
-          ? "Attempt or maxAttempts is outside the allowed finite retry budget."
-          : evidenceCheck.errors[0] ?? "Validation evidence is invalid."
+        !evidenceCheck.valid
+          ? evidenceCheck.errors[0] ?? "Validation evidence is invalid."
+          : attemptExceedsMax
+            ? "attempt cannot exceed maxAttempts."
+            : "Attempt or maxAttempts is outside the allowed finite retry budget."
       ),
     ];
     if (!evidenceCheck.valid) {

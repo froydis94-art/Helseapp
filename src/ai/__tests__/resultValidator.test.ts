@@ -591,4 +591,73 @@ describe("DEMAND_010 ResultValidator", () => {
     assert.ok(pkg.scripts["test:ai"]?.includes("resultValidator.test.ts"));
     assert.ok(pkg.scripts["harness:ai"]);
   });
+
+  it("41. attempt === maxAttempts remains a valid retry state", () => {
+    const decision = evaluateCandidate({
+      evidence: acceptedCandidateEvidence,
+      renderPlan: stubRenderPlan(),
+      attempt: 3,
+      maxAttempts: 3,
+    });
+    assert.equal(decision.outcome, "accept");
+    assert.equal(decision.metadata.attempt, 3);
+    assert.equal(decision.metadata.maxAttempts, 3);
+    assert.ok(!decision.findings.some((f) => f.code === "invalid_evidence"));
+  });
+
+  it("42. attempt > maxAttempts is rejected with invalid_evidence", () => {
+    const decision = evaluateCandidate({
+      evidence: acceptedCandidateEvidence,
+      renderPlan: stubRenderPlan(),
+      attempt: 4,
+      maxAttempts: 3,
+    });
+    assert.equal(decision.outcome, "reject");
+    assert.ok(decision.findings.some((f) => f.code === "invalid_evidence"));
+    assert.ok(
+      decision.findings.some((f) =>
+        f.message.includes("attempt cannot exceed maxAttempts")
+      )
+    );
+    assert.equal(decision.retry, undefined);
+  });
+
+  it("43. attempt 0 is still rejected", () => {
+    const decision = evaluateCandidate({
+      evidence: acceptedCandidateEvidence,
+      renderPlan: stubRenderPlan(),
+      attempt: 0,
+      maxAttempts: 3,
+    });
+    assert.equal(decision.outcome, "reject");
+    assert.ok(decision.findings.some((f) => f.code === "invalid_evidence"));
+    assert.equal(decision.retry, undefined);
+  });
+
+  it("44. maxAttempts > 5 is still rejected", () => {
+    const decision = evaluateCandidate({
+      evidence: acceptedCandidateEvidence,
+      renderPlan: stubRenderPlan(),
+      attempt: 1,
+      maxAttempts: 6,
+    });
+    assert.equal(decision.outcome, "reject");
+    assert.ok(decision.findings.some((f) => f.code === "invalid_evidence"));
+    assert.equal(decision.retry, undefined);
+  });
+
+  it("45. Invalid retry state does not mutate evidence or RenderPlan", () => {
+    const evidence = deepClone(acceptedCandidateEvidence);
+    const renderPlan = stubRenderPlan("pronounced");
+    const evidenceBefore = JSON.stringify(evidence);
+    const planBefore = JSON.stringify(renderPlan);
+    evaluateCandidate({
+      evidence,
+      renderPlan,
+      attempt: 5,
+      maxAttempts: 2,
+    });
+    assert.equal(JSON.stringify(evidence), evidenceBefore);
+    assert.equal(JSON.stringify(renderPlan), planBefore);
+  });
 });
