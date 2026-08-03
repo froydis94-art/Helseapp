@@ -11,7 +11,7 @@
  * service logic in src/ai/control-room.
  */
 
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 
 import {
   ControlRoomService,
@@ -71,16 +71,18 @@ function headerValue(
   return typeof raw === "string" ? raw : undefined;
 }
 
-function timingSafeStringEqual(a: string, b: string): boolean {
-  const left = Buffer.from(a, "utf8");
-  const right = Buffer.from(b, "utf8");
-  if (left.length !== right.length) {
-    // Spend comparable work without revealing length details to callers.
-    timingSafeEqual(left, left);
-    return false;
-  }
-  return timingSafeEqual(left, right);
+function digestAccessKey(value: string): Buffer {
+  return createHash("sha256").update(value, "utf8").digest();
 }
+
+function timingSafeStringEqual(provided: string, expected: string): boolean {
+  const providedDigest = digestAccessKey(provided);
+  const expectedDigest = digestAccessKey(expected);
+  return timingSafeEqual(providedDigest, expectedDigest);
+}
+
+/** Exported for unit tests only — not part of the HTTP contract. */
+export { digestAccessKey, timingSafeStringEqual };
 
 function isAuthorized(req: VercelLikeRequest): boolean {
   const expected = getConfiguredAccessKey();

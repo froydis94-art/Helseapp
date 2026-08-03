@@ -66,7 +66,10 @@ disabled. Never include real values in documentation or source.
 
 - access key sent in header `X-AI-OS-Control-Room-Key`
 - key kept in browser memory only
-- server timing-safe comparison
+- submitted and configured keys are hashed to fixed-length SHA-256 digests
+  before timing-safe comparison
+- digests are ephemeral and are not stored
+- no original key length is used for comparison branching
 - no cookie
 - no local storage
 - no URL key

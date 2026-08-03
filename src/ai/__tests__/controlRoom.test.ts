@@ -9,7 +9,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
 
 import {
@@ -97,6 +97,20 @@ function normalizeArtifacts(result: ControlRoomRunResult): unknown {
 function containsForbidden(value: unknown): boolean {
   const text = JSON.stringify(value);
   return PERSONAL_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+type AccessKeyAuthHelpers = {
+  digestAccessKey: (value: string) => Buffer;
+  timingSafeStringEqual: (provided: string, expected: string) => boolean;
+};
+
+async function loadAccessKeyAuthHelpers(): Promise<AccessKeyAuthHelpers> {
+  // Variable URL keeps api/ outside tsc rootDir while still exercising real helpers.
+  const href = pathToFileURL(apiPath).href;
+  const mod = (await import(href)) as AccessKeyAuthHelpers;
+  assert.equal(typeof mod.digestAccessKey, "function");
+  assert.equal(typeof mod.timingSafeStringEqual, "function");
+  return mod;
 }
 
 describe("DEMAND_016 Control Room", () => {
@@ -566,8 +580,22 @@ describe("DEMAND_016 Control Room", () => {
       assert.match(apiSource, /keys\.length !== 1/);
     });
 
-    it("51. Timing-safe comparison is used", () => {
+    it("51. Timing-safe fixed-length digest comparison is used", () => {
       assert.match(apiSource, /timingSafeEqual/);
+      assert.match(apiSource, /createHash\("sha256"\)/);
+      assert.match(apiSource, /digestAccessKey/);
+      assert.equal(
+        /left\.length\s*!==\s*right\.length/.test(apiSource),
+        false
+      );
+      assert.equal(
+        /if\s*\(\s*left\.length\s*!==\s*right\.length\s*\)/.test(apiSource),
+        false
+      );
+      assert.equal(
+        /Buffer\.from\(\s*[ab]\s*,\s*["']utf8["']\s*\)/.test(apiSource),
+        false
+      );
     });
 
     it("52. GET requires authorization", () => {
@@ -703,6 +731,143 @@ describe("DEMAND_016 Control Room", () => {
       assert.equal(html.includes('id="healthInput"'), false);
       assert.equal(js.includes("heartRate"), false);
       assert.equal(js.includes("terraUserId"), false);
+    });
+  });
+
+  describe("Fixed-length access key comparison", () => {
+    const expectedKey = "control-room-access-key-24";
+
+    it("87. Correct key is accepted", async () => {
+      const { timingSafeStringEqual } = await loadAccessKeyAuthHelpers();
+      assert.ok(expectedKey.length >= 24);
+      assert.equal(timingSafeStringEqual(expectedKey, expectedKey), true);
+    });
+
+    it("88. Incorrect key with the same length is rejected", async () => {
+      const { timingSafeStringEqual } = await loadAccessKeyAuthHelpers();
+      const wrong = "control-room-access-key-XX";
+      assert.equal(wrong.length, expectedKey.length);
+      assert.equal(timingSafeStringEqual(wrong, expectedKey), false);
+    });
+
+    it("89. Incorrect key with a shorter length is rejected", async () => {
+      const { timingSafeStringEqual } = await loadAccessKeyAuthHelpers();
+      const wrong = "short-wrong-key";
+      assert.ok(wrong.length < expectedKey.length);
+      assert.equal(timingSafeStringEqual(wrong, expectedKey), false);
+    });
+
+    it("90. Incorrect key with a longer length is rejected", async () => {
+      const { timingSafeStringEqual } = await loadAccessKeyAuthHelpers();
+      const wrong = `${expectedKey}-longer-than-expected`;
+      assert.ok(wrong.length > expectedKey.length);
+      assert.equal(timingSafeStringEqual(wrong, expectedKey), false);
+    });
+
+    it("91. Unicode input is handled safely", async () => {
+      const { digestAccessKey, timingSafeStringEqual } =
+        await loadAccessKeyAuthHelpers();
+      const unicodeKey = "kontrollrom-nøkkel-æøå-🔑-24ch";
+      assert.equal(timingSafeStringEqual(unicodeKey, unicodeKey), true);
+      assert.equal(
+        timingSafeStringEqual(unicodeKey, `${unicodeKey}x`),
+        false
+      );
+      assert.equal(timingSafeStringEqual("🔑", "🔐"), false);
+      const digest = digestAccessKey(unicodeKey);
+      assert.equal(digest.length, 32);
+    });
+
+    it("92. Empty key is rejected", async () => {
+      const { timingSafeStringEqual } = await loadAccessKeyAuthHelpers();
+      assert.equal(timingSafeStringEqual("", expectedKey), false);
+      assert.equal(timingSafeStringEqual(expectedKey, ""), false);
+      const apiSource = read(apiPath);
+      assert.match(
+        apiSource,
+        /provided == null \|\| provided\.length === 0\) return false;\r?\n\s*return timingSafeStringEqual/
+      );
+    });
+
+    it("93. Comparison source contains no early original-length equality branch", () => {
+      const apiSource = read(apiPath);
+      const compareFn = apiSource.slice(
+        apiSource.indexOf("function timingSafeStringEqual"),
+        apiSource.indexOf("function isAuthorized")
+      );
+      assert.ok(compareFn.length > 0);
+      assert.equal(/provided\.length|expected\.length/.test(compareFn), false);
+      assert.equal(/left\.length|right\.length/.test(compareFn), false);
+      assert.equal(/Buffer\.from\(/.test(compareFn), false);
+      assert.equal(/!==/.test(compareFn), false);
+    });
+
+    it("94. Comparison uses fixed-length SHA-256 digests", async () => {
+      const { digestAccessKey } = await loadAccessKeyAuthHelpers();
+      const apiSource = read(apiPath);
+      assert.match(apiSource, /createHash\("sha256"\)/);
+      assert.match(apiSource, /\.update\(value,\s*"utf8"\)/);
+      assert.match(apiSource, /\.digest\(\)/);
+      const a = digestAccessKey("alpha");
+      const b = digestAccessKey("beta-longer-value");
+      assert.equal(a.length, 32);
+      assert.equal(b.length, 32);
+      assert.equal(a.length, b.length);
+    });
+
+    it("95. timingSafeEqual receives equal-length digest buffers", async () => {
+      const { digestAccessKey, timingSafeStringEqual } =
+        await loadAccessKeyAuthHelpers();
+      const provided = "provided-key-value-aaaa";
+      const expected = "expected-key-value-bbbb-extra";
+      const providedDigest = digestAccessKey(provided);
+      const expectedDigest = digestAccessKey(expected);
+      assert.equal(providedDigest.length, expectedDigest.length);
+      assert.equal(providedDigest.length, 32);
+      assert.equal(timingSafeStringEqual(provided, expected), false);
+      const apiSource = read(apiPath);
+      assert.match(
+        apiSource,
+        /timingSafeEqual\(\s*providedDigest\s*,\s*expectedDigest\s*\)/
+      );
+    });
+
+    it("96. Key and digest are never returned in API responses", () => {
+      const apiSource = read(apiPath);
+      assert.equal(apiSource.includes("providedDigest"), true);
+      assert.equal(/json\([^)]*digest/i.test(apiSource), false);
+      assert.equal(/message:.*digest/i.test(apiSource), false);
+      assert.equal(
+        /send\(\s*res\s*,\s*\d+\s*,\s*\{[^}]*accessKey/s.test(apiSource),
+        false
+      );
+      const responseBodies = [
+        "control_room_disabled",
+        "unauthorized",
+        "invalid_request",
+        "scenario_not_found",
+        "unsafe_result",
+        "runtime_failure",
+        "method_not_allowed",
+      ];
+      for (const code of responseBodies) {
+        assert.match(apiSource, new RegExp(code));
+      }
+      assert.equal(apiSource.includes("digestAccessKey(provided)"), true);
+      assert.equal(
+        /res\.status\([^)]+\)\.json\([\s\S]*digestAccessKey/.test(apiSource),
+        false
+      );
+      const docs = read(docsPath);
+      assert.match(
+        docs,
+        /hashed to fixed-length SHA-256 digests/
+      );
+      assert.match(docs, /digests are ephemeral and are not stored/);
+      assert.match(
+        docs,
+        /no original key length is used for comparison branching/
+      );
     });
   });
 
