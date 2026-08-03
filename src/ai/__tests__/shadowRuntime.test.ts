@@ -716,5 +716,23 @@ describe("shadowRuntime — DEMAND_014 / PATCH_014A / PATCH_014B / PATCH_014C", 
       assert.equal(typeof createDryRunShadowRuntime, "function");
       assert.equal(typeof createMockTransportShadowRuntime, "function");
     });
+
+    it("47. productionCapability is sealed per factory (dry-run vs mock)", () => {
+      const dry = createDryRunShadowRuntime();
+      const mock = createMockTransportShadowRuntime({
+        mockResults: [structuredClone(runtimeTransportSuccessResult)],
+      });
+      assert.equal(dry.productionCapability, "dry_run_shadow_v1");
+      assert.equal(mock.productionCapability, "mock_shadow_v1");
+      const src = readFileSync(join(shadowDir, "ShadowRuntime.ts"), "utf8");
+      assert.match(src, /productionCapability/);
+      assert.match(src, /dry_run_shadow_v1/);
+      assert.match(src, /mock_shadow_v1/);
+      // Capability only assigned after construction-token check.
+      assert.match(
+        src,
+        /token !== SHADOW_RUNTIME_CONSTRUCTION_TOKEN[\s\S]*this\.productionCapability/
+      );
+    });
   });
 });

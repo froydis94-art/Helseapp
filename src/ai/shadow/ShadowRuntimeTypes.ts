@@ -32,6 +32,14 @@ export type ShadowMode =
 export type ShadowTransportKind = "none" | "mock";
 
 /**
+ * Sealed production-gateway capability (factory-assigned only).
+ * ProductionRuntimeGateway accepts only `"dry_run_shadow_v1"`.
+ */
+export type ShadowProductionCapability =
+  | "dry_run_shadow_v1"
+  | "mock_shadow_v1";
+
+/**
  * Declarative mock-transport fixture queue.
  * Callers supply results only — never generate callbacks or network deps.
  */

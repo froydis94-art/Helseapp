@@ -35,6 +35,7 @@ import {
   SHADOW_RUNTIME_RULES_VERSION,
   type ShadowExecutionResult,
   type ShadowMode,
+  type ShadowProductionCapability,
   type ShadowRuntimeInput,
   type ShadowRuntimeInputValidation,
   type ShadowRuntimeResult,
@@ -208,7 +209,8 @@ export function createDryRunShadowRuntime(options?: {
       runtime: wrapShadowSafeRuntime(aiOs, "none"),
       now,
     }),
-    SHADOW_RUNTIME_CONSTRUCTION_TOKEN
+    SHADOW_RUNTIME_CONSTRUCTION_TOKEN,
+    "dry_run_shadow_v1"
   );
 }
 
@@ -240,7 +242,8 @@ export function createMockTransportShadowRuntime(options: {
       runtime: wrapShadowSafeRuntime(aiOs, "mock"),
       now,
     }),
-    SHADOW_RUNTIME_CONSTRUCTION_TOKEN
+    SHADOW_RUNTIME_CONSTRUCTION_TOKEN,
+    "mock_shadow_v1"
   );
 }
 
@@ -452,21 +455,30 @@ function assertNoArtifactLeakage(result: ShadowRuntimeResult): void {
  * Shadow observation runtime.
  * Public construction is factory-only: module-private construction token
  * (TypeScript `private` constructor cannot be called from module-level factories).
+ * `productionCapability` is sealed here — not forgeable from outside.
  */
 export class ShadowRuntime {
   private readonly dependencies: ShadowRuntimeDeps;
+
+  /**
+   * Sealed production-gateway capability. Set only via factory construction token.
+   * ProductionRuntimeGateway accepts only `"dry_run_shadow_v1"`.
+   */
+  readonly productionCapability: ShadowProductionCapability;
 
   /**
    * @internal Factories only. Requires module-private token — not obtainable by callers.
    */
   constructor(
     dependencies: ShadowRuntimeDeps,
-    token: typeof SHADOW_RUNTIME_CONSTRUCTION_TOKEN
+    token: typeof SHADOW_RUNTIME_CONSTRUCTION_TOKEN,
+    productionCapability: ShadowProductionCapability
   ) {
     if (token !== SHADOW_RUNTIME_CONSTRUCTION_TOKEN) {
       throw new Error(SHADOW_DIRECT_CONSTRUCTION_ERROR);
     }
     this.dependencies = dependencies;
+    this.productionCapability = productionCapability;
   }
 
   /**

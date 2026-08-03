@@ -43,8 +43,10 @@ Shadow calls existing `AiOsRuntime` through an **internal** shadow-safe wrapper 
 
 Safe factories are the **only** supported construction path:
 
-- `createDryRunShadowRuntime` → kind `"none"` (disabled + `runtime_only`)
-- `createMockTransportShadowRuntime({ mockResults, now })` → kind `"mock"`, declarative fixture queue only
+- `createDryRunShadowRuntime` → kind `"none"` (disabled + `runtime_only`), sealed `productionCapability: "dry_run_shadow_v1"`
+- `createMockTransportShadowRuntime({ mockResults, now })` → kind `"mock"`, declarative fixture queue only, sealed `productionCapability: "mock_shadow_v1"`
+
+`productionCapability` is assigned only through the module-private construction token. Callers cannot forge a dry-run capability on a mock or structural `{ run }` object. ProductionRuntimeGateway (PATCH 015A) accepts only `"dry_run_shadow_v1"`.
 
 Direct construction is unavailable:
 

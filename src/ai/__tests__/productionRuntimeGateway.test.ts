@@ -14,8 +14,15 @@ import { fileURLToPath } from "node:url";
 
 import type { ShadowRuntimeInput, ShadowRuntimeResult } from "../shadow";
 import {
+  createDryRunShadowRuntime,
+  createMockTransportShadowRuntime,
+  ShadowRuntime,
+} from "../shadow/ShadowRuntime";
+import { runtimeTransportSuccessResult } from "../runtime";
+import {
   PRODUCTION_FORBIDDEN_CONTENT_WARNING,
   PRODUCTION_RUNTIME_RULES_VERSION,
+  PRODUCTION_SHADOW_UNAVAILABLE_WARNING,
   ProductionRuntimeGateway,
   REDACTED_PRODUCTION_CONTENT,
   calculateProductionSampleBucket,
@@ -59,7 +66,11 @@ function readProductionSources(): string {
     .join("\n");
 }
 
-function createMockShadow(options?: {
+/**
+ * Structural fake — must be rejected by PATCH 015A capability gate.
+ * Cast only at the deps boundary so TypeScript still models the public API.
+ */
+function createFakeShadow(options?: {
   result?: ShadowRuntimeResult;
   delayMs?: number;
   throwError?: boolean;
@@ -85,6 +96,47 @@ function createMockShadow(options?: {
       );
     },
   };
+}
+
+function asShadowRuntime(value: unknown): ShadowRuntime {
+  return value as ShadowRuntime;
+}
+
+/**
+ * Instrument a sealed dry-run Shadow without breaking instanceof / capability.
+ */
+function instrumentDryRunShadow(options?: {
+  delayMs?: number;
+  throwError?: boolean;
+  now?: () => number;
+}): {
+  shadow: ShadowRuntime;
+  calls: ShadowRuntimeInput[];
+} {
+  const shadow = createDryRunShadowRuntime({ now: options?.now });
+  const calls: ShadowRuntimeInput[] = [];
+  const originalRun = shadow.run.bind(shadow);
+  shadow.run = async (input: ShadowRuntimeInput) => {
+    calls.push(structuredClone(input));
+    if (options?.throwError) {
+      throw new Error("instrumented shadow boom");
+    }
+    if (options?.delayMs != null && options.delayMs > 0) {
+      await new Promise((r) => setTimeout(r, options.delayMs));
+    }
+    return originalRun(input);
+  };
+  return { shadow, calls };
+}
+
+function assertLegacyInvariants(result: ProductionGatewayResult): void {
+  assert.equal(result.success, true);
+  assert.equal(result.legacy.required, true);
+  assert.equal(result.legacy.executedByGateway, false);
+  assert.equal(result.legacy.owner, "existing_legacy_pipeline");
+  assert.equal(result.decision.legacyRequired, true);
+  assert.equal(result.decision.userVisibleOwner, "legacy");
+  assert.equal(result.decision.v2ProviderTrafficAllowed, false);
 }
 
 describe("DEMAND_015 Production Runtime Integration Foundation", () => {
@@ -402,10 +454,11 @@ describe("DEMAND_015 Production Runtime Integration Foundation", () => {
     });
 
     it("28. Gateway returns legacy ownership", async () => {
+      const { shadow } = instrumentDryRunShadow();
       const gateway = new ProductionRuntimeGateway(
         createProductionRuntimeGatewayDependencies({
           config: shadowDryRunProductionConfig,
-          shadowRuntime: createMockShadow(),
+          shadowRuntime: shadow,
         })
       );
       const result = await gateway.evaluate(validProductionGatewayInput);
@@ -415,47 +468,48 @@ describe("DEMAND_015 Production Runtime Integration Foundation", () => {
     });
 
     it("29. No-shadow policy performs zero Shadow calls", async () => {
-      const mock = createMockShadow();
+      const { shadow, calls } = instrumentDryRunShadow();
       const gateway = new ProductionRuntimeGateway(
         createProductionRuntimeGatewayDependencies({
           config: legacyOnlyProductionConfig,
-          shadowRuntime: mock,
+          shadowRuntime: shadow,
         })
       );
       await gateway.evaluate(validProductionGatewayInput);
-      assert.equal(mock.calls.length, 0);
+      assert.equal(calls.length, 0);
     });
 
     it("30. Selected Shadow performs exactly one call", async () => {
-      const mock = createMockShadow();
+      const { shadow, calls } = instrumentDryRunShadow();
       const gateway = new ProductionRuntimeGateway(
         createProductionRuntimeGatewayDependencies({
           config: fullSamplingProductionConfig,
-          shadowRuntime: mock,
+          shadowRuntime: shadow,
         })
       );
       await gateway.evaluate(validProductionGatewayInput);
-      assert.equal(mock.calls.length, 1);
+      assert.equal(calls.length, 1);
     });
 
     it("31. Gateway forces runtime_only Shadow mode", async () => {
-      const mock = createMockShadow();
+      const { shadow, calls } = instrumentDryRunShadow();
       const gateway = new ProductionRuntimeGateway(
         createProductionRuntimeGatewayDependencies({
           config: fullSamplingProductionConfig,
-          shadowRuntime: mock,
+          shadowRuntime: shadow,
         })
       );
       await gateway.evaluate(validProductionGatewayInput);
-      assert.equal(mock.calls[0]?.mode, "runtime_only");
+      assert.equal(calls[0]?.mode, "runtime_only");
+      assert.equal(calls[0]?.runtimeInput?.mode, "dry_run");
     });
 
     it("32. transport mock mode is rejected", async () => {
-      const mock = createMockShadow();
+      const { shadow, calls } = instrumentDryRunShadow();
       const gateway = new ProductionRuntimeGateway(
         createProductionRuntimeGatewayDependencies({
           config: fullSamplingProductionConfig,
-          shadowRuntime: mock,
+          shadowRuntime: shadow,
         })
       );
       const input: ProductionGatewayInput = {
@@ -467,7 +521,7 @@ describe("DEMAND_015 Production Runtime Integration Foundation", () => {
         },
       };
       const result = await gateway.evaluate(input);
-      assert.equal(mock.calls.length, 0);
+      assert.equal(calls.length, 0);
       assert.equal(result.shadow.executed, false);
       assert.equal(result.success, true);
       assert.equal(result.legacy.required, true);
@@ -485,14 +539,17 @@ describe("DEMAND_015 Production Runtime Integration Foundation", () => {
       assert.equal(result.shadow.executed, false);
       assert.equal(result.legacy.required, true);
       assert.equal(result.decision.userVisibleOwner, "legacy");
+      assert.ok(
+        result.warnings.includes(PRODUCTION_SHADOW_UNAVAILABLE_WARNING)
+      );
     });
 
     it("34. Shadow timeout fails open", async () => {
-      const mock = createMockShadow({ delayMs: 250 });
+      const { shadow, calls } = instrumentDryRunShadow({ delayMs: 250 });
       const gateway = new ProductionRuntimeGateway(
         createProductionRuntimeGatewayDependencies({
           config: { ...fullSamplingProductionConfig, shadowTimeoutMs: 50 },
-          shadowRuntime: mock,
+          shadowRuntime: shadow,
         })
       );
       const result = await gateway.evaluate(validProductionGatewayInput);
@@ -500,31 +557,35 @@ describe("DEMAND_015 Production Runtime Integration Foundation", () => {
       assert.equal(result.shadow.executed, false);
       assert.equal(result.legacy.required, true);
       assert.ok(result.warnings.length > 0);
+      assert.equal(calls.length, 1);
     });
 
     it("35. Shadow exception fails open", async () => {
-      const mock = createMockShadow({ throwError: true });
+      const { shadow } = instrumentDryRunShadow({ throwError: true });
       const gateway = new ProductionRuntimeGateway(
         createProductionRuntimeGatewayDependencies({
           config: fullSamplingProductionConfig,
-          shadowRuntime: mock,
+          shadowRuntime: shadow,
         })
       );
       const result = await gateway.evaluate(validProductionGatewayInput);
       assert.equal(result.success, true);
       assert.equal(result.legacy.required, true);
       assert.equal(result.shadow.success, false);
-      assert.equal(JSON.stringify(result).includes("mock shadow boom"), false);
+      assert.equal(
+        JSON.stringify(result).includes("instrumented shadow boom"),
+        false
+      );
     });
 
     it("36. Shadow failure does not block legacy", async () => {
-      const mock = createMockShadow({
-        result: failedShadowDryRunResultFixture,
-      });
+      const shadow = createDryRunShadowRuntime();
+      shadow.run = async () =>
+        structuredClone(failedShadowDryRunResultFixture);
       const gateway = new ProductionRuntimeGateway(
         createProductionRuntimeGatewayDependencies({
           config: fullSamplingProductionConfig,
-          shadowRuntime: mock,
+          shadowRuntime: shadow,
         })
       );
       const result = await gateway.evaluate(validProductionGatewayInput);
@@ -535,54 +596,53 @@ describe("DEMAND_015 Production Runtime Integration Foundation", () => {
     });
 
     it("37. Kill switch performs zero Shadow calls", async () => {
-      const mock = createMockShadow();
+      const { shadow, calls } = instrumentDryRunShadow();
       const gateway = new ProductionRuntimeGateway(
         createProductionRuntimeGatewayDependencies({
           config: killSwitchProductionConfig,
-          shadowRuntime: mock,
+          shadowRuntime: shadow,
         })
       );
       await gateway.evaluate(validProductionGatewayInput);
-      assert.equal(mock.calls.length, 0);
+      assert.equal(calls.length, 0);
     });
 
     it("38. Gateway performs no retry loop", async () => {
-      const mock = createMockShadow({
-        result: failedShadowDryRunResultFixture,
-      });
+      const { shadow, calls } = instrumentDryRunShadow();
       const gateway = new ProductionRuntimeGateway(
         createProductionRuntimeGatewayDependencies({
           config: fullSamplingProductionConfig,
-          shadowRuntime: mock,
+          shadowRuntime: shadow,
         })
       );
       await gateway.evaluate(validProductionGatewayInput);
-      assert.equal(mock.calls.length, 1);
+      assert.equal(calls.length, 1);
     });
 
     it("39. Gateway performs no transport call", async () => {
       const sources = readProductionSources();
       assert.equal(sources.includes("ReplicateTransportAdapter"), false);
       assert.equal(/\bfetch\s*\(/.test(sources), false);
-      const mock = createMockShadow();
+      const { shadow, calls } = instrumentDryRunShadow();
       const gateway = new ProductionRuntimeGateway(
         createProductionRuntimeGatewayDependencies({
           config: fullSamplingProductionConfig,
-          shadowRuntime: mock,
+          shadowRuntime: shadow,
         })
       );
       const result = await gateway.evaluate(validProductionGatewayInput);
       assert.equal(result.decision.v2ProviderTrafficAllowed, false);
-      assert.equal(mock.calls[0]?.mode, "runtime_only");
+      assert.equal(calls[0]?.mode, "runtime_only");
     });
 
     it("40. Gateway does not mutate input", async () => {
       const input = freezeClone(validProductionGatewayInput);
       const before = freezeClone(input);
+      const { shadow } = instrumentDryRunShadow();
       const gateway = new ProductionRuntimeGateway(
         createProductionRuntimeGatewayDependencies({
           config: fullSamplingProductionConfig,
-          shadowRuntime: createMockShadow(),
+          shadowRuntime: shadow,
         })
       );
       await gateway.evaluate(input);
@@ -590,15 +650,167 @@ describe("DEMAND_015 Production Runtime Integration Foundation", () => {
     });
 
     it("41. Gateway result is JSON serializable", async () => {
+      const { shadow } = instrumentDryRunShadow();
       const gateway = new ProductionRuntimeGateway(
         createProductionRuntimeGatewayDependencies({
           config: fullSamplingProductionConfig,
-          shadowRuntime: createMockShadow(),
+          shadowRuntime: shadow,
         })
       );
       const result = await gateway.evaluate(validProductionGatewayInput);
       const roundTrip = JSON.parse(JSON.stringify(result));
       assert.deepEqual(roundTrip, JSON.parse(JSON.stringify(result)));
+    });
+  });
+
+  describe("PATCH 015A — sealed dry-run Shadow only", () => {
+    it("80. createDryRunShadowRuntime is accepted by the dependency factory", () => {
+      const shadow = createDryRunShadowRuntime();
+      const deps = createProductionRuntimeGatewayDependencies({
+        config: fullSamplingProductionConfig,
+        shadowRuntime: shadow,
+      });
+      assert.equal(deps.shadowRuntime instanceof ShadowRuntime, true);
+      assert.equal(deps.shadowRuntime?.productionCapability, "dry_run_shadow_v1");
+    });
+
+    it("81. Genuine dry-run Shadow Runtime executes once when sampled", async () => {
+      const { shadow, calls } = instrumentDryRunShadow();
+      const gateway = new ProductionRuntimeGateway(
+        createProductionRuntimeGatewayDependencies({
+          config: fullSamplingProductionConfig,
+          shadowRuntime: shadow,
+        })
+      );
+      const result = await gateway.evaluate(validProductionGatewayInput);
+      assert.equal(calls.length, 1);
+      assert.equal(result.shadow.requested, true);
+      assert.equal(result.shadow.executed, true);
+      assert.equal(result.shadow.telemetry != null, true);
+      assertLegacyInvariants(result);
+    });
+
+    it("82. A plain object with run() is rejected", async () => {
+      const fake = createFakeShadow();
+      const gateway = new ProductionRuntimeGateway(
+        createProductionRuntimeGatewayDependencies({
+          config: fullSamplingProductionConfig,
+          shadowRuntime: asShadowRuntime(fake),
+        })
+      );
+      const result = await gateway.evaluate(validProductionGatewayInput);
+      assert.equal(fake.calls.length, 0);
+      assert.equal(result.shadow.executed, false);
+      assert.equal(result.shadow.telemetry, null);
+      assert.ok(
+        result.warnings.includes(PRODUCTION_SHADOW_UNAVAILABLE_WARNING)
+      );
+      assertLegacyInvariants(result);
+    });
+
+    it("83. A callback that would call fetch is never executed", async () => {
+      let fetchCalled = false;
+      const fake = {
+        async run() {
+          fetchCalled = true;
+          const fetchFn = (globalThis as unknown as { fetch?: () => Promise<unknown> })
+            .fetch;
+          await fetchFn?.();
+          return structuredClone(safeShadowDryRunResultFixture);
+        },
+      };
+      const gateway = new ProductionRuntimeGateway(
+        createProductionRuntimeGatewayDependencies({
+          config: fullSamplingProductionConfig,
+          shadowRuntime: asShadowRuntime(fake),
+        })
+      );
+      const result = await gateway.evaluate(validProductionGatewayInput);
+      assert.equal(fetchCalled, false);
+      assert.equal(result.shadow.executed, false);
+      assert.equal(result.shadow.telemetry, null);
+      assertLegacyInvariants(result);
+    });
+
+    it("84. A fake object with runtime_only-looking behavior is rejected", async () => {
+      const fake = createFakeShadow({
+        onRun: (input) => {
+          assert.equal(input.mode, "runtime_only");
+        },
+      });
+      const gateway = new ProductionRuntimeGateway(
+        createProductionRuntimeGatewayDependencies({
+          config: fullSamplingProductionConfig,
+          shadowRuntime: asShadowRuntime(fake),
+        })
+      );
+      const result = await gateway.evaluate(validProductionGatewayInput);
+      assert.equal(fake.calls.length, 0);
+      assert.equal(result.shadow.executed, false);
+      assert.equal(result.shadow.telemetry, null);
+      assertLegacyInvariants(result);
+    });
+
+    it("85. Mock-transport Shadow Runtime is rejected for production gateway", async () => {
+      let runCount = 0;
+      const mockShadow = createMockTransportShadowRuntime({
+        mockResults: [structuredClone(runtimeTransportSuccessResult)],
+      });
+      assert.equal(mockShadow.productionCapability, "mock_shadow_v1");
+      const originalRun = mockShadow.run.bind(mockShadow);
+      mockShadow.run = async (input) => {
+        runCount += 1;
+        return originalRun(input);
+      };
+      const gateway = new ProductionRuntimeGateway(
+        createProductionRuntimeGatewayDependencies({
+          config: fullSamplingProductionConfig,
+          shadowRuntime: mockShadow,
+        })
+      );
+      const result = await gateway.evaluate(validProductionGatewayInput);
+      assert.equal(runCount, 0);
+      assert.equal(result.shadow.executed, false);
+      assert.equal(result.shadow.telemetry, null);
+      assert.ok(
+        result.warnings.includes(PRODUCTION_SHADOW_UNAVAILABLE_WARNING)
+      );
+      assertLegacyInvariants(result);
+    });
+
+    it("86. Rejected Shadow dependency fails open to legacy with one warning", async () => {
+      const fake = createFakeShadow();
+      const gateway = new ProductionRuntimeGateway(
+        createProductionRuntimeGatewayDependencies({
+          config: fullSamplingProductionConfig,
+          shadowRuntime: asShadowRuntime(fake),
+        })
+      );
+      const result = await gateway.evaluate(validProductionGatewayInput);
+      assert.equal(result.decision.reasonCode, "shadow_runtime_unavailable");
+      assert.equal(result.decision.runShadowDryRun, false);
+      const unavailableWarnings = result.warnings.filter(
+        (w) => w === PRODUCTION_SHADOW_UNAVAILABLE_WARNING
+      );
+      assert.equal(unavailableWarnings.length, 1);
+      assertLegacyInvariants(result);
+    });
+
+    it("87. Rejected dependency performs zero Shadow calls and returns no telemetry", async () => {
+      const fake = createFakeShadow();
+      const gateway = new ProductionRuntimeGateway(
+        createProductionRuntimeGatewayDependencies({
+          config: fullSamplingProductionConfig,
+          shadowRuntime: asShadowRuntime(fake),
+        })
+      );
+      const result = await gateway.evaluate(validProductionGatewayInput);
+      assert.equal(fake.calls.length, 0);
+      assert.equal(result.shadow.executed, false);
+      assert.equal(result.shadow.success, null);
+      assert.equal(result.shadow.terminalOutcome, null);
+      assert.equal(result.shadow.telemetry, null);
+      assertLegacyInvariants(result);
     });
   });
 
@@ -619,10 +831,11 @@ describe("DEMAND_015 Production Runtime Integration Foundation", () => {
     });
 
     it("43. Raw Shadow result is not returned", async () => {
+      const { shadow } = instrumentDryRunShadow();
       const gateway = new ProductionRuntimeGateway(
         createProductionRuntimeGatewayDependencies({
           config: fullSamplingProductionConfig,
-          shadowRuntime: createMockShadow(),
+          shadowRuntime: shadow,
         })
       );
       const result = await gateway.evaluate(validProductionGatewayInput);

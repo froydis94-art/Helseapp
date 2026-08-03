@@ -4,6 +4,10 @@
  * Gateway returns policy + optional safe shadow telemetry only.
  * Legacy pipeline remains the user-visible production owner.
  * JSON-serializable. No images, prompts, tokens, plans, or health payloads.
+ *
+ * Shadow dependency (PATCH 015A): gateway accepts only a sealed
+ * `ShadowRuntime` with `productionCapability === "dry_run_shadow_v1"`.
+ * Structural `{ run }` callbacks and mock-transport Shadow are rejected.
  */
 
 import type {
