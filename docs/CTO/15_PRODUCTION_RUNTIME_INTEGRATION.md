@@ -86,7 +86,7 @@ All Shadow and AI OS failures preserve legacy service:
 - unsupported mode
 - invalid request context
 - missing Shadow dependency
-- non-sealed / mock-transport / structural `{ run }` Shadow dependency (PATCH 015A)
+- non-registered / forged / mutable / mock / `ShadowRuntime` instance Shadow dependency (PATCH 015B)
 - Shadow timeout
 - Shadow exception
 - invalid Shadow result
@@ -95,15 +95,17 @@ All Shadow and AI OS failures preserve legacy service:
 
 Gateway `success` remains `true` whenever legacy can continue. Shadow failure must never block the existing production path.
 
-## Shadow dependency (PATCH 015A)
+## Shadow dependency (PATCH 015B)
 
-Optional Shadow observation accepts **only** a sealed factory dry-run instance:
+Optional Shadow observation accepts **only** an immutable production dry-run executor:
 
-- type: `ShadowRuntime` class (not a structural `{ run }` callback)
-- runtime gate: `instanceof ShadowRuntime && productionCapability === "dry_run_shadow_v1"`
-- `createDryRunShadowRuntime` is accepted
-- `createMockTransportShadowRuntime` is rejected (`"mock_shadow_v1"`)
-- plain objects / fetch-capable fakes are rejected with zero `run` calls, no telemetry, one safe warning, and legacy invariants preserved
+- type: `ProductionDryRunShadowExecutor` from `createProductionDryRunShadowExecutor`
+- runtime gate: `isProductionDryRunShadowExecutor` (module-private `WeakSet` membership)
+- interface shape, capability string, `Object.freeze`, and `instanceof` alone are **not** sufficient
+- `capability` and `execute` are non-writable / non-configurable; the executor object is frozen
+- underlying `ShadowRuntime` stays module-private and is never exposed
+- raw `ShadowRuntime` instances (including dry-run and mock-transport) are rejected
+- structural / fetch-calling fakes are rejected with zero `execute` calls, no telemetry, one safe warning, and legacy invariants preserved
 
 Shadow input remains forced to `runtime_only` / `dry_run`. No transport mock, credentials, or provider traffic.
 

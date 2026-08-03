@@ -9,6 +9,7 @@
  * Construction is factory-only:
  * - createDryRunShadowRuntime
  * - createMockTransportShadowRuntime
+ * - createProductionDryRunShadowExecutor (immutable production gateway surface)
  *
  * Transport is mock-only by construction (internal ShadowSafeRuntime + data-only adapter).
  * Never creates a real Replicate adapter, never reads environment variables,
@@ -589,4 +590,82 @@ export class ShadowRuntime {
     assertNoArtifactLeakage(result);
     return sanitizeShadowRuntimeResult(result);
   }
+}
+
+/**
+ * Sealed production dry-run executor (PATCH 015B).
+ * Capability string alone is forgeable — acceptance requires WeakSet membership.
+ */
+export interface ProductionDryRunShadowExecutor {
+  readonly capability: "production_dry_run_shadow_v1";
+
+  execute(input: ShadowRuntimeInput): Promise<ShadowRuntimeResult>;
+}
+
+/** Module-private registry — never exported; never forgeable from outside. */
+const productionDryRunExecutors = new WeakSet<object>();
+
+/**
+ * Create an immutable production dry-run Shadow executor.
+ * Internally owns a dry-run ShadowRuntime; never exposes it.
+ * Never accepts run callbacks, fetch, transport, AiOsRuntime, or env.
+ */
+export function createProductionDryRunShadowExecutor(options?: {
+  now?: () => number;
+}): ProductionDryRunShadowExecutor {
+  const shadow = createDryRunShadowRuntime({ now: options?.now });
+
+  async function execute(
+    input: ShadowRuntimeInput
+  ): Promise<ShadowRuntimeResult> {
+    // Defense in depth: force dry-run observation even if called outside gateway.
+    const forcedInput: ShadowRuntimeInput = {
+      mode: "runtime_only",
+      runtimeInput:
+        input != null &&
+        typeof input === "object" &&
+        input.runtimeInput != null &&
+        typeof input.runtimeInput === "object" &&
+        !Array.isArray(input.runtimeInput)
+          ? {
+              ...deepCloneJson(input.runtimeInput),
+              mode: "dry_run",
+            }
+          : undefined,
+    };
+    return shadow.run(forcedInput);
+  }
+
+  const executor = Object.create(null) as ProductionDryRunShadowExecutor;
+  Object.defineProperties(executor, {
+    capability: {
+      value: "production_dry_run_shadow_v1" as const,
+      writable: false,
+      enumerable: true,
+      configurable: false,
+    },
+    execute: {
+      value: execute,
+      writable: false,
+      enumerable: true,
+      configurable: false,
+    },
+  });
+  Object.freeze(executor);
+  productionDryRunExecutors.add(executor);
+  return executor;
+}
+
+/**
+ * Runtime gate for production gateway. Requires private WeakSet membership.
+ * Interface shape / capability string / freeze alone are insufficient.
+ */
+export function isProductionDryRunShadowExecutor(
+  value: unknown
+): value is ProductionDryRunShadowExecutor {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    productionDryRunExecutors.has(value as object)
+  );
 }

@@ -3,11 +3,12 @@
  *
  * Never executes legacy generation. Never opens v2 provider traffic.
  * Optional Shadow dry_run at most once with local timeout; always fail-open.
- * Accepts only sealed factory dry-run ShadowRuntime (`productionCapability`).
+ * Accepts only an immutable production dry-run Shadow executor (PATCH 015B).
  */
 
 import {
-  ShadowRuntime,
+  isProductionDryRunShadowExecutor,
+  type ProductionDryRunShadowExecutor,
 } from "../shadow/ShadowRuntime";
 import type {
   ShadowRuntimeInput,
@@ -39,8 +40,8 @@ import type {
 export interface ProductionRuntimeGatewayDependencies {
   config: ProductionRuntimeConfig;
 
-  /** Sealed ShadowRuntime class only — no structural `{ run }` callbacks. */
-  shadowRuntime?: ShadowRuntime;
+  /** Immutable WeakSet-registered production dry-run executor only. */
+  shadowExecutor?: ProductionDryRunShadowExecutor;
 
   now: () => number;
 }
@@ -105,19 +106,6 @@ function buildResult(partial: {
   };
 }
 
-/**
- * Runtime capability gate (types are erased).
- * Only factory dry-run ShadowRuntime with sealed productionCapability.
- */
-function isSealedDryRunShadowRuntime(
-  value: unknown
-): value is ShadowRuntime {
-  return (
-    value instanceof ShadowRuntime &&
-    value.productionCapability === "dry_run_shadow_v1"
-  );
-}
-
 function isRuntimeOnlyShadowInput(
   input: ShadowRuntimeInput | undefined
 ): input is ShadowRuntimeInput {
@@ -165,16 +153,16 @@ async function raceWithTimeout<T>(
 
 /**
  * Build gateway dependencies. Does not construct transport, fetch, or credentials.
- * Does not read process.env. shadowRuntime must be a sealed ShadowRuntime instance.
+ * Does not read process.env. shadowExecutor must be a sealed production executor.
  */
 export function createProductionRuntimeGatewayDependencies(options: {
   config: ProductionRuntimeConfig;
-  shadowRuntime?: ShadowRuntime;
+  shadowExecutor?: ProductionDryRunShadowExecutor;
   now?: () => number;
 }): ProductionRuntimeGatewayDependencies {
   return {
     config: options.config,
-    shadowRuntime: options.shadowRuntime,
+    shadowExecutor: options.shadowExecutor,
     now: options.now ?? (() => Date.now()),
   };
 }
@@ -283,8 +271,8 @@ export class ProductionRuntimeGateway {
       );
     }
 
-    // Shadow requested by policy — require sealed dry-run ShadowRuntime.
-    if (!isSealedDryRunShadowRuntime(this.dependencies.shadowRuntime)) {
+    // Shadow requested by policy — require sealed production dry-run executor.
+    if (!isProductionDryRunShadowExecutor(this.dependencies.shadowExecutor)) {
       warnings.push(PRODUCTION_SHADOW_UNAVAILABLE_WARNING);
       return sanitizeProductionGatewayResult(
         buildResult({
@@ -301,7 +289,7 @@ export class ProductionRuntimeGateway {
       );
     }
 
-    const sealedShadow = this.dependencies.shadowRuntime;
+    const sealedExecutor = this.dependencies.shadowExecutor;
 
     if (!isRuntimeOnlyShadowInput(input.shadowRuntimeInput)) {
       warnings.push(PRODUCTION_SHADOW_INPUT_REJECTED_WARNING);
@@ -342,7 +330,7 @@ export class ProductionRuntimeGateway {
         throw new Error("Shadow invoked more than once in one evaluation.");
       }
       const raced = await raceWithTimeout(
-        sealedShadow.run(shadowInput),
+        sealedExecutor.execute(shadowInput),
         this.dependencies.config.shadowTimeoutMs,
         this.dependencies.now
       );

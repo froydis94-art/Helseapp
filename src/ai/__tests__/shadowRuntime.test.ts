@@ -734,5 +734,38 @@ describe("shadowRuntime — DEMAND_014 / PATCH_014A / PATCH_014B / PATCH_014C", 
         /token !== SHADOW_RUNTIME_CONSTRUCTION_TOKEN[\s\S]*this\.productionCapability/
       );
     });
+
+    it("48. createProductionDryRunShadowExecutor registers an immutable executor", async () => {
+      const {
+        createProductionDryRunShadowExecutor,
+        isProductionDryRunShadowExecutor,
+      } = ShadowRuntimeModule;
+      const executor = createProductionDryRunShadowExecutor();
+      assert.equal(isProductionDryRunShadowExecutor(executor), true);
+      assert.equal(executor.capability, "production_dry_run_shadow_v1");
+      assert.throws(() => {
+        (executor as { capability: string }).capability = "x";
+      });
+      assert.throws(() => {
+        (executor as { execute: unknown }).execute = async () => {
+          throw new Error("nope");
+        };
+      });
+      assert.throws(() => {
+        (executor as { shadow?: unknown }).shadow = createDryRunShadowRuntime();
+      });
+      const forged = Object.freeze({
+        capability: "production_dry_run_shadow_v1" as const,
+        async execute() {
+          return structuredClone(
+            await createDryRunShadowRuntime().run(runtimeOnlyValidShadowInput)
+          );
+        },
+      });
+      assert.equal(isProductionDryRunShadowExecutor(forged), false);
+      const result = await executor.execute(runtimeOnlyValidShadowInput);
+      assert.equal(result.execution.runtimeMode, "dry_run");
+      assert.equal(result.success, true);
+    });
   });
 });
