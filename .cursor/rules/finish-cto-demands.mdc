@@ -1,0 +1,36 @@
+---
+description: Finish CTO DEMAND/PATCH work end-to-end without mid-run approval prompts
+alwaysApply: true
+---
+
+# Finish CTO demands without mid-run approval
+
+Frøydis is a designer running a CTO demand workflow. When given a **CTO DEMAND** or **PATCH**, execute it end-to-end. Do not pause for confirmation, "OK", or permission to continue.
+
+## Execute, don't ask
+
+- Complete the demand fully: implement, verify what you can, report results.
+- Do **not** ask: "skal jeg committe?", "kan jeg utvide allowlist?", "skal jeg fortsette?", or similar mid-run prompts.
+- Just do the necessary work and report what you did (and any assumptions) in the completion report.
+
+## Allowlist conflicts
+
+If an allowlist conflict blocks completion (e.g. you must touch one adjacent sealed module):
+
+1. Expand the **minimal** allowlist needed to finish.
+2. Document that assumption in the completion report.
+3. Finish the demand — do **not** STOP and wait for approval.
+
+## Constitution / safety (still binding)
+
+Do not violate core safety:
+
+- No secrets in client bundles or commits.
+- No unintended production cutover.
+- No real network in tests.
+
+When production-adjacent ownership is ambiguous, prefer **fail-open legacy ownership** rather than blocking.
+
+## Commit and push
+
+Continue the existing always-apply rule: when web (`public/`, `api/`, `lib/`) or AI foundation work completes, **commit and push** without asking. Report the short SHA (and that Vercel deploys from `origin` when relevant).
