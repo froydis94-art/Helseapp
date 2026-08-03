@@ -102,6 +102,26 @@ function containsForbidden(value: unknown): boolean {
 type AccessKeyAuthHelpers = {
   digestAccessKey: (value: string) => Buffer;
   timingSafeStringEqual: (provided: string, expected: string) => boolean;
+  resolveControlRoomAccessHeader: (
+    headers: unknown
+  ) => string | undefined;
+  getControlRoomConfigurationStatus: () =>
+    | "disabled"
+    | "missing_access_key"
+    | "ready";
+  CONTROL_ROOM_RESPONSE_META: {
+    service: string;
+    apiVersion: string;
+  };
+  default: (
+    req: Record<string, unknown>,
+    res: {
+      setHeader(name: string, value: string): void;
+      status(code: number): unknown;
+      json(body: unknown): void;
+      end(): void;
+    }
+  ) => Promise<void>;
 };
 
 async function loadAccessKeyAuthHelpers(): Promise<AccessKeyAuthHelpers> {
@@ -110,7 +130,109 @@ async function loadAccessKeyAuthHelpers(): Promise<AccessKeyAuthHelpers> {
   const mod = (await import(href)) as AccessKeyAuthHelpers;
   assert.equal(typeof mod.digestAccessKey, "function");
   assert.equal(typeof mod.timingSafeStringEqual, "function");
+  assert.equal(typeof mod.resolveControlRoomAccessHeader, "function");
+  assert.equal(typeof mod.getControlRoomConfigurationStatus, "function");
+  assert.equal(typeof mod.default, "function");
   return mod;
+}
+
+const PATCH_016B_TEST_KEY = "control-room-access-key-24chars!";
+
+type MockResponseState = {
+  statusCode: number;
+  body: unknown;
+  headers: Record<string, string>;
+  ended: boolean;
+};
+
+function createMockResponse(): {
+  res: {
+    setHeader(name: string, value: string): void;
+    status(code: number): unknown;
+    json(body: unknown): void;
+    end(): void;
+  };
+  state: MockResponseState;
+} {
+  const state: MockResponseState = {
+    statusCode: 200,
+    body: null,
+    headers: {},
+    ended: false,
+  };
+  const res = {
+    setHeader(name: string, value: string) {
+      state.headers[name] = value;
+    },
+    status(code: number) {
+      state.statusCode = code;
+      return res;
+    },
+    json(body: unknown) {
+      state.body = body;
+    },
+    end() {
+      state.ended = true;
+    },
+  };
+  return { res, state };
+}
+
+async function withControlRoomEnv(
+  values: {
+    enabled?: string | undefined;
+    accessKey?: string | undefined;
+  },
+  run: () => Promise<void>
+): Promise<void> {
+  const prevEnabled = process.env.AI_OS_CONTROL_ROOM_ENABLED;
+  const prevKey = process.env.AI_OS_CONTROL_ROOM_ACCESS_KEY;
+  try {
+    if (values.enabled === undefined) {
+      delete process.env.AI_OS_CONTROL_ROOM_ENABLED;
+    } else {
+      process.env.AI_OS_CONTROL_ROOM_ENABLED = values.enabled;
+    }
+    if (values.accessKey === undefined) {
+      delete process.env.AI_OS_CONTROL_ROOM_ACCESS_KEY;
+    } else {
+      process.env.AI_OS_CONTROL_ROOM_ACCESS_KEY = values.accessKey;
+    }
+    await run();
+  } finally {
+    if (prevEnabled === undefined) {
+      delete process.env.AI_OS_CONTROL_ROOM_ENABLED;
+    } else {
+      process.env.AI_OS_CONTROL_ROOM_ENABLED = prevEnabled;
+    }
+    if (prevKey === undefined) {
+      delete process.env.AI_OS_CONTROL_ROOM_ACCESS_KEY;
+    } else {
+      process.env.AI_OS_CONTROL_ROOM_ACCESS_KEY = prevKey;
+    }
+  }
+}
+
+function assertSafeMeta(body: unknown): asserts body is {
+  meta: { service: string; apiVersion: string };
+} {
+  assert.ok(body && typeof body === "object");
+  const meta = (body as { meta?: unknown }).meta;
+  assert.ok(meta && typeof meta === "object");
+  assert.equal(
+    (meta as { service?: string }).service,
+    "ai-os-control-room"
+  );
+  assert.equal((meta as { apiVersion?: string }).apiVersion, "1.1");
+}
+
+function assertNoSecrets(body: unknown): void {
+  const text = JSON.stringify(body);
+  assert.equal(text.includes(PATCH_016B_TEST_KEY), false);
+  assert.equal(/digest/i.test(text), false);
+  assert.equal(/stack/i.test(text), false);
+  assert.equal(/AI_OS_CONTROL_ROOM_ACCESS_KEY/.test(text), false);
+  assert.equal(/process\.env/.test(text), false);
 }
 
 describe("DEMAND_016 Control Room", () => {
@@ -943,6 +1065,395 @@ describe("DEMAND_016 Control Room", () => {
       );
       // Smoke: dry-run path still works for baseline fixture shape.
       assert.equal(validDryRunRuntimeInput.mode, "dry_run");
+    });
+  });
+
+  describe("PATCH_016B Vercel unlock diagnostics", () => {
+    const apiSource = read(apiPath);
+    const uiSource = read(uiJsPath);
+    const docs = read(docsPath);
+
+    it("1. Every JSON API response includes meta.service and meta.apiVersion", async () => {
+      const mod = await loadAccessKeyAuthHelpers();
+      assert.equal(mod.CONTROL_ROOM_RESPONSE_META.service, "ai-os-control-room");
+      assert.equal(mod.CONTROL_ROOM_RESPONSE_META.apiVersion, "1.1");
+      assert.match(apiSource, /withMeta|CONTROL_ROOM_RESPONSE_META/);
+
+      await withControlRoomEnv({ enabled: undefined }, async () => {
+        const { res, state } = createMockResponse();
+        await mod.default({ method: "GET", headers: {} }, res);
+        assert.equal(state.statusCode, 404);
+        assertSafeMeta(state.body);
+      });
+
+      await withControlRoomEnv(
+        { enabled: "1", accessKey: PATCH_016B_TEST_KEY },
+        async () => {
+          const { res, state } = createMockResponse();
+          await mod.default({ method: "GET", headers: {} }, res);
+          assert.equal(state.statusCode, 401);
+          assertSafeMeta(state.body);
+
+          const ok = createMockResponse();
+          await mod.default(
+            {
+              method: "GET",
+              headers: { "x-ai-os-control-room-key": PATCH_016B_TEST_KEY },
+            },
+            ok.res
+          );
+          assert.equal(ok.state.statusCode, 200);
+          assertSafeMeta(ok.state.body);
+          assert.equal((ok.state.body as { ok?: boolean }).ok, true);
+        }
+      );
+    });
+
+    it("2. Disabled response remains safe", async () => {
+      const mod = await loadAccessKeyAuthHelpers();
+      await withControlRoomEnv({ enabled: "0" }, async () => {
+        const { res, state } = createMockResponse();
+        await mod.default({ method: "GET", headers: {} }, res);
+        assert.equal(state.statusCode, 404);
+        const body = state.body as {
+          code?: string;
+          enabled?: boolean;
+        };
+        assert.equal(body.code, "control_room_disabled");
+        assert.equal(body.enabled, false);
+        assertSafeMeta(state.body);
+        assertNoSecrets(state.body);
+      });
+    });
+
+    it("3. Unauthorized response remains safe", async () => {
+      const mod = await loadAccessKeyAuthHelpers();
+      await withControlRoomEnv(
+        { enabled: "1", accessKey: PATCH_016B_TEST_KEY },
+        async () => {
+          const { res, state } = createMockResponse();
+          await mod.default(
+            {
+              method: "GET",
+              headers: { "x-ai-os-control-room-key": "wrong-key-value-xxxxxxxx" },
+            },
+            res
+          );
+          assert.equal(state.statusCode, 401);
+          const body = state.body as { code?: string };
+          assert.equal(body.code, "unauthorized");
+          assertSafeMeta(state.body);
+          assertNoSecrets(state.body);
+        }
+      );
+    });
+
+    it("4. Correct key succeeds", async () => {
+      const mod = await loadAccessKeyAuthHelpers();
+      await withControlRoomEnv(
+        { enabled: "1", accessKey: PATCH_016B_TEST_KEY },
+        async () => {
+          const { res, state } = createMockResponse();
+          await mod.default(
+            {
+              method: "GET",
+              headers: {
+                "X-AI-OS-Control-Room-Key": PATCH_016B_TEST_KEY,
+              },
+            },
+            res
+          );
+          assert.equal(state.statusCode, 200);
+          const body = state.body as {
+            ok?: boolean;
+            scenarios?: unknown[];
+          };
+          assert.equal(body.ok, true);
+          assert.ok(Array.isArray(body.scenarios));
+          assert.equal(body.scenarios?.length, 4);
+          assertSafeMeta(state.body);
+        }
+      );
+    });
+
+    it("5. Wrong key fails", async () => {
+      const mod = await loadAccessKeyAuthHelpers();
+      await withControlRoomEnv(
+        { enabled: "1", accessKey: PATCH_016B_TEST_KEY },
+        async () => {
+          const { res, state } = createMockResponse();
+          await mod.default(
+            {
+              method: "GET",
+              headers: {
+                "x-ai-os-control-room-key": "definitely-not-the-right-key!!",
+              },
+            },
+            res
+          );
+          assert.equal(state.statusCode, 401);
+          assert.equal((state.body as { code?: string }).code, "unauthorized");
+        }
+      );
+    });
+
+    it("6. Lowercase header key works", async () => {
+      const mod = await loadAccessKeyAuthHelpers();
+      assert.equal(
+        mod.resolveControlRoomAccessHeader({
+          "x-ai-os-control-room-key": PATCH_016B_TEST_KEY,
+        }),
+        PATCH_016B_TEST_KEY
+      );
+    });
+
+    it("7. Mixed-case header key works", async () => {
+      const mod = await loadAccessKeyAuthHelpers();
+      assert.equal(
+        mod.resolveControlRoomAccessHeader({
+          "X-AI-OS-Control-Room-Key": PATCH_016B_TEST_KEY,
+        }),
+        PATCH_016B_TEST_KEY
+      );
+    });
+
+    it("8. String-array header works", async () => {
+      const mod = await loadAccessKeyAuthHelpers();
+      assert.equal(
+        mod.resolveControlRoomAccessHeader({
+          "x-ai-os-control-room-key": [PATCH_016B_TEST_KEY],
+        }),
+        PATCH_016B_TEST_KEY
+      );
+    });
+
+    it("9. Headers-like get() works if supported by the request type", async () => {
+      const mod = await loadAccessKeyAuthHelpers();
+      const headersLike = {
+        get(name: string) {
+          if (name.toLowerCase() === "x-ai-os-control-room-key") {
+            return PATCH_016B_TEST_KEY;
+          }
+          return null;
+        },
+      };
+      assert.equal(
+        mod.resolveControlRoomAccessHeader(headersLike),
+        PATCH_016B_TEST_KEY
+      );
+    });
+
+    it("10. Query key remains rejected", async () => {
+      const mod = await loadAccessKeyAuthHelpers();
+      await withControlRoomEnv(
+        { enabled: "1", accessKey: PATCH_016B_TEST_KEY },
+        async () => {
+          const { res, state } = createMockResponse();
+          await mod.default(
+            {
+              method: "POST",
+              headers: {
+                "x-ai-os-control-room-key": PATCH_016B_TEST_KEY,
+              },
+              query: { accessKey: PATCH_016B_TEST_KEY },
+              body: { scenarioId: "balanced_recomposition_12w" },
+            },
+            res
+          );
+          assert.equal(state.statusCode, 400);
+          assert.equal(
+            (state.body as { code?: string }).code,
+            "invalid_request"
+          );
+          assertSafeMeta(state.body);
+        }
+      );
+    });
+
+    it("11. JSON key remains rejected", async () => {
+      const mod = await loadAccessKeyAuthHelpers();
+      await withControlRoomEnv(
+        { enabled: "1", accessKey: PATCH_016B_TEST_KEY },
+        async () => {
+          const { res, state } = createMockResponse();
+          await mod.default(
+            {
+              method: "POST",
+              headers: {
+                "x-ai-os-control-room-key": PATCH_016B_TEST_KEY,
+              },
+              body: {
+                scenarioId: "balanced_recomposition_12w",
+                accessKey: PATCH_016B_TEST_KEY,
+              },
+            },
+            res
+          );
+          assert.equal(state.statusCode, 400);
+          assert.equal(
+            (state.body as { code?: string }).code,
+            "invalid_request"
+          );
+        }
+      );
+    });
+
+    it("12. Cookies are not read", () => {
+      assert.equal(apiSource.includes("cookie"), false);
+      assert.equal(apiSource.includes("Cookie"), false);
+      assert.equal(uiSource.includes("document.cookie"), false);
+    });
+
+    it("13. Missing configured key does not reveal that fact", async () => {
+      const mod = await loadAccessKeyAuthHelpers();
+      await withControlRoomEnv({ enabled: "1", accessKey: undefined }, async () => {
+        assert.equal(
+          mod.getControlRoomConfigurationStatus(),
+          "missing_access_key"
+        );
+        const { res, state } = createMockResponse();
+        await mod.default(
+          {
+            method: "GET",
+            headers: {
+              "x-ai-os-control-room-key": PATCH_016B_TEST_KEY,
+            },
+          },
+          res
+        );
+        assert.equal(state.statusCode, 401);
+        const body = state.body as { code?: string; message?: string };
+        assert.equal(body.code, "unauthorized");
+        assert.equal(body.message, "Unauthorized.");
+        assert.equal(JSON.stringify(body).includes("missing_access_key"), false);
+        assertNoSecrets(state.body);
+      });
+    });
+
+    it("14. Fixed-length digest comparison remains intact", async () => {
+      const { digestAccessKey, timingSafeStringEqual } =
+        await loadAccessKeyAuthHelpers();
+      assert.match(apiSource, /createHash\("sha256"\)/);
+      assert.match(apiSource, /timingSafeEqual/);
+      const a = digestAccessKey("alpha");
+      const b = digestAccessKey("beta-longer");
+      assert.equal(a.length, 32);
+      assert.equal(b.length, 32);
+      assert.equal(timingSafeStringEqual(PATCH_016B_TEST_KEY, PATCH_016B_TEST_KEY), true);
+      assert.equal(
+        timingSafeStringEqual(PATCH_016B_TEST_KEY, `${PATCH_016B_TEST_KEY}x`),
+        false
+      );
+    });
+
+    it("15. API response never includes key, digest, environment value, or stack trace", async () => {
+      const mod = await loadAccessKeyAuthHelpers();
+      await withControlRoomEnv(
+        { enabled: "1", accessKey: PATCH_016B_TEST_KEY },
+        async () => {
+          const samples = [
+            createMockResponse(),
+            createMockResponse(),
+            createMockResponse(),
+          ];
+          await mod.default({ method: "GET", headers: {} }, samples[0].res);
+          await mod.default(
+            {
+              method: "GET",
+              headers: { "x-ai-os-control-room-key": "wrong-key-xxxxxxxxxxxx" },
+            },
+            samples[1].res
+          );
+          await mod.default(
+            {
+              method: "GET",
+              headers: { "x-ai-os-control-room-key": PATCH_016B_TEST_KEY },
+            },
+            samples[2].res
+          );
+          for (const sample of samples) {
+            assertSafeMeta(sample.state.body);
+            assertNoSecrets(sample.state.body);
+          }
+        }
+      );
+    });
+
+    it("16. UI displays API code and HTTP status safely", () => {
+      assert.match(uiSource, /formatUnlockFailure/);
+      assert.match(uiSource, /Code: /);
+      assert.match(uiSource, /HTTP: /);
+      assert.match(uiSource, /Unable to unlock Control Room\./);
+      assert.equal(uiSource.includes("innerHTML"), false);
+      assert.match(uiSource, /textContent/);
+    });
+
+    it("17. UI handles non-JSON response", () => {
+      assert.match(uiSource, /non_json_response/);
+      assert.match(uiSource, /JSON\.parse/);
+      assert.match(uiSource, /nonJson/);
+    });
+
+    it("18. UI handles network failure", () => {
+      assert.match(uiSource, /network_failure/);
+      assert.match(uiSource, /unavailable/);
+    });
+
+    it("19. UI handles unexpected API identity", () => {
+      assert.match(uiSource, /unexpected_api_response/);
+      assert.match(uiSource, /EXPECTED_SERVICE/);
+      assert.match(uiSource, /metaMatches|API identity/);
+      assert.match(uiSource, /ai-os-control-room/);
+      assert.match(uiSource, /1\.1/);
+    });
+
+    it("20. UI never writes raw response through innerHTML", () => {
+      assert.equal(uiSource.includes("innerHTML"), false);
+      assert.equal(uiSource.includes("outerHTML"), false);
+      assert.match(uiSource, /textContent/);
+    });
+
+    it("21. UI never logs access key", () => {
+      assert.equal(/console\.(log|debug|info|warn|error)/.test(uiSource), false);
+      assert.equal(uiSource.includes("localStorage"), false);
+      assert.equal(uiSource.includes("sessionStorage"), false);
+    });
+
+    it("22. Production image route remains unchanged", () => {
+      const route = read(join(repoRoot, "api", "generate-future-you.js"));
+      assert.equal(route.includes("ControlRoom"), false);
+      assert.equal(route.includes("ai-os-control-room"), false);
+    });
+
+    it("23. lib/replicate.js remains unchanged", () => {
+      const replicate = read(join(repoRoot, "lib", "replicate.js"));
+      assert.equal(replicate.includes("ControlRoom"), false);
+      assert.equal(replicate.includes("AI_OS_CONTROL_ROOM"), false);
+    });
+
+    it("24. No provider fetch is introduced", () => {
+      assert.equal(/fetch\s*\(/.test(apiSource), false);
+      assert.equal(apiSource.includes("api.replicate.com"), false);
+      assert.equal(apiSource.includes("REPLICATE_API_TOKEN"), false);
+    });
+
+    it("25. npm run typecheck passes", () => {
+      const pkg = JSON.parse(read(packageJsonPath));
+      assert.ok(pkg.scripts.typecheck.includes("tsc"));
+    });
+
+    it("26. npm run test:ai passes", () => {
+      const pkg = JSON.parse(read(packageJsonPath));
+      assert.ok(pkg.scripts["test:ai"].includes("controlRoom.test.ts"));
+    });
+
+    it("27. npm run harness:ai passes", () => {
+      const pkg = JSON.parse(read(packageJsonPath));
+      assert.ok(pkg.scripts["harness:ai"].includes("run-ai-os-v2-harness"));
+      assert.match(docs, /API response identity/);
+      assert.match(docs, /Safe UI diagnostic codes/);
+      assert.match(docs, /Owner unlock troubleshooting checklist/);
+      assert.match(docs, /owner does \*\*not\*\* need browser developer tools|does \*\*not\*\* need browser developer tools/i);
     });
   });
 });

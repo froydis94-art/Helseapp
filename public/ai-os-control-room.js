@@ -3,6 +3,8 @@
 
   var API_PATH = "/api/ai-os-control-room";
   var ACCESS_HEADER = "X-AI-OS-Control-Room-Key";
+  var EXPECTED_SERVICE = "ai-os-control-room";
+  var EXPECTED_API_VERSION = "1.1";
   var UNAUTH_STREAK_LIMIT = 2;
 
   var accessKey = null;
@@ -127,17 +129,56 @@
     return fallback;
   }
 
-  function handleAuthFailure(payload) {
+  function safeCode(payload, fallback) {
+    if (payload && typeof payload.code === "string" && payload.code) {
+      return payload.code;
+    }
+    return fallback;
+  }
+
+  function metaMatches(payload) {
+    return (
+      !!payload &&
+      typeof payload === "object" &&
+      payload.meta &&
+      typeof payload.meta === "object" &&
+      payload.meta.service === EXPECTED_SERVICE &&
+      payload.meta.apiVersion === EXPECTED_API_VERSION
+    );
+  }
+
+  function formatUnlockFailure(code, httpStatus, options) {
+    var lines = [
+      "Unable to unlock Control Room.",
+      "Code: " + String(code),
+      "HTTP: " + String(httpStatus),
+    ];
+    if (options && options.message) {
+      lines.push(String(options.message));
+    }
+    if (options && options.metaMatch != null) {
+      lines.push(
+        "API identity: " + (options.metaMatch ? "matched" : "not matched")
+      );
+    }
+    return lines.join("\n");
+  }
+
+  function handleAuthFailure(payload, httpStatus) {
     unauthorizedStreak += 1;
+    var message = formatUnlockFailure(
+      safeCode(payload, "unauthorized"),
+      httpStatus == null ? 401 : httpStatus,
+      {
+        message: apiMessage(payload, "Unauthorized."),
+        metaMatch: metaMatches(payload),
+      }
+    );
     if (unauthorizedStreak >= UNAUTH_STREAK_LIMIT) {
-      lockRoom(apiMessage(payload, "Unauthorized. Access cleared."), "error");
+      lockRoom(message, "error");
       return;
     }
-    setMessage(
-      accessMessage,
-      apiMessage(payload, "Unauthorized."),
-      "error"
-    );
+    setMessage(accessMessage, message, "error");
   }
 
   function request(method, body) {
@@ -157,14 +198,29 @@
       options.body = JSON.stringify(body);
     }
     return fetch(API_PATH, options).then(function (response) {
-      return response
-        .json()
-        .catch(function () {
-          return null;
-        })
-        .then(function (payload) {
-          return { response: response, payload: payload };
-        });
+      return response.text().then(function (text) {
+        var payload = null;
+        var nonJson = false;
+        if (text == null || text === "") {
+          nonJson = response.status !== 204;
+        } else {
+          try {
+            payload = JSON.parse(text);
+            if (payload == null || typeof payload !== "object") {
+              nonJson = true;
+              payload = null;
+            }
+          } catch (_err) {
+            nonJson = true;
+            payload = null;
+          }
+        }
+        return {
+          response: response,
+          payload: payload,
+          nonJson: nonJson,
+        };
+      });
     });
   }
 
@@ -371,18 +427,47 @@
 
     request("GET")
       .then(function (outcome) {
-        var payload = outcome.payload || {};
-        if (outcome.response.status === 401 || payload.code === "unauthorized") {
+        var status = outcome.response.status;
+        if (outcome.nonJson || outcome.payload == null) {
           accessKey = null;
-          handleAuthFailure(payload);
+          setMessage(
+            accessMessage,
+            formatUnlockFailure("non_json_response", status),
+            "error"
+          );
           return;
         }
-        if (
-          outcome.response.status === 404 ||
-          payload.code === "control_room_disabled"
-        ) {
+
+        var payload = outcome.payload;
+        var identityOk = metaMatches(payload);
+
+        if (!identityOk) {
+          accessKey = null;
+          setMessage(
+            accessMessage,
+            formatUnlockFailure("unexpected_api_response", status, {
+              metaMatch: false,
+            }),
+            "error"
+          );
+          return;
+        }
+
+        if (status === 401 || payload.code === "unauthorized") {
+          accessKey = null;
+          handleAuthFailure(payload, status);
+          return;
+        }
+        if (status === 404 || payload.code === "control_room_disabled") {
           lockRoom(
-            apiMessage(payload, "Control Room is disabled."),
+            formatUnlockFailure(
+              safeCode(payload, "control_room_disabled"),
+              status,
+              {
+                message: apiMessage(payload, "Control Room is disabled."),
+                metaMatch: true,
+              }
+            ),
             "error"
           );
           return;
@@ -391,7 +476,14 @@
           accessKey = null;
           setMessage(
             accessMessage,
-            apiMessage(payload, "Unable to unlock Control Room."),
+            formatUnlockFailure(
+              safeCode(payload, "api_response_invalid"),
+              status,
+              {
+                message: apiMessage(payload, "Unable to unlock Control Room."),
+                metaMatch: true,
+              }
+            ),
             "error"
           );
           return;
@@ -405,7 +497,11 @@
       })
       .catch(function () {
         accessKey = null;
-        setMessage(accessMessage, "Network failure.", "error");
+        setMessage(
+          accessMessage,
+          formatUnlockFailure("network_failure", "unavailable"),
+          "error"
+        );
       })
       .then(function () {
         requestInFlight = false;
@@ -422,17 +518,44 @@
 
     request("POST", { scenarioId: selectedScenarioId })
       .then(function (outcome) {
-        var payload = outcome.payload || {};
-        if (outcome.response.status === 401 || payload.code === "unauthorized") {
-          handleAuthFailure(payload);
+        var status = outcome.response.status;
+        if (outcome.nonJson || outcome.payload == null) {
+          setMessage(
+            runMessage,
+            formatUnlockFailure("non_json_response", status).replace(
+              "Unable to unlock Control Room.",
+              "Unable to run dry run."
+            ),
+            "error"
+          );
+          return;
+        }
+
+        var payload = outcome.payload;
+        if (!metaMatches(payload)) {
+          setMessage(
+            runMessage,
+            "Unable to run dry run.\nCode: unexpected_api_response\nHTTP: " +
+              String(status) +
+              "\nAPI identity: not matched",
+            "error"
+          );
+          return;
+        }
+
+        if (status === 401 || payload.code === "unauthorized") {
+          handleAuthFailure(payload, status);
           return;
         }
         if (
-          outcome.response.status === 404 &&
+          status === 404 &&
           payload.code === "control_room_disabled"
         ) {
           lockRoom(
-            apiMessage(payload, "Control Room is disabled."),
+            formatUnlockFailure("control_room_disabled", status, {
+              message: apiMessage(payload, "Control Room is disabled."),
+              metaMatch: true,
+            }),
             "error"
           );
           return;
@@ -474,7 +597,11 @@
         setMessage(runMessage, "Dry run complete.", "ok");
       })
       .catch(function () {
-        setMessage(runMessage, "Network failure.", "error");
+        setMessage(
+          runMessage,
+          "Unable to run dry run.\nCode: network_failure\nHTTP: unavailable",
+          "error"
+        );
       })
       .then(function () {
         requestInFlight = false;

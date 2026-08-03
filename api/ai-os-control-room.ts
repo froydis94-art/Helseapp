@@ -11,18 +11,39 @@
  * service logic in src/ai/control-room.
  */
 
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "crypto";
 
-import {
-  ControlRoomService,
-  ControlRoomServiceError,
-  listControlRoomScenarios,
-  type ControlRoomApiResponse,
-  type ControlRoomScenarioId,
+import type {
+  ControlRoomApiResponse,
+  ControlRoomScenarioId,
 } from "../src/ai/control-room";
 
+/** Explicit Node.js serverless runtime for Vercel. */
+export const config = {
+  runtime: "nodejs" as const,
+  maxDuration: 60,
+};
+
 const ACCESS_HEADER = "x-ai-os-control-room-key";
+const ACCESS_HEADER_CANONICAL = "X-AI-OS-Control-Room-Key";
 const MIN_ACCESS_KEY_LENGTH = 24;
+
+export const CONTROL_ROOM_RESPONSE_META = {
+  service: "ai-os-control-room",
+  apiVersion: "1.1",
+} as const;
+
+type ControlRoomResponseMeta = typeof CONTROL_ROOM_RESPONSE_META;
+
+/** Local intersection — avoids editing shared ControlRoomTypes for meta. */
+type ControlRoomHttpResponse = ControlRoomApiResponse & {
+  meta: ControlRoomResponseMeta;
+};
+
+type ControlRoomConfigurationStatus =
+  | "disabled"
+  | "missing_access_key"
+  | "ready";
 
 const ALLOWED_SCENARIO_IDS = new Set<string>([
   "balanced_recomposition_12w",
@@ -31,9 +52,20 @@ const ALLOWED_SCENARIO_IDS = new Set<string>([
   "athletic_strength_24w",
 ]);
 
+type HeaderBag =
+  | Record<string, string | string[] | undefined>
+  | {
+      get?(name: string): string | null | undefined;
+      entries?(): IterableIterator<[string, string]> | Iterable<[string, string]>;
+      forEach?(
+        callback: (value: string, key: string) => void
+      ): void;
+      [key: string]: unknown;
+    };
+
 type VercelLikeRequest = {
   method?: string;
-  headers?: Record<string, string | string[] | undefined>;
+  headers?: HeaderBag;
   query?: Record<string, string | string[] | undefined>;
   body?: unknown;
 };
@@ -61,14 +93,85 @@ function getConfiguredAccessKey(): string | undefined {
   return key;
 }
 
-function headerValue(
-  headers: VercelLikeRequest["headers"],
-  name: string
+function getControlRoomConfigurationStatus(): ControlRoomConfigurationStatus {
+  if (!isControlRoomEnabled()) return "disabled";
+  if (getConfiguredAccessKey() == null) return "missing_access_key";
+  return "ready";
+}
+
+function normalizeHeaderToken(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    const first = value[0];
+    return typeof first === "string" ? first : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Resolve X-AI-OS-Control-Room-Key from Node / Vercel / Headers-like objects.
+ * Does not log header values.
+ */
+function resolveControlRoomAccessHeader(
+  headers: HeaderBag | undefined
 ): string | undefined {
-  if (!headers) return undefined;
-  const raw = headers[name] ?? headers[name.toLowerCase()];
-  if (Array.isArray(raw)) return raw[0];
-  return typeof raw === "string" ? raw : undefined;
+  if (headers == null) return undefined;
+
+  const target = ACCESS_HEADER;
+
+  if (typeof headers.get === "function") {
+    const viaGet =
+      normalizeHeaderToken(headers.get(ACCESS_HEADER_CANONICAL)) ??
+      normalizeHeaderToken(headers.get(ACCESS_HEADER)) ??
+      normalizeHeaderToken(headers.get(target));
+    if (viaGet != null) return viaGet;
+  }
+
+  const asRecord = headers as Record<string, unknown>;
+  const direct =
+    normalizeHeaderToken(asRecord[ACCESS_HEADER_CANONICAL]) ??
+    normalizeHeaderToken(asRecord[ACCESS_HEADER]) ??
+    normalizeHeaderToken(asRecord[target]);
+  if (direct != null) return direct;
+
+  if (typeof headers.entries === "function") {
+    try {
+      for (const entry of headers.entries()) {
+        const key = entry?.[0];
+        const value = entry?.[1];
+        if (typeof key === "string" && key.toLowerCase() === target) {
+          const resolved = normalizeHeaderToken(value);
+          if (resolved != null) return resolved;
+        }
+      }
+    } catch {
+      // Fall through to Object.keys iteration.
+    }
+  }
+
+  if (typeof headers.forEach === "function") {
+    let found: string | undefined;
+    try {
+      headers.forEach((value, key) => {
+        if (found != null) return;
+        if (typeof key === "string" && key.toLowerCase() === target) {
+          found = normalizeHeaderToken(value);
+        }
+      });
+    } catch {
+      found = undefined;
+    }
+    if (found != null) return found;
+  }
+
+  for (const key of Object.keys(asRecord)) {
+    if (key.toLowerCase() === target) {
+      const resolved = normalizeHeaderToken(asRecord[key]);
+      if (resolved != null) return resolved;
+    }
+  }
+
+  return undefined;
 }
 
 function digestAccessKey(value: string): Buffer {
@@ -82,12 +185,17 @@ function timingSafeStringEqual(provided: string, expected: string): boolean {
 }
 
 /** Exported for unit tests only — not part of the HTTP contract. */
-export { digestAccessKey, timingSafeStringEqual };
+export {
+  digestAccessKey,
+  timingSafeStringEqual,
+  resolveControlRoomAccessHeader,
+  getControlRoomConfigurationStatus,
+};
 
 function isAuthorized(req: VercelLikeRequest): boolean {
   const expected = getConfiguredAccessKey();
   if (expected == null) return false;
-  const provided = headerValue(req.headers, ACCESS_HEADER);
+  const provided = resolveControlRoomAccessHeader(req.headers);
   if (provided == null || provided.length === 0) return false;
   return timingSafeStringEqual(provided, expected);
 }
@@ -99,13 +207,20 @@ function setSecurityHeaders(res: VercelLikeResponse): void {
   res.setHeader("Referrer-Policy", "no-referrer");
 }
 
+function withMeta(body: ControlRoomApiResponse): ControlRoomHttpResponse {
+  return {
+    ...body,
+    meta: { ...CONTROL_ROOM_RESPONSE_META },
+  };
+}
+
 function send(
   res: VercelLikeResponse,
   status: number,
   body: ControlRoomApiResponse
 ): void {
   setSecurityHeaders(res);
-  res.status(status).json(body);
+  res.status(status).json(withMeta(body));
 }
 
 function disabledResponse(res: VercelLikeResponse): void {
@@ -159,7 +274,16 @@ function hasQueryAccessKey(req: VercelLikeRequest): boolean {
   });
 }
 
+async function loadControlRoomModule(): Promise<
+  typeof import("../src/ai/control-room")
+> {
+  // Dynamic import keeps cold-start failures inside the handler try/catch so
+  // Vercel HTML error pages are not returned for unlock diagnostics.
+  return import("../src/ai/control-room");
+}
+
 async function handleGet(res: VercelLikeResponse): Promise<void> {
+  const { ControlRoomService } = await loadControlRoomModule();
   const service = new ControlRoomService();
   send(res, 200, {
     ok: true,
@@ -229,6 +353,12 @@ async function handlePost(
     return;
   }
 
+  const {
+    ControlRoomService,
+    ControlRoomServiceError,
+    listControlRoomScenarios,
+  } = await loadControlRoomModule();
+
   const service = new ControlRoomService();
   try {
     const result = await service.runScenario(
@@ -281,39 +411,51 @@ export default async function handler(
   req: VercelLikeRequest,
   res: VercelLikeResponse
 ): Promise<void> {
-  const method = (req.method ?? "GET").toUpperCase();
+  try {
+    const method = (req.method ?? "GET").toUpperCase();
 
-  if (method === "OPTIONS") {
-    setSecurityHeaders(res);
-    // Same-origin only — deliberately omit cross-origin allow headers.
-    res.status(204).end();
-    return;
+    if (method === "OPTIONS") {
+      setSecurityHeaders(res);
+      // Same-origin only — deliberately omit cross-origin allow headers.
+      res.status(204).end();
+      return;
+    }
+
+    const configurationStatus = getControlRoomConfigurationStatus();
+
+    if (configurationStatus === "disabled") {
+      disabledResponse(res);
+      return;
+    }
+
+    // missing_access_key and wrong submitted key both look identical externally.
+    if (configurationStatus === "missing_access_key" || !isAuthorized(req)) {
+      unauthorizedResponse(res);
+      return;
+    }
+
+    if (method === "GET") {
+      await handleGet(res);
+      return;
+    }
+
+    if (method === "POST") {
+      await handlePost(req, res);
+      return;
+    }
+
+    send(res, 405, {
+      ok: false,
+      enabled: true,
+      code: "method_not_allowed",
+      message: "Method not allowed.",
+    });
+  } catch {
+    send(res, 500, {
+      ok: false,
+      enabled: true,
+      code: "runtime_failure",
+      message: "Runtime failure.",
+    });
   }
-
-  if (!isControlRoomEnabled()) {
-    disabledResponse(res);
-    return;
-  }
-
-  if (!isAuthorized(req)) {
-    unauthorizedResponse(res);
-    return;
-  }
-
-  if (method === "GET") {
-    await handleGet(res);
-    return;
-  }
-
-  if (method === "POST") {
-    await handlePost(req, res);
-    return;
-  }
-
-  send(res, 405, {
-    ok: false,
-    enabled: true,
-    code: "method_not_allowed",
-    message: "Method not allowed.",
-  });
 }

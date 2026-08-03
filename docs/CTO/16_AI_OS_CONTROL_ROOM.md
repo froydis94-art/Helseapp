@@ -77,6 +77,58 @@ disabled. Never include real values in documentation or source.
 
 This is an internal development gate, not the final admin-auth model.
 
+## API response identity
+
+Every JSON Control Room API response includes:
+
+```json
+{
+  "meta": {
+    "service": "ai-os-control-room",
+    "apiVersion": "1.1"
+  }
+}
+```
+
+This proves the browser reached the intended API route, not a generic Vercel
+HTML error page.
+
+Unauthorized GET responses still return JSON with `code: "unauthorized"` and
+the same `meta` object. OPTIONS may remain 204 without a JSON body.
+
+## Safe UI diagnostic codes
+
+When unlock fails, the page shows a safe diagnostic block using `textContent`
+only (never `innerHTML`):
+
+- safe API `code` (or UI codes such as `non_json_response`,
+  `network_failure`, `unexpected_api_response`)
+- HTTP status (or `unavailable` for network failure)
+- optional safe API message
+- whether response identity metadata matched
+
+The owner does **not** need browser developer tools.
+
+Diagnostics never show:
+
+- the access key
+- key length
+- digests / hashes
+- environment values
+- stack traces
+- raw HTML or full raw server bodies
+- request / response headers
+
+## Owner unlock troubleshooting checklist
+
+1. Save both Production environment variables
+   (`AI_OS_CONTROL_ROOM_ENABLED=1` and `AI_OS_CONTROL_ROOM_ACCESS_KEY`).
+2. Redeploy Production.
+3. Open `/ai-os-control-room.html`.
+4. Enter the access key and unlock.
+5. If it fails, copy only the on-page **Code** and **HTTP** status.
+6. Never share the access key.
+
 ## Fixture-only constraint
 
 Four allowlisted fictional scenarios:
