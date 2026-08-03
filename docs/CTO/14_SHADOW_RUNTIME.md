@@ -1,7 +1,8 @@
 # Shadow Runtime Foundation
 
 Status:  
-Observation foundation — not production-integrated
+Observation foundation — not production-integrated  
+Transport: **mock-only** (enforced by construction)
 
 Authority: [HelseApp AI Constitution](./00_AI_CONSTITUTION.md)  
 Architecture: [AI OS v2.0 Architecture](./04_AI_OS_V2_ARCHITECTURE.md)  
@@ -36,15 +37,32 @@ Same Request (parallel observation)
 
 No user sees Shadow output. Legacy production generation, UI, Expo, App.js, and `lib/replicate.js` remain unchanged.
 
-Shadow calls existing `AiOsRuntime`. It does not reimplement TransformationEngine, VisualDirector, RenderPlan, ProviderFormatter, transport, ResultValidator, or RetryOrchestrator.
+Shadow calls existing `AiOsRuntime` through a **ShadowSafeRuntime** contract. It does not reimplement TransformationEngine, VisualDirector, RenderPlan, ProviderFormatter, transport, ResultValidator, or RetryOrchestrator.
+
+## Mock-only transport (PATCH 014A)
+
+Transport shadowing is **mock-only**. Real provider shadow traffic is not supported.
+
+Avoiding duplicate billing is enforced **by construction**, not convention:
+
+- `ShadowRuntime` accepts only `ShadowSafeRuntime` with `shadowTransportKind: "none" | "mock"`
+- `createDryRunShadowRuntime` → kind `"none"` (disabled + `runtime_only`)
+- `createMockTransportShadowRuntime` → kind `"mock"`, requires `createShadowMockTransport` brand
+- Mode/kind mismatch returns `invalid_input` with **zero** runtime calls and **zero** transport calls
+- Brand is an explicit factory symbol — not class-name, constructor-name, or adapter-id detection
+- Shadow code never creates a real `ReplicateTransportAdapter`, never reads `process.env`, never adds feature flags or production wiring
+
+`createShadowRuntimeFromAiOsDeps` is deprecated for unsafe use: it rejects unbranded transport-capable dependencies.
+
+Future **real** shadow traffic (live provider observation) requires a **separate explicit CTO demand** with billing controls and sampling policy. Until then, real Replicate traffic through Shadow is forbidden.
 
 ## Execution modes
 
-| Mode | Behavior |
-| --- | --- |
-| `disabled` | Return immediately. Zero runtime invocations. |
-| `runtime_only` | Run AI OS Runtime once in `dry_run`. Collect metrics. Discard artifacts. |
-| `runtime_with_transport_mock` | Run AI OS Runtime once in `transport_mock`. Collect metrics. Discard artifacts. |
+| Mode | Behavior | Required `shadowTransportKind` |
+| --- | --- | --- |
+| `disabled` | Return immediately. Zero runtime invocations. | any |
+| `runtime_only` | Run AI OS Runtime once in `dry_run`. Collect metrics. Discard artifacts. | `"none"` or `"mock"` |
+| `runtime_with_transport_mock` | Run AI OS Runtime once in `transport_mock` with branded mock only. Collect metrics. Discard artifacts. | `"mock"` exactly |
 
 One shadow invocation performs at most one `AiOsRuntime.run` call. Shadow never performs an automatic retry loop or a second transport attempt.
 
@@ -108,8 +126,9 @@ Log and observability views must use this safe shadow surface — never dump raw
 - AI OS Runtime can be observed beside production without replacing it
 - metrics and replay can be collected without leaking sensitive content
 - one shadow invocation maps to one runtime execution
-- transport_mock still performs at most one transport call
+- transport_mock still performs at most one transport call — and only via branded mock
 - disabled mode performs zero runtime work
+- unbranded / dry-run-only runtimes cannot open real provider traffic through Shadow
 
 ## What it does not prove
 
@@ -120,11 +139,13 @@ Log and observability views must use this safe shadow surface — never dump raw
 - automatic controlled retry loops
 - production privacy lifecycle
 - cutover readiness without an explicit promotion demand
+- live provider shadow observation (not supported; separate CTO demand required)
 
 ## Known limitations
 
 - observation only — not production-wired
-- dry_run and transport_mock only
+- dry_run and transport_mock only (mock transport brand required)
+- no real provider shadow traffic
 - no production writes
 - no image storage
 - no user-facing results
@@ -140,8 +161,10 @@ Shadow Runtime may later support comparison against legacy results and gated rol
 - no feature-flag cutover
 - no Vercel / Expo / App.js wiring
 - no replacement of the legacy Replicate flow
+- no real provider shadow traffic without a separate billing/sampling demand
 
 ## Permanent rule
 
 > Shadow Runtime may observe every AI decision.
 > Shadow Runtime may never replace production until explicitly promoted.
+> Shadow Runtime may never open real provider traffic until explicitly demanded with billing controls.

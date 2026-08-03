@@ -4,17 +4,25 @@
  * Modes:
  * - disabled: skip immediately
  * - runtime_only: AiOsRuntime dry_run once; metrics only; discard artifacts
- * - runtime_with_transport_mock: transport_mock once; metrics only; discard artifacts
+ * - runtime_with_transport_mock: branded mock transport once; metrics only; discard artifacts
  *
- * Never exposes formatted requests, transport URLs, prompts, plans, or evidence.
+ * Transport is mock-only by construction (ShadowSafeRuntime + brand).
+ * Never creates a real Replicate adapter, never reads environment variables,
+ * never exposes formatted requests, transport URLs, prompts, plans, or evidence.
  * Never performs automatic retries or production writes.
  */
 
 import {
   AiOsRuntime,
+  createAiOsRuntimeDependencies,
   type AiOsRuntimeDependencies,
 } from "../runtime";
 import type { AiOsRuntimeInput, AiOsRuntimeResult } from "../runtime/AiOsRuntimeTypes";
+import type { ReplicateTransportAdapter } from "../transport/ReplicateTransportAdapter";
+import type {
+  ReplicateTransportInput,
+  ReplicateTransportResult,
+} from "../transport/ReplicateTransportTypes";
 import { collectShadowMetrics, emptyShadowMetrics } from "./ShadowMetrics";
 import {
   buildShadowReplayRecord,
@@ -28,10 +36,32 @@ import {
   type ShadowRuntimeInput,
   type ShadowRuntimeInputValidation,
   type ShadowRuntimeResult,
+  type ShadowSafeRuntime,
+  type ShadowTransportKind,
 } from "./ShadowRuntimeTypes";
 
 export const SHADOW_FORBIDDEN_CONTENT_ERROR =
   "Shadow result contained forbidden sensitive content.";
+
+export const SHADOW_TRANSPORT_KIND_MISMATCH_ERROR =
+  "Shadow mode is incompatible with shadowTransportKind.";
+
+export const SHADOW_UNBRANDED_TRANSPORT_ERROR =
+  "createShadowRuntimeFromAiOsDeps rejects unbranded transport. Use createMockTransportShadowRuntime with createShadowMockTransport.";
+
+/** Explicit brand — not class-name or adapter-id detection. */
+export const SHADOW_MOCK_TRANSPORT_BRAND: unique symbol = Symbol(
+  "helseapp.shadow.mockTransport"
+);
+
+/**
+ * Mock transport adapter proven by brand factory, not by naming.
+ * Satisfies ReplicateTransportAdapter structurally for AiOsRuntime injection.
+ */
+export type ShadowMockTransportAdapter = ReplicateTransportAdapter & {
+  readonly [SHADOW_MOCK_TRANSPORT_BRAND]: true;
+};
+
 const SUPPORTED_SHADOW_MODES: readonly ShadowMode[] = [
   "disabled",
   "runtime_only",
@@ -52,21 +82,64 @@ const FORBIDDEN_SENSITIVE_PATTERNS: RegExp[] = [
 ];
 
 export interface ShadowRuntimeDependencies {
-  /** Injected AI OS Runtime — Shadow never reimplements layers. */
-  runtime: AiOsRuntime;
+  /** Injected shadow-safe runtime — never a bare production AiOsRuntime. */
+  runtime: ShadowSafeRuntime;
 
   now: () => number;
 }
 
 /**
- * Build injectable shadow dependencies. Never reads environment variables.
+ * Runtime brand check for mock transport adapters.
  */
-export function createShadowRuntimeDependencies(
-  options: {
-    runtime: AiOsRuntime;
-    now?: () => number;
-  }
-): ShadowRuntimeDependencies {
+export function isShadowMockTransport(
+  adapter: unknown
+): adapter is ShadowMockTransportAdapter {
+  return (
+    typeof adapter === "object" &&
+    adapter !== null &&
+    (adapter as { [SHADOW_MOCK_TRANSPORT_BRAND]?: unknown })[
+      SHADOW_MOCK_TRANSPORT_BRAND
+    ] === true
+  );
+}
+
+/**
+ * Explicit mock-transport brand factory.
+ * Does not wrap or instantiate ReplicateTransportAdapter class instances.
+ */
+export function createShadowMockTransport(spec: {
+  id?: string;
+  generate: (
+    input: ReplicateTransportInput
+  ) => Promise<ReplicateTransportResult>;
+}): ShadowMockTransportAdapter {
+  const adapter = {
+    id: spec.id ?? "shadow-mock-transport-v1",
+    provider: "replicate" as const,
+    generate: spec.generate,
+    [SHADOW_MOCK_TRANSPORT_BRAND]: true as const,
+  };
+  return adapter as unknown as ShadowMockTransportAdapter;
+}
+
+function wrapShadowSafeRuntime(
+  runtime: AiOsRuntime,
+  shadowTransportKind: ShadowTransportKind
+): ShadowSafeRuntime {
+  return {
+    shadowTransportKind,
+    run: (input: AiOsRuntimeInput) => runtime.run(input),
+  };
+}
+
+/**
+ * Build injectable shadow dependencies. Never reads environment variables.
+ * Accepts only ShadowSafeRuntime (factory-branded).
+ */
+export function createShadowRuntimeDependencies(options: {
+  runtime: ShadowSafeRuntime;
+  now?: () => number;
+}): ShadowRuntimeDependencies {
   return {
     runtime: options.runtime,
     now: options.now ?? (() => Date.now()),
@@ -74,18 +147,71 @@ export function createShadowRuntimeDependencies(
 }
 
 /**
- * Convenience: wrap AiOsRuntimeDependencies into a ShadowRuntime.
+ * Dry-run / disabled shadow runtime — transport kind "none".
+ * Cannot run runtime_with_transport_mock (mode/kind mismatch → invalid_input).
+ */
+export function createDryRunShadowRuntime(options?: {
+  now?: () => number;
+}): ShadowRuntime {
+  const now = options?.now ?? (() => Date.now());
+  const aiOs = new AiOsRuntime(createAiOsRuntimeDependencies({ now }));
+  return new ShadowRuntime(
+    createShadowRuntimeDependencies({
+      runtime: wrapShadowSafeRuntime(aiOs, "none"),
+      now,
+    })
+  );
+}
+
+/**
+ * Mock-transport shadow runtime — transport kind "mock".
+ * Requires an explicitly branded mock transport (createShadowMockTransport).
+ * Never accepts a real ReplicateTransportAdapter without the brand.
+ */
+export function createMockTransportShadowRuntime(options: {
+  mockTransport: ShadowMockTransportAdapter;
+  now?: () => number;
+}): ShadowRuntime {
+  if (!isShadowMockTransport(options.mockTransport)) {
+    throw new Error(
+      "createMockTransportShadowRuntime requires a branded mock transport from createShadowMockTransport."
+    );
+  }
+  const now = options.now ?? (() => Date.now());
+  const aiOs = new AiOsRuntime(
+    createAiOsRuntimeDependencies({
+      transportAdapter: options.mockTransport,
+      now,
+    })
+  );
+  return new ShadowRuntime(
+    createShadowRuntimeDependencies({
+      runtime: wrapShadowSafeRuntime(aiOs, "mock"),
+      now,
+    })
+  );
+}
+
+/**
+ * @deprecated Use createDryRunShadowRuntime or createMockTransportShadowRuntime.
+ * Rejects transport-capable deps unless the adapter is explicitly branded as mock.
+ * Signature preserved for public export compatibility.
  */
 export function createShadowRuntimeFromAiOsDeps(
   aiOsDeps: AiOsRuntimeDependencies,
   now?: () => number
 ): ShadowRuntime {
-  return new ShadowRuntime(
-    createShadowRuntimeDependencies({
-      runtime: new AiOsRuntime(aiOsDeps),
-      now: now ?? aiOsDeps.now,
-    })
-  );
+  const resolvedNow = now ?? aiOsDeps.now;
+  if (aiOsDeps.transportAdapter !== undefined) {
+    if (!isShadowMockTransport(aiOsDeps.transportAdapter)) {
+      throw new Error(SHADOW_UNBRANDED_TRANSPORT_ERROR);
+    }
+    return createMockTransportShadowRuntime({
+      mockTransport: aiOsDeps.transportAdapter,
+      now: resolvedNow,
+    });
+  }
+  return createDryRunShadowRuntime({ now: resolvedNow });
 }
 
 function stringLooksSensitive(text: string): boolean {
@@ -199,6 +325,16 @@ function mapRuntimeMode(shadowMode: ShadowMode): AiOsRuntimeInput["mode"] | null
   return null;
 }
 
+function isTransportKindCompatible(
+  mode: ShadowMode,
+  kind: ShadowTransportKind
+): boolean {
+  if (mode === "disabled") return true;
+  if (mode === "runtime_only") return kind === "none" || kind === "mock";
+  if (mode === "runtime_with_transport_mock") return kind === "mock";
+  return false;
+}
+
 function buildSkippedResult(mode: ShadowMode): ShadowRuntimeResult {
   const metrics = emptyShadowMetrics();
   const execution: ShadowExecutionResult = {
@@ -217,6 +353,28 @@ function buildSkippedResult(mode: ShadowMode): ShadowRuntimeResult {
     replay: buildSkippedShadowReplay(metrics),
     warnings: [],
     errors: [],
+  });
+}
+
+function buildInvalidInputResult(
+  mode: ShadowMode,
+  errors: string[],
+  warnings: string[] = []
+): ShadowRuntimeResult {
+  return sanitizeShadowRuntimeResult({
+    success: false,
+    mode,
+    execution: {
+      executed: false,
+      skipped: false,
+      runtimeMode: null,
+      terminalOutcome: "invalid_input",
+      success: false,
+    },
+    metrics: emptyShadowMetrics(),
+    replay: null,
+    warnings: [...warnings],
+    errors: [...errors],
   });
 }
 
@@ -258,48 +416,32 @@ export class ShadowRuntime {
   async run(input: ShadowRuntimeInput): Promise<ShadowRuntimeResult> {
     const validation = validateShadowRuntimeInput(input);
     if (!validation.valid) {
-      const metrics = emptyShadowMetrics();
-      return sanitizeShadowRuntimeResult({
-        success: false,
-        mode:
-          input?.mode && SUPPORTED_SHADOW_MODES.includes(input.mode)
-            ? input.mode
-            : "disabled",
-        execution: {
-          executed: false,
-          skipped: false,
-          runtimeMode: null,
-          terminalOutcome: "invalid_input",
-          success: false,
-        },
-        metrics,
-        replay: null,
-        warnings: [...validation.warnings],
-        errors: [...validation.errors],
-      });
+      return buildInvalidInputResult(
+        input?.mode && SUPPORTED_SHADOW_MODES.includes(input.mode)
+          ? input.mode
+          : "disabled",
+        [...validation.errors],
+        [...validation.warnings]
+      );
     }
 
     if (input.mode === "disabled") {
       return buildSkippedResult("disabled");
     }
 
+    const transportKind = this.dependencies.runtime.shadowTransportKind;
+    if (!isTransportKindCompatible(input.mode, transportKind)) {
+      // Mode/kind mismatch: zero runtime calls, zero transport calls.
+      return buildInvalidInputResult(input.mode, [
+        SHADOW_TRANSPORT_KIND_MISMATCH_ERROR,
+      ]);
+    }
+
     const runtimeMode = mapRuntimeMode(input.mode);
     if (runtimeMode == null || input.runtimeInput == null) {
-      return sanitizeShadowRuntimeResult({
-        success: false,
-        mode: input.mode,
-        execution: {
-          executed: false,
-          skipped: false,
-          runtimeMode: null,
-          terminalOutcome: "invalid_input",
-          success: false,
-        },
-        metrics: emptyShadowMetrics(),
-        replay: null,
-        warnings: [],
-        errors: ["Unable to map shadow mode to runtime mode."],
-      });
+      return buildInvalidInputResult(input.mode, [
+        "Unable to map shadow mode to runtime mode.",
+      ]);
     }
 
     // Clone caller input so Shadow never mutates production/caller objects.

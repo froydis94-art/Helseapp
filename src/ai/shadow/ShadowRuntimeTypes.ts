@@ -3,11 +3,15 @@
  *
  * JSON-serializable telemetry only. No image bytes, Base64, prompts, tokens,
  * Authorization headers, health payloads, or stack traces.
+ *
+ * Transport shadowing is mock-only by construction: real provider traffic is
+ * not supported and requires a separate explicit CTO demand.
  */
 
 import type {
   AiOsRuntimeInput,
   AiOsRuntimeMode,
+  AiOsRuntimeResult,
   AiOsRuntimeStage,
   AiOsRuntimeTerminalOutcome,
 } from "../runtime/AiOsRuntimeTypes";
@@ -18,6 +22,23 @@ export type ShadowMode =
   | "disabled"
   | "runtime_only"
   | "runtime_with_transport_mock";
+
+/**
+ * Explicit transport capability for shadow-safe runtimes.
+ * - "none": dry-run / disabled only (no transport dependency)
+ * - "mock": branded mock transport only (never real Replicate)
+ */
+export type ShadowTransportKind = "none" | "mock";
+
+/**
+ * Shadow-safe runtime dependency contract.
+ * Cannot be satisfied accidentally by a normal production AiOsRuntime —
+ * factories attach `shadowTransportKind` explicitly.
+ */
+export interface ShadowSafeRuntime {
+  run(input: AiOsRuntimeInput): Promise<AiOsRuntimeResult>;
+  readonly shadowTransportKind: ShadowTransportKind;
+}
 
 export type ShadowTerminalOutcome =
   | AiOsRuntimeTerminalOutcome

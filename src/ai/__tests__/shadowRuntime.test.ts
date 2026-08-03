@@ -1,5 +1,5 @@
 /**
- * DEMAND_014 — Shadow Runtime foundation tests.
+ * DEMAND_014 / PATCH_014A — Shadow Runtime foundation + mock-only transport.
  *
  * Path note: lives under `src/ai/__tests__/` (not `tests/`) to match
  * existing package.json `test:ai` discovery.
@@ -29,6 +29,7 @@ import {
   ShadowRuntime,
   collectShadowMetrics,
   createShadowRuntimeDependencies,
+  createShadowRuntimeFromAiOsDeps,
   disabledShadowInput,
   missingRuntimeInputShadowInput,
   runtimeOnlyValidShadowInput,
@@ -42,6 +43,16 @@ import {
   type ShadowRuntimeInput,
   type ShadowRuntimeResult,
 } from "../shadow";
+import {
+  SHADOW_TRANSPORT_KIND_MISMATCH_ERROR,
+  SHADOW_UNBRANDED_TRANSPORT_ERROR,
+  createDryRunShadowRuntime,
+  createMockTransportShadowRuntime,
+  createShadowMockTransport,
+  isShadowMockTransport,
+  type ShadowMockTransportAdapter,
+} from "../shadow/ShadowRuntime";
+import type { ShadowSafeRuntime } from "../shadow/ShadowRuntimeTypes";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const shadowDir = join(__dirname, "..", "shadow");
@@ -64,20 +75,18 @@ function normalizeShadowResult(result: ShadowRuntimeResult): ShadowRuntimeResult
   return clone;
 }
 
-function createMockAdapter(
+function createTrackedMockTransport(
   result: ReplicateTransportResult,
   calls: { count: number; inputs: ReplicateTransportInput[] }
-): ReplicateTransportAdapter {
-  const adapter = {
+): ShadowMockTransportAdapter {
+  return createShadowMockTransport({
     id: "mock-transport-shadow-v1",
-    provider: "replicate" as const,
     async generate(input: ReplicateTransportInput): Promise<ReplicateTransportResult> {
       calls.count += 1;
       calls.inputs.push(input);
       return structuredClone(result);
     },
-  };
-  return adapter as unknown as ReplicateTransportAdapter;
+  });
 }
 
 function createShadowWithTrackedMock(
@@ -92,19 +101,40 @@ function createShadowWithTrackedMock(
     tick += 5;
     return tick;
   };
-  const adapter = createMockAdapter(transportResult, calls);
-  const shadow = new ShadowRuntime(
-    createShadowRuntimeDependencies({
-      runtime: new AiOsRuntime(
-        createAiOsRuntimeDependencies({
-          transportAdapter: adapter,
-          now: clock,
-        })
-      ),
+  const mockTransport = createTrackedMockTransport(transportResult, calls);
+  const shadow = createMockTransportShadowRuntime({
+    mockTransport,
+    now: clock,
+  });
+  return { shadow, calls };
+}
+
+function wrapTrackedSafeRuntime(
+  kind: "none" | "mock",
+  transportResult: ReplicateTransportResult,
+  counters: { runtimeCalls: number; transportCalls: number },
+  clock: () => number
+): ShadowSafeRuntime {
+  const calls = { count: 0, inputs: [] as ReplicateTransportInput[] };
+  const adapter =
+    kind === "mock"
+      ? createTrackedMockTransport(transportResult, calls)
+      : undefined;
+  const aiOs = new AiOsRuntime(
+    createAiOsRuntimeDependencies({
+      transportAdapter: adapter,
       now: clock,
     })
   );
-  return { shadow, calls };
+  return {
+    shadowTransportKind: kind,
+    async run(input) {
+      counters.runtimeCalls += 1;
+      const result = await aiOs.run(input);
+      counters.transportCalls = calls.count;
+      return result;
+    },
+  };
 }
 
 function shadowJson(result: ShadowRuntimeResult): string {
@@ -142,30 +172,23 @@ function readShadowSources(): string {
   return files.map((name) => readFileSync(join(shadowDir, name), "utf8")).join("\n");
 }
 
-describe("shadowRuntime — DEMAND_014", () => {
+describe("shadowRuntime — DEMAND_014 / PATCH_014A", () => {
   describe("Disabled mode", () => {
     it("1. Disabled mode skips runtime", async () => {
-      const calls = { count: 0, inputs: [] as ReplicateTransportInput[] };
-      let runtimeCalls = 0;
+      const counters = { runtimeCalls: 0, transportCalls: 0 };
       let tick = 1_000_000;
       const clock = () => {
         tick += 1;
         return tick;
       };
-      const runtime = new AiOsRuntime(
-        createAiOsRuntimeDependencies({
-          transportAdapter: createMockAdapter(runtimeTransportSuccessResult, calls),
-          now: clock,
-        })
+      const safe = wrapTrackedSafeRuntime(
+        "none",
+        runtimeTransportSuccessResult,
+        counters,
+        clock
       );
-      const originalRun = runtime.run.bind(runtime);
-      runtime.run = async (input) => {
-        runtimeCalls += 1;
-        return originalRun(input);
-      };
-
       const shadow = new ShadowRuntime(
-        createShadowRuntimeDependencies({ runtime, now: clock })
+        createShadowRuntimeDependencies({ runtime: safe, now: clock })
       );
       const result = await shadow.run(disabledShadowInput);
 
@@ -174,14 +197,14 @@ describe("shadowRuntime — DEMAND_014", () => {
       assert.equal(result.success, true);
       assert.equal(result.mode, "disabled");
       assert.equal(result.execution.terminalOutcome, "skipped");
-      assert.equal(runtimeCalls, 0);
-      assert.equal(calls.count, 0);
+      assert.equal(counters.runtimeCalls, 0);
+      assert.equal(counters.transportCalls, 0);
     });
   });
 
   describe("runtime_only", () => {
     it("2. Runtime_only executes dry_run", async () => {
-      const { shadow } = createShadowWithTrackedMock(runtimeTransportSuccessResult);
+      const shadow = createDryRunShadowRuntime();
       const result = await shadow.run(runtimeOnlyValidShadowInput);
 
       assert.equal(result.mode, "runtime_only");
@@ -199,6 +222,13 @@ describe("shadowRuntime — DEMAND_014", () => {
       );
       await shadow.run(runtimeOnlyValidShadowInput);
       assert.equal(calls.count, 0);
+    });
+
+    it("2b. Runtime_only works with dry-run-safe factory", async () => {
+      const shadow = createDryRunShadowRuntime();
+      const result = await shadow.run(runtimeOnlyValidShadowInput);
+      assert.equal(result.success, true);
+      assert.equal(result.execution.runtimeMode, "dry_run");
     });
   });
 
@@ -224,24 +254,26 @@ describe("shadowRuntime — DEMAND_014", () => {
         tick += 5;
         return tick;
       };
-      const deps = createShadowRuntimeDependencies({
-        runtime: new AiOsRuntime(
-          createAiOsRuntimeDependencies({
-            transportAdapter: createMockAdapter(
-              runtimeTransportTimeoutResult,
-              calls
-            ),
-            now: clock,
-          })
-        ),
-        now: clock,
-      });
-      const originalRun = deps.runtime.run.bind(deps.runtime);
-      deps.runtime.run = async (input) => {
-        runtimeCalls += 1;
-        return originalRun(input);
+      const mockTransport = createTrackedMockTransport(
+        runtimeTransportTimeoutResult,
+        calls
+      );
+      const aiOs = new AiOsRuntime(
+        createAiOsRuntimeDependencies({
+          transportAdapter: mockTransport,
+          now: clock,
+        })
+      );
+      const safe: ShadowSafeRuntime = {
+        shadowTransportKind: "mock",
+        async run(input) {
+          runtimeCalls += 1;
+          return aiOs.run(input);
+        },
       };
-      const wrapped = new ShadowRuntime(deps);
+      const wrapped = new ShadowRuntime(
+        createShadowRuntimeDependencies({ runtime: safe, now: clock })
+      );
       const result = await wrapped.run(transportMockTimeoutShadowInput);
 
       assert.equal(runtimeCalls, 1);
@@ -275,6 +307,115 @@ describe("shadowRuntime — DEMAND_014", () => {
       assert.equal(calls.count, 1);
       assert.equal(result.execution.terminalOutcome, "retry_required");
       assert.equal(result.metrics.retryRequested, true);
+    });
+  });
+
+  describe("Mock-only transport enforcement (014A)", () => {
+    it("25. runtime_with_transport_mock works with branded mock runtime", async () => {
+      const { shadow, calls } = createShadowWithTrackedMock(
+        runtimeTransportSuccessResult
+      );
+      const result = await shadow.run(transportMockValidShadowInput);
+      assert.equal(result.execution.executed, true);
+      assert.equal(result.execution.runtimeMode, "transport_mock");
+      assert.equal(calls.count, 1);
+    });
+
+    it("26. runtime_with_transport_mock rejects dry-run-only runtime", async () => {
+      const counters = { runtimeCalls: 0, transportCalls: 0 };
+      let tick = 3_000_000;
+      const clock = () => {
+        tick += 1;
+        return tick;
+      };
+      const safe = wrapTrackedSafeRuntime(
+        "none",
+        runtimeTransportSuccessResult,
+        counters,
+        clock
+      );
+      const shadow = new ShadowRuntime(
+        createShadowRuntimeDependencies({ runtime: safe, now: clock })
+      );
+      const result = await shadow.run(transportMockValidShadowInput);
+
+      assert.equal(result.success, false);
+      assert.equal(result.execution.terminalOutcome, "invalid_input");
+      assert.equal(result.execution.executed, false);
+      assert.ok(result.errors.includes(SHADOW_TRANSPORT_KIND_MISMATCH_ERROR));
+      assert.equal(counters.runtimeCalls, 0);
+      assert.equal(counters.transportCalls, 0);
+    });
+
+    it("27. createDryRunShadowRuntime rejects transport_mock with zero work", async () => {
+      const shadow = createDryRunShadowRuntime();
+      const result = await shadow.run(transportMockValidShadowInput);
+      assert.equal(result.success, false);
+      assert.equal(result.execution.terminalOutcome, "invalid_input");
+      assert.equal(result.execution.executed, false);
+      assert.ok(result.errors.includes(SHADOW_TRANSPORT_KIND_MISMATCH_ERROR));
+    });
+
+    it("28. createShadowRuntimeFromAiOsDeps rejects unbranded transport", () => {
+      const unbranded = {
+        id: "real-looking-replicate-v1",
+        provider: "replicate" as const,
+        async generate(): Promise<ReplicateTransportResult> {
+          return structuredClone(runtimeTransportSuccessResult);
+        },
+      } as unknown as ReplicateTransportAdapter;
+
+      assert.equal(isShadowMockTransport(unbranded), false);
+      assert.throws(
+        () =>
+          createShadowRuntimeFromAiOsDeps(
+            createAiOsRuntimeDependencies({ transportAdapter: unbranded })
+          ),
+        (err: unknown) =>
+          err instanceof Error &&
+          err.message === SHADOW_UNBRANDED_TRANSPORT_ERROR
+      );
+    });
+
+    it("29. real-looking adapter cannot enter createMockTransportShadowRuntime", () => {
+      const realLooking = {
+        id: "replicate-live-looking",
+        provider: "replicate" as const,
+        async generate(): Promise<ReplicateTransportResult> {
+          return structuredClone(runtimeTransportSuccessResult);
+        },
+      } as unknown as ShadowMockTransportAdapter;
+
+      assert.equal(isShadowMockTransport(realLooking), false);
+      assert.throws(
+        () => createMockTransportShadowRuntime({ mockTransport: realLooking }),
+        (err: unknown) =>
+          err instanceof Error &&
+          err.message.includes("branded mock transport")
+      );
+    });
+
+    it("30. createShadowRuntimeFromAiOsDeps accepts branded mock", async () => {
+      const calls = { count: 0, inputs: [] as ReplicateTransportInput[] };
+      const mockTransport = createTrackedMockTransport(
+        runtimeTransportSuccessResult,
+        calls
+      );
+      const shadow = createShadowRuntimeFromAiOsDeps(
+        createAiOsRuntimeDependencies({ transportAdapter: mockTransport })
+      );
+      const result = await shadow.run(transportMockAcceptedShadowInput);
+      assert.equal(result.execution.terminalOutcome, "accepted");
+      assert.equal(calls.count, 1);
+    });
+
+    it("31. createShadowMockTransport brands explicitly", () => {
+      const mock = createShadowMockTransport({
+        async generate() {
+          return structuredClone(runtimeTransportSuccessResult);
+        },
+      });
+      assert.equal(isShadowMockTransport(mock), true);
     });
   });
 
@@ -451,6 +592,7 @@ describe("shadowRuntime — DEMAND_014", () => {
       assert.equal(src.includes("lib/replicate"), false);
       assert.equal(src.includes("lib/visuellPrompt"), false);
       assert.equal(src.includes("process.env"), false);
+      assert.equal(src.includes("new ReplicateTransportAdapter"), false);
     });
   });
 
@@ -462,16 +604,18 @@ describe("shadowRuntime — DEMAND_014", () => {
         tick += 5;
         return tick;
       };
-      const runtime = new AiOsRuntime(
+      const aiOs = new AiOsRuntime(
         createAiOsRuntimeDependencies({ now: clock })
       );
-      const originalRun = runtime.run.bind(runtime);
-      runtime.run = async (input) => {
-        runtimeCalls += 1;
-        return originalRun(input);
+      const safe: ShadowSafeRuntime = {
+        shadowTransportKind: "none",
+        async run(input) {
+          runtimeCalls += 1;
+          return aiOs.run(input);
+        },
       };
       const shadow = new ShadowRuntime(
-        createShadowRuntimeDependencies({ runtime, now: clock })
+        createShadowRuntimeDependencies({ runtime: safe, now: clock })
       );
       await shadow.run({
         mode: "runtime_only",
