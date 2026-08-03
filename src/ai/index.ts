@@ -303,3 +303,46 @@ export {
   validateTransformationGoal,
 } from "./validation";
 export type { NumericRange, ValidationResult } from "./validation";
+
+/** AI OS Runtime foundation (single-cycle orchestration — not production-wired). */
+export type {
+  AiOsRuntimeArtifacts,
+  AiOsRuntimeDependencies,
+  AiOsRuntimeInput,
+  AiOsRuntimeInputValidation,
+  AiOsRuntimeMode,
+  AiOsRuntimeResult,
+  AiOsRuntimeStage,
+  AiOsRuntimeStageResult,
+  AiOsRuntimeTerminalOutcome,
+  AiOsRuntimeTrace,
+} from "./runtime";
+export {
+  AI_OS_RUNTIME_RULES_VERSION,
+  AiOsRuntime,
+  REDACTED_RUNTIME_CONTENT,
+  RUNTIME_FORBIDDEN_CONTENT_ERROR,
+  RUNTIME_FIXTURE_PREDICTION_ID,
+  acceptedRuntimeEvidence,
+  buildRuntimeTraceId,
+  candidateMismatchRuntimeInput,
+  createAiOsRuntimeDependencies,
+  invalidRuntimeGoalInput,
+  invalidRuntimeProfileInput,
+  mismatchedRuntimeEvidence,
+  retryRuntimeEvidence,
+  runtimeTransportAuthFailureResult,
+  runtimeTransportDisabledResult,
+  runtimeTransportSuccessResult,
+  runtimeTransportTimeoutResult,
+  safetyRejectRuntimeEvidence,
+  sanitizeAiOsRuntimeResult,
+  transportSuccessWithAcceptedEvidenceInput,
+  transportSuccessWithRetryEvidenceInput,
+  transportSuccessWithSafetyRejectEvidenceInput,
+  transportSuccessWithoutEvidenceInput,
+  transportTimeoutRuntimeInput,
+  validDryRunRuntimeInput,
+  validTransportMockRuntimeInput,
+  validateAiOsRuntimeInput,
+} from "./runtime";
