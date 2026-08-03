@@ -12,7 +12,6 @@
 import type {
   AiOsRuntimeInput,
   AiOsRuntimeMode,
-  AiOsRuntimeResult,
   AiOsRuntimeStage,
   AiOsRuntimeTerminalOutcome,
 } from "../runtime/AiOsRuntimeTypes";
@@ -38,16 +37,6 @@ export type ShadowTransportKind = "none" | "mock";
  */
 export interface ShadowMockTransportScript {
   results: ReplicateTransportResult[];
-}
-
-/**
- * Shadow-safe runtime dependency contract.
- * Cannot be satisfied accidentally by a normal production AiOsRuntime —
- * factories attach `shadowTransportKind` explicitly.
- */
-export interface ShadowSafeRuntime {
-  run(input: AiOsRuntimeInput): Promise<AiOsRuntimeResult>;
-  readonly shadowTransportKind: ShadowTransportKind;
 }
 
 export type ShadowTerminalOutcome =

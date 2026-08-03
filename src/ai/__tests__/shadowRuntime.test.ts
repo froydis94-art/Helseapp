@@ -1,6 +1,6 @@
 /**
- * DEMAND_014 / PATCH_014A / PATCH_014B — Shadow Runtime foundation +
- * data-only, network-impossible mock transport.
+ * DEMAND_014 / PATCH_014A / PATCH_014B / PATCH_014C — Shadow Runtime foundation +
+ * data-only, network-impossible mock transport + factory-only construction.
  *
  * Path note: lives under `src/ai/__tests__/` (not `tests/`) to match
  * existing package.json `test:ai` discovery.
@@ -18,7 +18,6 @@ import { fileURLToPath } from "node:url";
 import type { ReplicateTransportAdapter } from "../transport/ReplicateTransportAdapter";
 import type { ReplicateTransportResult } from "../transport/ReplicateTransportTypes";
 import {
-  AiOsRuntime,
   createAiOsRuntimeDependencies,
   runtimeTransportSuccessResult,
   runtimeTransportTimeoutResult,
@@ -28,7 +27,6 @@ import {
   SHADOW_RUNTIME_RULES_VERSION,
   ShadowRuntime,
   collectShadowMetrics,
-  createShadowRuntimeDependencies,
   createShadowRuntimeFromAiOsDeps,
   disabledShadowInput,
   missingRuntimeInputShadowInput,
@@ -45,13 +43,15 @@ import {
 } from "../shadow";
 import * as ShadowRuntimeModule from "../shadow/ShadowRuntime";
 import {
+  SHADOW_DEPS_FACTORY_REMOVED_ERROR,
+  SHADOW_DIRECT_CONSTRUCTION_ERROR,
   SHADOW_MOCK_RESULTS_EXHAUSTED_ERROR,
   SHADOW_TRANSPORT_KIND_MISMATCH_ERROR,
   SHADOW_UNBRANDED_TRANSPORT_ERROR,
   createDryRunShadowRuntime,
   createMockTransportShadowRuntime,
+  createShadowRuntimeDependencies,
 } from "../shadow/ShadowRuntime";
-import type { ShadowSafeRuntime } from "../shadow/ShadowRuntimeTypes";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const shadowDir = join(__dirname, "..", "shadow");
@@ -92,20 +92,6 @@ function createDataOnlyMockShadow(
   });
 }
 
-function wrapNoneSafeRuntime(
-  counters: { runtimeCalls: number },
-  clock: () => number
-): ShadowSafeRuntime {
-  const aiOs = new AiOsRuntime(createAiOsRuntimeDependencies({ now: clock }));
-  return {
-    shadowTransportKind: "none",
-    async run(input) {
-      counters.runtimeCalls += 1;
-      return aiOs.run(input);
-    },
-  };
-}
-
 function shadowJson(result: ShadowRuntimeResult): string {
   return JSON.stringify(result);
 }
@@ -141,15 +127,10 @@ function readShadowSources(): string {
   return files.map((name) => readFileSync(join(shadowDir, name), "utf8")).join("\n");
 }
 
-describe("shadowRuntime — DEMAND_014 / PATCH_014A / PATCH_014B", () => {
+describe("shadowRuntime — DEMAND_014 / PATCH_014A / PATCH_014B / PATCH_014C", () => {
   describe("Disabled mode", () => {
     it("1. Disabled mode skips runtime", async () => {
-      const counters = { runtimeCalls: 0 };
-      const clock = createClock();
-      const safe = wrapNoneSafeRuntime(counters, clock);
-      const shadow = new ShadowRuntime(
-        createShadowRuntimeDependencies({ runtime: safe, now: clock })
-      );
+      const shadow = createDryRunShadowRuntime({ now: createClock() });
       const result = await shadow.run(disabledShadowInput);
 
       assert.equal(result.execution.skipped, true);
@@ -157,7 +138,8 @@ describe("shadowRuntime — DEMAND_014 / PATCH_014A / PATCH_014B", () => {
       assert.equal(result.success, true);
       assert.equal(result.mode, "disabled");
       assert.equal(result.execution.terminalOutcome, "skipped");
-      assert.equal(counters.runtimeCalls, 0);
+      assert.equal(result.metrics.stageCount, 0);
+      assert.equal(result.metrics.runtimeMode, null);
     });
   });
 
@@ -388,19 +370,15 @@ describe("shadowRuntime — DEMAND_014 / PATCH_014A / PATCH_014B", () => {
     });
 
     it("35. runtime_with_transport_mock rejects dry-run-only runtime", async () => {
-      const counters = { runtimeCalls: 0 };
-      const clock = createClock(3_000_000);
-      const safe = wrapNoneSafeRuntime(counters, clock);
-      const shadow = new ShadowRuntime(
-        createShadowRuntimeDependencies({ runtime: safe, now: clock })
-      );
+      const shadow = createDryRunShadowRuntime({ now: createClock(3_000_000) });
       const result = await shadow.run(transportMockValidShadowInput);
 
       assert.equal(result.success, false);
       assert.equal(result.execution.terminalOutcome, "invalid_input");
       assert.equal(result.execution.executed, false);
       assert.ok(result.errors.includes(SHADOW_TRANSPORT_KIND_MISMATCH_ERROR));
-      assert.equal(counters.runtimeCalls, 0);
+      assert.equal(result.metrics.stageCount, 0);
+      assert.equal(result.metrics.runtimeMode, null);
     });
 
     it("36. createDryRunShadowRuntime rejects transport_mock with zero work", async () => {
@@ -623,26 +601,120 @@ describe("shadowRuntime — DEMAND_014 / PATCH_014A / PATCH_014B", () => {
 
   describe("One invocation contract", () => {
     it("24. One shadow run → one runtime execution", async () => {
-      let runtimeCalls = 0;
-      const clock = createClock();
-      const aiOs = new AiOsRuntime(
-        createAiOsRuntimeDependencies({ now: clock })
-      );
-      const safe: ShadowSafeRuntime = {
-        shadowTransportKind: "none",
-        async run(input) {
-          runtimeCalls += 1;
-          return aiOs.run(input);
-        },
-      };
-      const shadow = new ShadowRuntime(
-        createShadowRuntimeDependencies({ runtime: safe, now: clock })
-      );
-      await shadow.run({
+      const shadow = createDryRunShadowRuntime({ now: createClock() });
+      const result = await shadow.run({
         mode: "runtime_only",
         runtimeInput: structuredClone(validDryRunRuntimeInput),
       } satisfies ShadowRuntimeInput);
-      assert.equal(runtimeCalls, 1);
+      assert.equal(result.execution.executed, true);
+      assert.equal(result.execution.runtimeMode, "dry_run");
+      assert.equal(result.success, true);
+      assert.ok(result.metrics.stageCount > 0);
+    });
+  });
+
+  describe("Factory-only construction (014C)", () => {
+    it("40. construction token seals ShadowRuntime (factories only)", () => {
+      const src = readFileSync(join(shadowDir, "ShadowRuntime.ts"), "utf8");
+      // private constructor cannot call from module-level factories — token seal used.
+      assert.match(src, /SHADOW_RUNTIME_CONSTRUCTION_TOKEN/);
+      assert.equal("SHADOW_RUNTIME_CONSTRUCTION_TOKEN" in ShadowRuntimeModule, false);
+      assert.equal(src.includes("export const SHADOW_RUNTIME_CONSTRUCTION_TOKEN"), false);
+      assert.match(src, /token !== SHADOW_RUNTIME_CONSTRUCTION_TOKEN/);
+    });
+
+    it("41. ShadowSafeRuntime is not exported", () => {
+      const typesSrc = readFileSync(
+        join(shadowDir, "ShadowRuntimeTypes.ts"),
+        "utf8"
+      );
+      assert.equal(/export interface ShadowSafeRuntime/.test(typesSrc), false);
+      assert.equal(/export type ShadowSafeRuntime/.test(typesSrc), false);
+      assert.equal("ShadowSafeRuntime" in ShadowRuntimeModule, false);
+    });
+
+    it("42. usable ShadowRuntimeDependencies construction contract is not exported", () => {
+      const src = readFileSync(join(shadowDir, "ShadowRuntime.ts"), "utf8");
+      assert.equal(/export interface ShadowRuntimeDependencies\b/.test(src), false);
+      // Opaque stub may remain for barrel re-export compatibility only.
+      assert.match(src, /__shadowDirectConstructionRemoved/);
+    });
+
+    it("43. createShadowRuntimeDependencies is not a construction API", () => {
+      assert.throws(
+        () =>
+          createShadowRuntimeDependencies(
+            // @ts-expect-error — public construction path removed
+            { runtime: {}, now: () => 0 }
+          ),
+        (err: unknown) =>
+          err instanceof Error &&
+          err.message === SHADOW_DEPS_FACTORY_REMOVED_ERROR
+      );
+    });
+
+    it("44. direct new ShadowRuntime without token throws at runtime", () => {
+      assert.throws(
+        () =>
+          new (ShadowRuntime as unknown as {
+            new (deps: unknown, token?: unknown): ShadowRuntime;
+          })({
+            runtime: {
+              shadowTransportKind: "mock",
+              run: async () => {
+                throw new Error("injected run must never execute");
+              },
+            },
+            now: () => Date.now(),
+          }),
+        (err: unknown) =>
+          err instanceof Error &&
+          err.message === SHADOW_DIRECT_CONSTRUCTION_ERROR
+      );
+    });
+
+    it("45. no public API accepts run callback / transport adapter / fetch", () => {
+      const src = readFileSync(join(shadowDir, "ShadowRuntime.ts"), "utf8");
+      assert.match(
+        src,
+        /createDryRunShadowRuntime\(options\?:\s*\{\s*now\?:/
+      );
+      assert.match(
+        src,
+        /createMockTransportShadowRuntime\(options:\s*\{\s*mockResults:/
+      );
+      assert.equal(
+        /createMockTransportShadowRuntime\(options:\s*\{[^}]*\brun\b/s.test(src),
+        false
+      );
+      assert.equal(
+        /createMockTransportShadowRuntime\(options:\s*\{[^}]*transportAdapter/s.test(
+          src
+        ),
+        false
+      );
+      assert.equal(
+        /createMockTransportShadowRuntime\(options:\s*\{[^}]*\bfetch\b/s.test(src),
+        false
+      );
+      assert.equal(
+        /createDryRunShadowRuntime\(options\?:\s*\{[^}]*\brun\b/s.test(src),
+        false
+      );
+      assert.equal(/\bfetch\s*\(/.test(src), false);
+    });
+
+    it("46. dry-run and data-only mock factories remain the only construction paths", async () => {
+      const dry = createDryRunShadowRuntime();
+      const mock = createMockTransportShadowRuntime({
+        mockResults: [structuredClone(runtimeTransportSuccessResult)],
+      });
+      const dryResult = await dry.run(runtimeOnlyValidShadowInput);
+      const mockResult = await mock.run(transportMockAcceptedShadowInput);
+      assert.equal(dryResult.success, true);
+      assert.equal(mockResult.execution.terminalOutcome, "accepted");
+      assert.equal(typeof createDryRunShadowRuntime, "function");
+      assert.equal(typeof createMockTransportShadowRuntime, "function");
     });
   });
 });

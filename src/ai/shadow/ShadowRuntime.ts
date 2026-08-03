@@ -6,7 +6,11 @@
  * - runtime_only: AiOsRuntime dry_run once; metrics only; discard artifacts
  * - runtime_with_transport_mock: data-only mock transport once; metrics only; discard artifacts
  *
- * Transport is mock-only by construction (ShadowSafeRuntime + internal data-only adapter).
+ * Construction is factory-only:
+ * - createDryRunShadowRuntime
+ * - createMockTransportShadowRuntime
+ *
+ * Transport is mock-only by construction (internal ShadowSafeRuntime + data-only adapter).
  * Never creates a real Replicate adapter, never reads environment variables,
  * never accepts caller generate callbacks / fetch / network deps,
  * never exposes formatted requests, transport URLs, prompts, plans, or evidence.
@@ -34,7 +38,6 @@ import {
   type ShadowRuntimeInput,
   type ShadowRuntimeInputValidation,
   type ShadowRuntimeResult,
-  type ShadowSafeRuntime,
   type ShadowTransportKind,
 } from "./ShadowRuntimeTypes";
 
@@ -50,9 +53,23 @@ export const SHADOW_UNBRANDED_TRANSPORT_ERROR =
 export const SHADOW_MOCK_RESULTS_EXHAUSTED_ERROR =
   "Shadow mock transport results exhausted.";
 
+export const SHADOW_DIRECT_CONSTRUCTION_ERROR =
+  "ShadowRuntime can only be constructed via createDryRunShadowRuntime or createMockTransportShadowRuntime.";
+
+export const SHADOW_DEPS_FACTORY_REMOVED_ERROR =
+  "createShadowRuntimeDependencies is not a public construction API. Use createDryRunShadowRuntime or createMockTransportShadowRuntime.";
+
 /** Module-private brand — never exported; never accepted from callers. */
 const SHADOW_MOCK_TRANSPORT_BRAND: unique symbol = Symbol(
   "helseapp.shadow.mockTransport"
+);
+
+/**
+ * Module-private construction token — never exported.
+ * Required at runtime because TypeScript `private` is erased in emitted JS.
+ */
+const SHADOW_RUNTIME_CONSTRUCTION_TOKEN: unique symbol = Symbol(
+  "helseapp.shadow.runtimeConstruction"
 );
 
 const SUPPORTED_SHADOW_MODES: readonly ShadowMode[] = [
@@ -74,11 +91,49 @@ const FORBIDDEN_SENSITIVE_PATTERNS: RegExp[] = [
   /\bsk-[A-Za-z0-9]+/i,
 ];
 
-export interface ShadowRuntimeDependencies {
-  /** Injected shadow-safe runtime — never a bare production AiOsRuntime. */
-  runtime: ShadowSafeRuntime;
+/**
+ * Internal shadow-safe runtime — factory-branded only.
+ * Not exported; callers cannot inject a custom `run` callback.
+ */
+interface ShadowSafeRuntime {
+  run(input: AiOsRuntimeInput): Promise<AiOsRuntimeResult>;
+  readonly shadowTransportKind: ShadowTransportKind;
+}
 
+/** Internal deps — not a public construction contract. */
+interface ShadowRuntimeDeps {
+  runtime: ShadowSafeRuntime;
   now: () => number;
+}
+
+/**
+ * @deprecated Not a construction API. Opaque stub kept only so existing barrel
+ * re-exports in index.ts typecheck until those barrels drop this symbol.
+ * Direct runtime injection is unavailable.
+ */
+export type ShadowRuntimeDependencies = {
+  readonly __shadowDirectConstructionRemoved: unique symbol;
+};
+
+/**
+ * @deprecated Not a public construction API. Always throws.
+ * Use createDryRunShadowRuntime or createMockTransportShadowRuntime.
+ * Stub kept only so existing barrel re-exports in index.ts typecheck.
+ */
+export function createShadowRuntimeDependencies(
+  ..._args: never[]
+): never {
+  throw new Error(SHADOW_DEPS_FACTORY_REMOVED_ERROR);
+}
+
+function buildShadowRuntimeDeps(options: {
+  runtime: ShadowSafeRuntime;
+  now?: () => number;
+}): ShadowRuntimeDeps {
+  return {
+    runtime: options.runtime,
+    now: options.now ?? (() => Date.now()),
+  };
 }
 
 function exhaustedMockTransportResult(): ReplicateTransportResult {
@@ -139,22 +194,9 @@ function wrapShadowSafeRuntime(
 }
 
 /**
- * Build injectable shadow dependencies. Never reads environment variables.
- * Accepts only ShadowSafeRuntime (factory-branded).
- */
-export function createShadowRuntimeDependencies(options: {
-  runtime: ShadowSafeRuntime;
-  now?: () => number;
-}): ShadowRuntimeDependencies {
-  return {
-    runtime: options.runtime,
-    now: options.now ?? (() => Date.now()),
-  };
-}
-
-/**
  * Dry-run / disabled shadow runtime — transport kind "none".
  * Cannot run runtime_with_transport_mock (mode/kind mismatch → invalid_input).
+ * One of two supported public construction paths.
  */
 export function createDryRunShadowRuntime(options?: {
   now?: () => number;
@@ -162,17 +204,19 @@ export function createDryRunShadowRuntime(options?: {
   const now = options?.now ?? (() => Date.now());
   const aiOs = new AiOsRuntime(createAiOsRuntimeDependencies({ now }));
   return new ShadowRuntime(
-    createShadowRuntimeDependencies({
+    buildShadowRuntimeDeps({
       runtime: wrapShadowSafeRuntime(aiOs, "none"),
       now,
-    })
+    }),
+    SHADOW_RUNTIME_CONSTRUCTION_TOKEN
   );
 }
 
 /**
  * Mock-transport shadow runtime — transport kind "mock".
  * Accepts only declarative mockResults (data-only). Internally constructs the
- * adapter; never accepts generate callbacks, fetch, or real adapters.
+ * adapter; never accepts generate callbacks, fetch, runtime, or real adapters.
+ * One of two supported public construction paths.
  */
 export function createMockTransportShadowRuntime(options: {
   mockResults: ReplicateTransportResult[];
@@ -192,10 +236,11 @@ export function createMockTransportShadowRuntime(options: {
     })
   );
   return new ShadowRuntime(
-    createShadowRuntimeDependencies({
+    buildShadowRuntimeDeps({
       runtime: wrapShadowSafeRuntime(aiOs, "mock"),
       now,
-    })
+    }),
+    SHADOW_RUNTIME_CONSTRUCTION_TOKEN
   );
 }
 
@@ -403,10 +448,24 @@ function assertNoArtifactLeakage(result: ShadowRuntimeResult): void {
   }
 }
 
+/**
+ * Shadow observation runtime.
+ * Public construction is factory-only: module-private construction token
+ * (TypeScript `private` constructor cannot be called from module-level factories).
+ */
 export class ShadowRuntime {
-  private readonly dependencies: ShadowRuntimeDependencies;
+  private readonly dependencies: ShadowRuntimeDeps;
 
-  constructor(dependencies: ShadowRuntimeDependencies) {
+  /**
+   * @internal Factories only. Requires module-private token — not obtainable by callers.
+   */
+  constructor(
+    dependencies: ShadowRuntimeDeps,
+    token: typeof SHADOW_RUNTIME_CONSTRUCTION_TOKEN
+  ) {
+    if (token !== SHADOW_RUNTIME_CONSTRUCTION_TOKEN) {
+      throw new Error(SHADOW_DIRECT_CONSTRUCTION_ERROR);
+    }
     this.dependencies = dependencies;
   }
 

@@ -37,21 +37,31 @@ Same Request (parallel observation)
 
 No user sees Shadow output. Legacy production generation, UI, Expo, App.js, and `lib/replicate.js` remain unchanged.
 
-Shadow calls existing `AiOsRuntime` through a **ShadowSafeRuntime** contract. It does not reimplement TransformationEngine, VisualDirector, RenderPlan, ProviderFormatter, transport, ResultValidator, or RetryOrchestrator.
+Shadow calls existing `AiOsRuntime` through an **internal** shadow-safe wrapper built only by the factories. Direct runtime injection is unavailable. It does not reimplement TransformationEngine, VisualDirector, RenderPlan, ProviderFormatter, transport, ResultValidator, or RetryOrchestrator.
 
-## Mock-only transport (PATCH 014A / 014B)
+## Construction (PATCH 014C) + mock-only transport (014A / 014B)
+
+Safe factories are the **only** supported construction path:
+
+- `createDryRunShadowRuntime` → kind `"none"` (disabled + `runtime_only`)
+- `createMockTransportShadowRuntime({ mockResults, now })` → kind `"mock"`, declarative fixture queue only
+
+Direct construction is unavailable:
+
+- `ShadowRuntime` construction requires a **module-private construction token** (TypeScript `private` constructor is impractical for module-level factories; token is never exported)
+- Callers cannot `new ShadowRuntime(...)` with an injected `run` callback or fake safe runtime
+- `ShadowSafeRuntime` and usable `ShadowRuntimeDependencies` are **not** public contracts
+- `createShadowRuntimeDependencies` is not a construction API (throws if invoked)
 
 Transport shadowing is **mock-only** and **data-only**. Real provider shadow traffic is structurally unavailable.
 
 Avoiding duplicate billing is enforced **by construction**, not convention:
 
-- `ShadowRuntime` accepts only `ShadowSafeRuntime` with `shadowTransportKind: "none" | "mock"`
-- `createDryRunShadowRuntime` → kind `"none"` (disabled + `runtime_only`)
-- `createMockTransportShadowRuntime({ mockResults, now })` → kind `"mock"`, declarative fixture queue only
-- Mock transport is driven only by immutable `ReplicateTransportResult` fixtures (`ShadowMockTransportScript`)
-- No caller-supplied `generate` callback, `fetch`, network dependency, or real `ReplicateTransportAdapter` is accepted
+- Factories alone attach internal `shadowTransportKind: "none" | "mock"`
+- Mock transport is driven only by immutable `ReplicateTransportResult` fixtures (`ShadowMockTransportScript`) — the only mock transport input
+- No caller-supplied `generate` callback, `fetch`, network dependency, runtime dependency, or real `ReplicateTransportAdapter` is accepted
 - Shadow internally constructs a data-only adapter that clones the next fixture (or fails safely when exhausted)
-- Brand symbols, if retained, are **module-private** — never exported, never accepted from callers
+- Brand / construction tokens are **module-private** — never exported, never accepted from callers
 - Mode/kind mismatch returns `invalid_input` with **zero** runtime calls and **zero** transport calls
 - Shadow code never creates a real `ReplicateTransportAdapter`, never reads `process.env`, never adds feature flags or production wiring
 
@@ -131,7 +141,8 @@ Log and observability views must use this safe shadow surface — never dump raw
 - one shadow invocation maps to one runtime execution
 - transport_mock still performs at most one transport call — and only via data-only fixtures
 - disabled mode performs zero runtime work
-- caller-supplied transport functions and real adapters cannot open provider traffic through Shadow
+- caller-supplied transport functions, run callbacks, and real adapters cannot open provider traffic through Shadow
+- ShadowRuntime construction is factory-only (module-private construction token)
 
 ## What it does not prove
 
