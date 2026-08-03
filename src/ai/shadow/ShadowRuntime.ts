@@ -4,10 +4,11 @@
  * Modes:
  * - disabled: skip immediately
  * - runtime_only: AiOsRuntime dry_run once; metrics only; discard artifacts
- * - runtime_with_transport_mock: branded mock transport once; metrics only; discard artifacts
+ * - runtime_with_transport_mock: data-only mock transport once; metrics only; discard artifacts
  *
- * Transport is mock-only by construction (ShadowSafeRuntime + brand).
+ * Transport is mock-only by construction (ShadowSafeRuntime + internal data-only adapter).
  * Never creates a real Replicate adapter, never reads environment variables,
+ * never accepts caller generate callbacks / fetch / network deps,
  * never exposes formatted requests, transport URLs, prompts, plans, or evidence.
  * Never performs automatic retries or production writes.
  */
@@ -19,10 +20,7 @@ import {
 } from "../runtime";
 import type { AiOsRuntimeInput, AiOsRuntimeResult } from "../runtime/AiOsRuntimeTypes";
 import type { ReplicateTransportAdapter } from "../transport/ReplicateTransportAdapter";
-import type {
-  ReplicateTransportInput,
-  ReplicateTransportResult,
-} from "../transport/ReplicateTransportTypes";
+import type { ReplicateTransportResult } from "../transport/ReplicateTransportTypes";
 import { collectShadowMetrics, emptyShadowMetrics } from "./ShadowMetrics";
 import {
   buildShadowReplayRecord,
@@ -47,20 +45,15 @@ export const SHADOW_TRANSPORT_KIND_MISMATCH_ERROR =
   "Shadow mode is incompatible with shadowTransportKind.";
 
 export const SHADOW_UNBRANDED_TRANSPORT_ERROR =
-  "createShadowRuntimeFromAiOsDeps rejects unbranded transport. Use createMockTransportShadowRuntime with createShadowMockTransport.";
+  "createShadowRuntimeFromAiOsDeps rejects transport adapters. Use createMockTransportShadowRuntime with mockResults.";
 
-/** Explicit brand — not class-name or adapter-id detection. */
-export const SHADOW_MOCK_TRANSPORT_BRAND: unique symbol = Symbol(
+export const SHADOW_MOCK_RESULTS_EXHAUSTED_ERROR =
+  "Shadow mock transport results exhausted.";
+
+/** Module-private brand — never exported; never accepted from callers. */
+const SHADOW_MOCK_TRANSPORT_BRAND: unique symbol = Symbol(
   "helseapp.shadow.mockTransport"
 );
-
-/**
- * Mock transport adapter proven by brand factory, not by naming.
- * Satisfies ReplicateTransportAdapter structurally for AiOsRuntime injection.
- */
-export type ShadowMockTransportAdapter = ReplicateTransportAdapter & {
-  readonly [SHADOW_MOCK_TRANSPORT_BRAND]: true;
-};
 
 const SUPPORTED_SHADOW_MODES: readonly ShadowMode[] = [
   "disabled",
@@ -88,38 +81,51 @@ export interface ShadowRuntimeDependencies {
   now: () => number;
 }
 
-/**
- * Runtime brand check for mock transport adapters.
- */
-export function isShadowMockTransport(
-  adapter: unknown
-): adapter is ShadowMockTransportAdapter {
-  return (
-    typeof adapter === "object" &&
-    adapter !== null &&
-    (adapter as { [SHADOW_MOCK_TRANSPORT_BRAND]?: unknown })[
-      SHADOW_MOCK_TRANSPORT_BRAND
-    ] === true
-  );
+function exhaustedMockTransportResult(): ReplicateTransportResult {
+  return {
+    success: false,
+    provider: "replicate",
+    imageUrl: null,
+    generationTimeMs: 0,
+    error: {
+      code: "adapter_disabled",
+      message: SHADOW_MOCK_RESULTS_EXHAUSTED_ERROR,
+      retryable: false,
+    },
+    warnings: [],
+    metadata: {
+      traceId: "shadow-mock-exhausted",
+      pollingAttempts: 0,
+    },
+  };
 }
 
 /**
- * Explicit mock-transport brand factory.
- * Does not wrap or instantiate ReplicateTransportAdapter class instances.
+ * Internal data-only mock adapter.
+ * generate may only clone the next fixture result or fail safely when exhausted.
+ * No callbacks, fetch, env, or real Replicate adapter wiring.
  */
-export function createShadowMockTransport(spec: {
-  id?: string;
-  generate: (
-    input: ReplicateTransportInput
-  ) => Promise<ReplicateTransportResult>;
-}): ShadowMockTransportAdapter {
+function createInternalDataOnlyMockTransport(
+  mockResults: ReplicateTransportResult[]
+): ReplicateTransportAdapter {
+  const results = mockResults.map((result) => structuredClone(result));
+  let nextIndex = 0;
+
   const adapter = {
-    id: spec.id ?? "shadow-mock-transport-v1",
+    id: "shadow-mock-transport-v1",
     provider: "replicate" as const,
-    generate: spec.generate,
+    async generate(): Promise<ReplicateTransportResult> {
+      if (nextIndex >= results.length) {
+        return exhaustedMockTransportResult();
+      }
+      const cloned = structuredClone(results[nextIndex]);
+      nextIndex += 1;
+      return cloned;
+    },
     [SHADOW_MOCK_TRANSPORT_BRAND]: true as const,
   };
-  return adapter as unknown as ShadowMockTransportAdapter;
+
+  return adapter as unknown as ReplicateTransportAdapter;
 }
 
 function wrapShadowSafeRuntime(
@@ -165,22 +171,23 @@ export function createDryRunShadowRuntime(options?: {
 
 /**
  * Mock-transport shadow runtime — transport kind "mock".
- * Requires an explicitly branded mock transport (createShadowMockTransport).
- * Never accepts a real ReplicateTransportAdapter without the brand.
+ * Accepts only declarative mockResults (data-only). Internally constructs the
+ * adapter; never accepts generate callbacks, fetch, or real adapters.
  */
 export function createMockTransportShadowRuntime(options: {
-  mockTransport: ShadowMockTransportAdapter;
+  mockResults: ReplicateTransportResult[];
   now?: () => number;
 }): ShadowRuntime {
-  if (!isShadowMockTransport(options.mockTransport)) {
+  if (!Array.isArray(options.mockResults)) {
     throw new Error(
-      "createMockTransportShadowRuntime requires a branded mock transport from createShadowMockTransport."
+      "createMockTransportShadowRuntime requires a mockResults array of transport fixtures."
     );
   }
   const now = options.now ?? (() => Date.now());
+  const mockTransport = createInternalDataOnlyMockTransport(options.mockResults);
   const aiOs = new AiOsRuntime(
     createAiOsRuntimeDependencies({
-      transportAdapter: options.mockTransport,
+      transportAdapter: mockTransport,
       now,
     })
   );
@@ -194,7 +201,7 @@ export function createMockTransportShadowRuntime(options: {
 
 /**
  * @deprecated Use createDryRunShadowRuntime or createMockTransportShadowRuntime.
- * Rejects transport-capable deps unless the adapter is explicitly branded as mock.
+ * Never accepts any transportAdapter (branded or otherwise) — dry-run only.
  * Signature preserved for public export compatibility.
  */
 export function createShadowRuntimeFromAiOsDeps(
@@ -203,13 +210,7 @@ export function createShadowRuntimeFromAiOsDeps(
 ): ShadowRuntime {
   const resolvedNow = now ?? aiOsDeps.now;
   if (aiOsDeps.transportAdapter !== undefined) {
-    if (!isShadowMockTransport(aiOsDeps.transportAdapter)) {
-      throw new Error(SHADOW_UNBRANDED_TRANSPORT_ERROR);
-    }
-    return createMockTransportShadowRuntime({
-      mockTransport: aiOsDeps.transportAdapter,
-      now: resolvedNow,
-    });
+    throw new Error(SHADOW_UNBRANDED_TRANSPORT_ERROR);
   }
   return createDryRunShadowRuntime({ now: resolvedNow });
 }

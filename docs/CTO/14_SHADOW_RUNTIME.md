@@ -2,7 +2,7 @@
 
 Status:  
 Observation foundation — not production-integrated  
-Transport: **mock-only** (enforced by construction)
+Transport: **mock-only, data-only fixtures** (network-impossible by construction)
 
 Authority: [HelseApp AI Constitution](./00_AI_CONSTITUTION.md)  
 Architecture: [AI OS v2.0 Architecture](./04_AI_OS_V2_ARCHITECTURE.md)  
@@ -39,20 +39,23 @@ No user sees Shadow output. Legacy production generation, UI, Expo, App.js, and 
 
 Shadow calls existing `AiOsRuntime` through a **ShadowSafeRuntime** contract. It does not reimplement TransformationEngine, VisualDirector, RenderPlan, ProviderFormatter, transport, ResultValidator, or RetryOrchestrator.
 
-## Mock-only transport (PATCH 014A)
+## Mock-only transport (PATCH 014A / 014B)
 
-Transport shadowing is **mock-only**. Real provider shadow traffic is not supported.
+Transport shadowing is **mock-only** and **data-only**. Real provider shadow traffic is structurally unavailable.
 
 Avoiding duplicate billing is enforced **by construction**, not convention:
 
 - `ShadowRuntime` accepts only `ShadowSafeRuntime` with `shadowTransportKind: "none" | "mock"`
 - `createDryRunShadowRuntime` → kind `"none"` (disabled + `runtime_only`)
-- `createMockTransportShadowRuntime` → kind `"mock"`, requires `createShadowMockTransport` brand
+- `createMockTransportShadowRuntime({ mockResults, now })` → kind `"mock"`, declarative fixture queue only
+- Mock transport is driven only by immutable `ReplicateTransportResult` fixtures (`ShadowMockTransportScript`)
+- No caller-supplied `generate` callback, `fetch`, network dependency, or real `ReplicateTransportAdapter` is accepted
+- Shadow internally constructs a data-only adapter that clones the next fixture (or fails safely when exhausted)
+- Brand symbols, if retained, are **module-private** — never exported, never accepted from callers
 - Mode/kind mismatch returns `invalid_input` with **zero** runtime calls and **zero** transport calls
-- Brand is an explicit factory symbol — not class-name, constructor-name, or adapter-id detection
 - Shadow code never creates a real `ReplicateTransportAdapter`, never reads `process.env`, never adds feature flags or production wiring
 
-`createShadowRuntimeFromAiOsDeps` is deprecated for unsafe use: it rejects unbranded transport-capable dependencies.
+`createShadowRuntimeFromAiOsDeps` is deprecated for unsafe use: **any** `transportAdapter` (branded or otherwise) throws `SHADOW_UNBRANDED_TRANSPORT_ERROR`. Without an adapter it yields dry-run shadow only. `runtime_with_transport_mock` is constructible only through the data-only mock-results factory.
 
 Future **real** shadow traffic (live provider observation) requires a **separate explicit CTO demand** with billing controls and sampling policy. Until then, real Replicate traffic through Shadow is forbidden.
 
@@ -62,9 +65,9 @@ Future **real** shadow traffic (live provider observation) requires a **separate
 | --- | --- | --- |
 | `disabled` | Return immediately. Zero runtime invocations. | any |
 | `runtime_only` | Run AI OS Runtime once in `dry_run`. Collect metrics. Discard artifacts. | `"none"` or `"mock"` |
-| `runtime_with_transport_mock` | Run AI OS Runtime once in `transport_mock` with branded mock only. Collect metrics. Discard artifacts. | `"mock"` exactly |
+| `runtime_with_transport_mock` | Run AI OS Runtime once in `transport_mock` with data-only fixtures. Collect metrics. Discard artifacts. | `"mock"` exactly |
 
-One shadow invocation performs at most one `AiOsRuntime.run` call. Shadow never performs an automatic retry loop or a second transport attempt.
+One shadow invocation performs at most one `AiOsRuntime.run` call and consumes at most one mock transport result. Shadow never performs an automatic retry loop or a second transport attempt.
 
 ## Metrics
 
@@ -126,9 +129,9 @@ Log and observability views must use this safe shadow surface — never dump raw
 - AI OS Runtime can be observed beside production without replacing it
 - metrics and replay can be collected without leaking sensitive content
 - one shadow invocation maps to one runtime execution
-- transport_mock still performs at most one transport call — and only via branded mock
+- transport_mock still performs at most one transport call — and only via data-only fixtures
 - disabled mode performs zero runtime work
-- unbranded / dry-run-only runtimes cannot open real provider traffic through Shadow
+- caller-supplied transport functions and real adapters cannot open provider traffic through Shadow
 
 ## What it does not prove
 
@@ -144,7 +147,7 @@ Log and observability views must use this safe shadow surface — never dump raw
 ## Known limitations
 
 - observation only — not production-wired
-- dry_run and transport_mock only (mock transport brand required)
+- dry_run and transport_mock only (data-only mock fixtures required)
 - no real provider shadow traffic
 - no production writes
 - no image storage

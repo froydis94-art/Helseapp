@@ -6,6 +6,7 @@
  *
  * Transport shadowing is mock-only by construction: real provider traffic is
  * not supported and requires a separate explicit CTO demand.
+ * Mock transport is driven only by immutable result fixtures (data-only).
  */
 
 import type {
@@ -15,6 +16,7 @@ import type {
   AiOsRuntimeStage,
   AiOsRuntimeTerminalOutcome,
 } from "../runtime/AiOsRuntimeTypes";
+import type { ReplicateTransportResult } from "../transport/ReplicateTransportTypes";
 
 export const SHADOW_RUNTIME_RULES_VERSION = "1.0" as const;
 
@@ -26,9 +28,17 @@ export type ShadowMode =
 /**
  * Explicit transport capability for shadow-safe runtimes.
  * - "none": dry-run / disabled only (no transport dependency)
- * - "mock": branded mock transport only (never real Replicate)
+ * - "mock": data-only mock transport fixtures (never real Replicate)
  */
 export type ShadowTransportKind = "none" | "mock";
+
+/**
+ * Declarative mock-transport fixture queue.
+ * Callers supply results only — never generate callbacks or network deps.
+ */
+export interface ShadowMockTransportScript {
+  results: ReplicateTransportResult[];
+}
 
 /**
  * Shadow-safe runtime dependency contract.

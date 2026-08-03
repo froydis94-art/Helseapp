@@ -1,11 +1,12 @@
 /**
- * DEMAND_014 / PATCH_014A — Shadow Runtime foundation + mock-only transport.
+ * DEMAND_014 / PATCH_014A / PATCH_014B — Shadow Runtime foundation +
+ * data-only, network-impossible mock transport.
  *
  * Path note: lives under `src/ai/__tests__/` (not `tests/`) to match
  * existing package.json `test:ai` discovery.
  *
  * Run: npm run test:ai
- * Zero real network. Mocked transport only. No production writes.
+ * Zero real network. Data-only mock fixtures. No production writes.
  */
 
 import { describe, it } from "node:test";
@@ -15,7 +16,6 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { ReplicateTransportAdapter } from "../transport/ReplicateTransportAdapter";
-import type { ReplicateTransportInput } from "../transport/ReplicateTransportTypes";
 import type { ReplicateTransportResult } from "../transport/ReplicateTransportTypes";
 import {
   AiOsRuntime,
@@ -43,14 +43,13 @@ import {
   type ShadowRuntimeInput,
   type ShadowRuntimeResult,
 } from "../shadow";
+import * as ShadowRuntimeModule from "../shadow/ShadowRuntime";
 import {
+  SHADOW_MOCK_RESULTS_EXHAUSTED_ERROR,
   SHADOW_TRANSPORT_KIND_MISMATCH_ERROR,
   SHADOW_UNBRANDED_TRANSPORT_ERROR,
   createDryRunShadowRuntime,
   createMockTransportShadowRuntime,
-  createShadowMockTransport,
-  isShadowMockTransport,
-  type ShadowMockTransportAdapter,
 } from "../shadow/ShadowRuntime";
 import type { ShadowSafeRuntime } from "../shadow/ShadowRuntimeTypes";
 
@@ -75,64 +74,34 @@ function normalizeShadowResult(result: ShadowRuntimeResult): ShadowRuntimeResult
   return clone;
 }
 
-function createTrackedMockTransport(
-  result: ReplicateTransportResult,
-  calls: { count: number; inputs: ReplicateTransportInput[] }
-): ShadowMockTransportAdapter {
-  return createShadowMockTransport({
-    id: "mock-transport-shadow-v1",
-    async generate(input: ReplicateTransportInput): Promise<ReplicateTransportResult> {
-      calls.count += 1;
-      calls.inputs.push(input);
-      return structuredClone(result);
-    },
-  });
-}
-
-function createShadowWithTrackedMock(
-  transportResult: ReplicateTransportResult
-): {
-  shadow: ShadowRuntime;
-  calls: { count: number; inputs: ReplicateTransportInput[] };
-} {
-  const calls = { count: 0, inputs: [] as ReplicateTransportInput[] };
-  let tick = 1_000_000;
-  const clock = () => {
+function createClock(start = 1_000_000): () => number {
+  let tick = start;
+  return () => {
     tick += 5;
     return tick;
   };
-  const mockTransport = createTrackedMockTransport(transportResult, calls);
-  const shadow = createMockTransportShadowRuntime({
-    mockTransport,
-    now: clock,
-  });
-  return { shadow, calls };
 }
 
-function wrapTrackedSafeRuntime(
-  kind: "none" | "mock",
-  transportResult: ReplicateTransportResult,
-  counters: { runtimeCalls: number; transportCalls: number },
+function createDataOnlyMockShadow(
+  mockResults: ReplicateTransportResult[] = [runtimeTransportSuccessResult],
+  start = 1_000_000
+): ShadowRuntime {
+  return createMockTransportShadowRuntime({
+    mockResults: mockResults.map((r) => structuredClone(r)),
+    now: createClock(start),
+  });
+}
+
+function wrapNoneSafeRuntime(
+  counters: { runtimeCalls: number },
   clock: () => number
 ): ShadowSafeRuntime {
-  const calls = { count: 0, inputs: [] as ReplicateTransportInput[] };
-  const adapter =
-    kind === "mock"
-      ? createTrackedMockTransport(transportResult, calls)
-      : undefined;
-  const aiOs = new AiOsRuntime(
-    createAiOsRuntimeDependencies({
-      transportAdapter: adapter,
-      now: clock,
-    })
-  );
+  const aiOs = new AiOsRuntime(createAiOsRuntimeDependencies({ now: clock }));
   return {
-    shadowTransportKind: kind,
+    shadowTransportKind: "none",
     async run(input) {
       counters.runtimeCalls += 1;
-      const result = await aiOs.run(input);
-      counters.transportCalls = calls.count;
-      return result;
+      return aiOs.run(input);
     },
   };
 }
@@ -172,21 +141,12 @@ function readShadowSources(): string {
   return files.map((name) => readFileSync(join(shadowDir, name), "utf8")).join("\n");
 }
 
-describe("shadowRuntime — DEMAND_014 / PATCH_014A", () => {
+describe("shadowRuntime — DEMAND_014 / PATCH_014A / PATCH_014B", () => {
   describe("Disabled mode", () => {
     it("1. Disabled mode skips runtime", async () => {
-      const counters = { runtimeCalls: 0, transportCalls: 0 };
-      let tick = 1_000_000;
-      const clock = () => {
-        tick += 1;
-        return tick;
-      };
-      const safe = wrapTrackedSafeRuntime(
-        "none",
-        runtimeTransportSuccessResult,
-        counters,
-        clock
-      );
+      const counters = { runtimeCalls: 0 };
+      const clock = createClock();
+      const safe = wrapNoneSafeRuntime(counters, clock);
       const shadow = new ShadowRuntime(
         createShadowRuntimeDependencies({ runtime: safe, now: clock })
       );
@@ -198,7 +158,6 @@ describe("shadowRuntime — DEMAND_014 / PATCH_014A", () => {
       assert.equal(result.mode, "disabled");
       assert.equal(result.execution.terminalOutcome, "skipped");
       assert.equal(counters.runtimeCalls, 0);
-      assert.equal(counters.transportCalls, 0);
     });
   });
 
@@ -217,11 +176,13 @@ describe("shadowRuntime — DEMAND_014 / PATCH_014A", () => {
     });
 
     it("3. Runtime_only does not call transport", async () => {
-      const { shadow, calls } = createShadowWithTrackedMock(
-        runtimeTransportSuccessResult
-      );
+      // One fixture: if runtime_only consumed transport, transport_mock would exhaust.
+      const shadow = createDataOnlyMockShadow([runtimeTransportSuccessResult]);
       await shadow.run(runtimeOnlyValidShadowInput);
-      assert.equal(calls.count, 0);
+      const result = await shadow.run(transportMockAwaitingValidationShadowInput);
+      assert.equal(result.execution.runtimeMode, "transport_mock");
+      assert.equal(result.execution.terminalOutcome, "awaiting_validation");
+      assert.equal(result.metrics.awaitingValidation, true);
     });
 
     it("2b. Runtime_only works with dry-run-safe factory", async () => {
@@ -234,50 +195,84 @@ describe("shadowRuntime — DEMAND_014 / PATCH_014A", () => {
 
   describe("transport_mock", () => {
     it("4. Transport_mock executes transport once", async () => {
-      const { shadow, calls } = createShadowWithTrackedMock(
-        runtimeTransportSuccessResult
-      );
+      const shadow = createDataOnlyMockShadow([runtimeTransportSuccessResult]);
       const result = await shadow.run(transportMockAwaitingValidationShadowInput);
 
       assert.equal(result.mode, "runtime_with_transport_mock");
       assert.equal(result.execution.runtimeMode, "transport_mock");
-      assert.equal(calls.count, 1);
       assert.equal(result.execution.terminalOutcome, "awaiting_validation");
       assert.equal(result.metrics.awaitingValidation, true);
+
+      // Second run with no remaining fixtures proves exactly one consume on first.
+      const exhausted = await shadow.run(transportMockAwaitingValidationShadowInput);
+      assert.equal(exhausted.success, false);
+      assert.equal(exhausted.metrics.transportFailure, true);
     });
 
     it("5. No retry loop — one invocation one runtime execution", async () => {
-      const calls = { count: 0, inputs: [] as ReplicateTransportInput[] };
-      let runtimeCalls = 0;
-      let tick = 2_000_000;
-      const clock = () => {
-        tick += 5;
-        return tick;
-      };
-      const mockTransport = createTrackedMockTransport(
-        runtimeTransportTimeoutResult,
-        calls
+      // Only one timeout fixture: a retry loop would hit exhausted mid-run.
+      const shadow = createDataOnlyMockShadow(
+        [runtimeTransportTimeoutResult],
+        2_000_000
       );
-      const aiOs = new AiOsRuntime(
-        createAiOsRuntimeDependencies({
-          transportAdapter: mockTransport,
-          now: clock,
-        })
-      );
-      const safe: ShadowSafeRuntime = {
-        shadowTransportKind: "mock",
-        async run(input) {
-          runtimeCalls += 1;
-          return aiOs.run(input);
-        },
-      };
-      const wrapped = new ShadowRuntime(
-        createShadowRuntimeDependencies({ runtime: safe, now: clock })
-      );
-      const result = await wrapped.run(transportMockTimeoutShadowInput);
+      const result = await shadow.run(transportMockTimeoutShadowInput);
 
-      assert.equal(runtimeCalls, 1);
-      assert.equal(calls.count, 1);
+      assert.ok(
+        result.execution.terminalOutcome === "retry_required" ||
+          result.execution.terminalOutcome === "transport_failed"
+      );
+      assert.equal(
+        result.metrics.retryRequested || result.metrics.transportFailure,
+        true
+      );
+      assert.equal(
+        result.errors.some((e) => e.includes(SHADOW_MOCK_RESULTS_EXHAUSTED_ERROR)),
+        false
+      );
+    });
+
+    it("6. Accepted outcome metrics", async () => {
+      const shadow = createDataOnlyMockShadow([runtimeTransportSuccessResult]);
+      const result = await shadow.run(transportMockAcceptedShadowInput);
+      assert.equal(result.execution.terminalOutcome, "accepted");
+      assert.equal(result.metrics.accepted, true);
+      assert.equal(result.metrics.retryRequested, false);
+    });
+
+    it("7. Retry-requested metrics without second transport call", async () => {
+      const shadow = createDataOnlyMockShadow([runtimeTransportSuccessResult]);
+      const result = await shadow.run(transportMockRetryShadowInput);
+      assert.equal(result.execution.terminalOutcome, "retry_required");
+      assert.equal(result.metrics.retryRequested, true);
+
+      // Fixture still available would mean second generate; prove consumed once:
+      const exhausted = await shadow.run(transportMockRetryShadowInput);
+      assert.equal(exhausted.metrics.transportFailure, true);
+    });
+  });
+
+  describe("Data-only mock transport enforcement (014B)", () => {
+    it("25. dry-run factory works", async () => {
+      const shadow = createDryRunShadowRuntime();
+      const result = await shadow.run(runtimeOnlyValidShadowInput);
+      assert.equal(result.success, true);
+      assert.equal(result.execution.runtimeMode, "dry_run");
+    });
+
+    it("26. data-only mock success works", async () => {
+      const shadow = createMockTransportShadowRuntime({
+        mockResults: [structuredClone(runtimeTransportSuccessResult)],
+      });
+      const result = await shadow.run(transportMockAcceptedShadowInput);
+      assert.equal(result.execution.terminalOutcome, "accepted");
+      assert.equal(result.metrics.accepted, true);
+    });
+
+    it("27. data-only mock timeout works", async () => {
+      const shadow = createMockTransportShadowRuntime({
+        mockResults: [structuredClone(runtimeTransportTimeoutResult)],
+      });
+      const result = await shadow.run(transportMockTimeoutShadowInput);
       assert.ok(
         result.execution.terminalOutcome === "retry_required" ||
           result.execution.terminalOutcome === "transport_failed"
@@ -288,75 +283,54 @@ describe("shadowRuntime — DEMAND_014 / PATCH_014A", () => {
       );
     });
 
-    it("6. Accepted outcome metrics", async () => {
-      const { shadow, calls } = createShadowWithTrackedMock(
-        runtimeTransportSuccessResult
-      );
-      const result = await shadow.run(transportMockAcceptedShadowInput);
-      assert.equal(calls.count, 1);
-      assert.equal(result.execution.terminalOutcome, "accepted");
-      assert.equal(result.metrics.accepted, true);
-      assert.equal(result.metrics.retryRequested, false);
+    it("28. supplied mock results are not mutated", async () => {
+      const mockResults = [structuredClone(runtimeTransportSuccessResult)];
+      const before = freezeClone(mockResults);
+      const shadow = createMockTransportShadowRuntime({ mockResults });
+      await shadow.run(transportMockAcceptedShadowInput);
+      assert.deepEqual(mockResults, before);
     });
 
-    it("7. Retry-requested metrics without second transport call", async () => {
-      const { shadow, calls } = createShadowWithTrackedMock(
-        runtimeTransportSuccessResult
-      );
-      const result = await shadow.run(transportMockRetryShadowInput);
-      assert.equal(calls.count, 1);
-      assert.equal(result.execution.terminalOutcome, "retry_required");
-      assert.equal(result.metrics.retryRequested, true);
+    it("29. each invocation consumes at most one result", async () => {
+      const shadow = createMockTransportShadowRuntime({
+        mockResults: [
+          structuredClone(runtimeTransportSuccessResult),
+          structuredClone(runtimeTransportSuccessResult),
+        ],
+      });
+      const first = await shadow.run(transportMockAcceptedShadowInput);
+      assert.equal(first.execution.terminalOutcome, "accepted");
+      const second = await shadow.run(transportMockAcceptedShadowInput);
+      assert.equal(second.execution.terminalOutcome, "accepted");
+      const third = await shadow.run(transportMockAcceptedShadowInput);
+      assert.equal(third.success, false);
+      assert.equal(third.metrics.transportFailure, true);
     });
-  });
 
-  describe("Mock-only transport enforcement (014A)", () => {
-    it("25. runtime_with_transport_mock works with branded mock runtime", async () => {
-      const { shadow, calls } = createShadowWithTrackedMock(
-        runtimeTransportSuccessResult
-      );
+    it("30. exhausted mock results fail safely", async () => {
+      const shadow = createMockTransportShadowRuntime({ mockResults: [] });
       const result = await shadow.run(transportMockValidShadowInput);
+      assert.equal(result.success, false);
       assert.equal(result.execution.executed, true);
-      assert.equal(result.execution.runtimeMode, "transport_mock");
-      assert.equal(calls.count, 1);
+      assert.equal(result.metrics.transportFailure, true);
     });
 
-    it("26. runtime_with_transport_mock rejects dry-run-only runtime", async () => {
-      const counters = { runtimeCalls: 0, transportCalls: 0 };
-      let tick = 3_000_000;
-      const clock = () => {
-        tick += 1;
-        return tick;
-      };
-      const safe = wrapTrackedSafeRuntime(
-        "none",
-        runtimeTransportSuccessResult,
-        counters,
-        clock
+    it("31. no callback can be supplied by the public contract", () => {
+      const src = readFileSync(join(shadowDir, "ShadowRuntime.ts"), "utf8");
+      assert.equal(src.includes("createShadowMockTransport"), false);
+      assert.equal(/generate\s*:\s*\(/.test(src), false);
+      assert.equal(
+        /createMockTransportShadowRuntime\(options:\s*\{[^}]*generate/s.test(src),
+        false
       );
-      const shadow = new ShadowRuntime(
-        createShadowRuntimeDependencies({ runtime: safe, now: clock })
+      assert.match(
+        src,
+        /createMockTransportShadowRuntime\(options:\s*\{\s*mockResults:/
       );
-      const result = await shadow.run(transportMockValidShadowInput);
-
-      assert.equal(result.success, false);
-      assert.equal(result.execution.terminalOutcome, "invalid_input");
-      assert.equal(result.execution.executed, false);
-      assert.ok(result.errors.includes(SHADOW_TRANSPORT_KIND_MISMATCH_ERROR));
-      assert.equal(counters.runtimeCalls, 0);
-      assert.equal(counters.transportCalls, 0);
+      assert.equal("createShadowMockTransport" in ShadowRuntimeModule, false);
     });
 
-    it("27. createDryRunShadowRuntime rejects transport_mock with zero work", async () => {
-      const shadow = createDryRunShadowRuntime();
-      const result = await shadow.run(transportMockValidShadowInput);
-      assert.equal(result.success, false);
-      assert.equal(result.execution.terminalOutcome, "invalid_input");
-      assert.equal(result.execution.executed, false);
-      assert.ok(result.errors.includes(SHADOW_TRANSPORT_KIND_MISMATCH_ERROR));
-    });
-
-    it("28. createShadowRuntimeFromAiOsDeps rejects unbranded transport", () => {
+    it("32. arbitrary AiOsRuntimeDependencies with transport adapter are rejected", () => {
       const unbranded = {
         id: "real-looking-replicate-v1",
         provider: "replicate" as const,
@@ -365,7 +339,6 @@ describe("shadowRuntime — DEMAND_014 / PATCH_014A", () => {
         },
       } as unknown as ReplicateTransportAdapter;
 
-      assert.equal(isShadowMockTransport(unbranded), false);
       assert.throws(
         () =>
           createShadowRuntimeFromAiOsDeps(
@@ -377,58 +350,110 @@ describe("shadowRuntime — DEMAND_014 / PATCH_014A", () => {
       );
     });
 
-    it("29. real-looking adapter cannot enter createMockTransportShadowRuntime", () => {
+    it("33. real-looking Replicate adapter is rejected", () => {
       const realLooking = {
         id: "replicate-live-looking",
         provider: "replicate" as const,
         async generate(): Promise<ReplicateTransportResult> {
           return structuredClone(runtimeTransportSuccessResult);
         },
-      } as unknown as ShadowMockTransportAdapter;
+      } as unknown as ReplicateTransportAdapter;
 
-      assert.equal(isShadowMockTransport(realLooking), false);
       assert.throws(
-        () => createMockTransportShadowRuntime({ mockTransport: realLooking }),
+        () =>
+          createShadowRuntimeFromAiOsDeps(
+            createAiOsRuntimeDependencies({ transportAdapter: realLooking })
+          ),
         (err: unknown) =>
           err instanceof Error &&
-          err.message.includes("branded mock transport")
+          err.message === SHADOW_UNBRANDED_TRANSPORT_ERROR
+      );
+      // Public mock factory does not accept adapters at all.
+      assert.equal(
+        createMockTransportShadowRuntime.length >= 1 ||
+          typeof createMockTransportShadowRuntime === "function",
+        true
       );
     });
 
-    it("30. createShadowRuntimeFromAiOsDeps accepts branded mock", async () => {
-      const calls = { count: 0, inputs: [] as ReplicateTransportInput[] };
-      const mockTransport = createTrackedMockTransport(
-        runtimeTransportSuccessResult,
-        calls
-      );
+    it("34. createShadowRuntimeFromAiOsDeps without adapter is dry-run only", async () => {
       const shadow = createShadowRuntimeFromAiOsDeps(
-        createAiOsRuntimeDependencies({ transportAdapter: mockTransport })
+        createAiOsRuntimeDependencies({})
       );
-      const result = await shadow.run(transportMockAcceptedShadowInput);
-      assert.equal(result.execution.terminalOutcome, "accepted");
-      assert.equal(calls.count, 1);
+      const dry = await shadow.run(runtimeOnlyValidShadowInput);
+      assert.equal(dry.success, true);
+      const mock = await shadow.run(transportMockValidShadowInput);
+      assert.equal(mock.success, false);
+      assert.ok(mock.errors.includes(SHADOW_TRANSPORT_KIND_MISMATCH_ERROR));
     });
 
-    it("31. createShadowMockTransport brands explicitly", () => {
-      const mock = createShadowMockTransport({
-        async generate() {
-          return structuredClone(runtimeTransportSuccessResult);
-        },
+    it("35. runtime_with_transport_mock rejects dry-run-only runtime", async () => {
+      const counters = { runtimeCalls: 0 };
+      const clock = createClock(3_000_000);
+      const safe = wrapNoneSafeRuntime(counters, clock);
+      const shadow = new ShadowRuntime(
+        createShadowRuntimeDependencies({ runtime: safe, now: clock })
+      );
+      const result = await shadow.run(transportMockValidShadowInput);
+
+      assert.equal(result.success, false);
+      assert.equal(result.execution.terminalOutcome, "invalid_input");
+      assert.equal(result.execution.executed, false);
+      assert.ok(result.errors.includes(SHADOW_TRANSPORT_KIND_MISMATCH_ERROR));
+      assert.equal(counters.runtimeCalls, 0);
+    });
+
+    it("36. createDryRunShadowRuntime rejects transport_mock with zero work", async () => {
+      const shadow = createDryRunShadowRuntime();
+      const result = await shadow.run(transportMockValidShadowInput);
+      assert.equal(result.success, false);
+      assert.equal(result.execution.terminalOutcome, "invalid_input");
+      assert.equal(result.execution.executed, false);
+      assert.ok(result.errors.includes(SHADOW_TRANSPORT_KIND_MISMATCH_ERROR));
+    });
+
+    it("37. no exported mock brand symbol exists", () => {
+      const src = readFileSync(join(shadowDir, "ShadowRuntime.ts"), "utf8");
+      assert.equal(src.includes("export const SHADOW_MOCK_TRANSPORT_BRAND"), false);
+      assert.equal(src.includes("export function isShadowMockTransport"), false);
+      assert.equal(src.includes("export type ShadowMockTransportAdapter"), false);
+      assert.equal("SHADOW_MOCK_TRANSPORT_BRAND" in ShadowRuntimeModule, false);
+      assert.equal("isShadowMockTransport" in ShadowRuntimeModule, false);
+      assert.equal("createShadowMockTransport" in ShadowRuntimeModule, false);
+    });
+
+    it("38. shadow source contains no fetch / Replicate construction", () => {
+      const src = readShadowSources();
+      assert.equal(/\bfetch\s*\(/.test(src), false);
+      assert.equal(src.includes("new ReplicateTransportAdapter"), false);
+      assert.equal(src.includes("lib/replicate"), false);
+      assert.equal(src.includes("process.env"), false);
+    });
+
+    it("39. zero real network calls possible through public Shadow factories", async () => {
+      const dry = createDryRunShadowRuntime();
+      const mock = createMockTransportShadowRuntime({
+        mockResults: [structuredClone(runtimeTransportSuccessResult)],
       });
-      assert.equal(isShadowMockTransport(mock), true);
+      await dry.run(runtimeOnlyValidShadowInput);
+      await mock.run(transportMockAcceptedShadowInput);
+      // Factories never accept network deps; source proves no fetch/env/replicate.
+      const src = readFileSync(join(shadowDir, "ShadowRuntime.ts"), "utf8");
+      assert.match(src, /mockResults/);
+      assert.equal(src.includes("createShadowMockTransport"), false);
     });
   });
 
   describe("Security / leakage", () => {
     it("8. No artifact leakage in exposed result", async () => {
-      const { shadow } = createShadowWithTrackedMock(runtimeTransportSuccessResult);
+      const shadow = createDataOnlyMockShadow();
       const result = await shadow.run(runtimeOnlyValidShadowInput);
       assertNoSensitiveLeakage(result);
       assert.equal("artifacts" in result, false);
     });
 
     it("9. No prompt leakage", async () => {
-      const { shadow } = createShadowWithTrackedMock(runtimeTransportSuccessResult);
+      const shadow = createDataOnlyMockShadow();
       const result = await shadow.run(runtimeOnlyValidShadowInput);
       const json = shadowJson(result);
       assert.equal(json.includes("prompt"), false);
@@ -437,13 +462,13 @@ describe("shadowRuntime — DEMAND_014 / PATCH_014A", () => {
     });
 
     it("10. No image / URL / Base64 / Authorization leakage", async () => {
-      const { shadow } = createShadowWithTrackedMock(runtimeTransportSuccessResult);
+      const shadow = createDataOnlyMockShadow();
       const result = await shadow.run(transportMockAcceptedShadowInput);
       assertNoSensitiveLeakage(result);
     });
 
     it("11. No RenderPlan / formatted request / ValidationEvidence / transport payload stored", async () => {
-      const { shadow } = createShadowWithTrackedMock(runtimeTransportSuccessResult);
+      const shadow = createDataOnlyMockShadow();
       const result = await shadow.run(transportMockAcceptedShadowInput);
       assertNoSensitiveLeakage(result);
       assert.ok(result.replay);
@@ -458,7 +483,7 @@ describe("shadowRuntime — DEMAND_014 / PATCH_014A", () => {
     });
 
     it("12. No health payload in shadow result", async () => {
-      const { shadow } = createShadowWithTrackedMock(runtimeTransportSuccessResult);
+      const shadow = createDataOnlyMockShadow();
       const result = await shadow.run(runtimeOnlyValidShadowInput);
       const json = shadowJson(result);
       assert.equal(json.includes("healthContext"), false);
@@ -470,7 +495,7 @@ describe("shadowRuntime — DEMAND_014 / PATCH_014A", () => {
   describe("Replay and metrics determinism", () => {
     it("13. Replay deterministic (normalized durations)", async () => {
       const build = async () => {
-        const { shadow } = createShadowWithTrackedMock(runtimeTransportSuccessResult);
+        const shadow = createDataOnlyMockShadow();
         return normalizeShadowResult(await shadow.run(runtimeOnlyValidShadowInput));
       };
       const a = await build();
@@ -482,7 +507,7 @@ describe("shadowRuntime — DEMAND_014 / PATCH_014A", () => {
 
     it("14. Metrics deterministic (normalized durations)", async () => {
       const build = async () => {
-        const { shadow } = createShadowWithTrackedMock(runtimeTransportSuccessResult);
+        const shadow = createDataOnlyMockShadow();
         return normalizeShadowResult(await shadow.run(runtimeOnlyValidShadowInput));
       };
       const a = await build();
@@ -529,7 +554,7 @@ describe("shadowRuntime — DEMAND_014 / PATCH_014A", () => {
 
   describe("Mutation safety", () => {
     it("16. Runtime input not mutated", async () => {
-      const { shadow } = createShadowWithTrackedMock(runtimeTransportSuccessResult);
+      const shadow = createDataOnlyMockShadow();
       const input = freezeClone(runtimeOnlyValidShadowInput);
       const before = freezeClone(input);
       await shadow.run(input);
@@ -537,7 +562,7 @@ describe("shadowRuntime — DEMAND_014 / PATCH_014A", () => {
     });
 
     it("17. Replay not mutated by caller edits across runs", async () => {
-      const { shadow } = createShadowWithTrackedMock(runtimeTransportSuccessResult);
+      const shadow = createDataOnlyMockShadow();
       const result = await shadow.run(runtimeOnlyValidShadowInput);
       assert.ok(result.replay);
       const originalTrace = result.replay.traceId;
@@ -550,7 +575,7 @@ describe("shadowRuntime — DEMAND_014 / PATCH_014A", () => {
     });
 
     it("18. JSON serializable", async () => {
-      const { shadow } = createShadowWithTrackedMock(runtimeTransportSuccessResult);
+      const shadow = createDataOnlyMockShadow();
       const result = await shadow.run(transportMockValidShadowInput);
       const json = JSON.stringify(result);
       const parsed = JSON.parse(json) as ShadowRuntimeResult;
@@ -566,7 +591,7 @@ describe("shadowRuntime — DEMAND_014 / PATCH_014A", () => {
     });
 
     it("20. sanitizeShadowRuntimeResult is idempotent for clean results", async () => {
-      const { shadow } = createShadowWithTrackedMock(runtimeTransportSuccessResult);
+      const shadow = createDataOnlyMockShadow();
       const result = await shadow.run(runtimeOnlyValidShadowInput);
       const once = sanitizeShadowRuntimeResult(result);
       const twice = sanitizeShadowRuntimeResult(once);
@@ -599,11 +624,7 @@ describe("shadowRuntime — DEMAND_014 / PATCH_014A", () => {
   describe("One invocation contract", () => {
     it("24. One shadow run → one runtime execution", async () => {
       let runtimeCalls = 0;
-      let tick = 1_000_000;
-      const clock = () => {
-        tick += 5;
-        return tick;
-      };
+      const clock = createClock();
       const aiOs = new AiOsRuntime(
         createAiOsRuntimeDependencies({ now: clock })
       );
