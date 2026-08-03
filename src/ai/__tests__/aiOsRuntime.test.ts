@@ -731,6 +731,253 @@ describe("aiOsRuntime — DEMAND_013", () => {
     });
   });
 
+  describe("PATCH 013A — transport imageUrl allowlist", () => {
+    const REALISTIC_OUTPUT_IMAGE_URL =
+      "https://replicate.delivery/pbxt/runtime-fixture-output.png";
+
+    function transportSuccessWithHttpsImageUrl(
+      imageUrl: string = REALISTIC_OUTPUT_IMAGE_URL
+    ): ReplicateTransportResult {
+      const base = structuredClone(runtimeTransportSuccessResult);
+      assert.equal(base.success, true);
+      if (!base.success) {
+        throw new Error("expected success fixture");
+      }
+      base.imageUrl = imageUrl;
+      return base;
+    }
+
+    async function resultWithHttpsTransportImageUrl(
+      input: AiOsRuntimeInput,
+      imageUrl: string = REALISTIC_OUTPUT_IMAGE_URL
+    ): Promise<AiOsRuntimeResult> {
+      const calls = { count: 0, inputs: [] as ReplicateTransportInput[] };
+      const adapter = createMockAdapter(
+        transportSuccessWithHttpsImageUrl(imageUrl),
+        calls
+      );
+      return createRuntime(adapter).run(input);
+    }
+
+    it("59a. Realistic HTTPS imageUrl in successful transport survives sanitization", async () => {
+      const result = await resultWithHttpsTransportImageUrl(
+        transportSuccessWithoutEvidenceInput
+      );
+      assert.equal(
+        result.artifacts.transportResult?.success === true
+          ? result.artifacts.transportResult.imageUrl
+          : undefined,
+        REALISTIC_OUTPUT_IMAGE_URL
+      );
+      const sanitized = sanitizeAiOsRuntimeResult(result);
+      assert.equal(
+        sanitized.artifacts.transportResult?.success === true
+          ? sanitized.artifacts.transportResult.imageUrl
+          : undefined,
+        REALISTIC_OUTPUT_IMAGE_URL
+      );
+      assert.equal(sanitized.terminalOutcome, "awaiting_validation");
+      assert.ok(!sanitized.errors.includes(RUNTIME_FORBIDDEN_CONTENT_ERROR));
+    });
+
+    it("59b. awaiting_validation remains successful with HTTPS imageUrl", async () => {
+      const result = await resultWithHttpsTransportImageUrl(
+        transportSuccessWithoutEvidenceInput
+      );
+      assert.equal(result.success, true);
+      assert.equal(result.terminalOutcome, "awaiting_validation");
+      assert.equal(
+        result.artifacts.transportResult?.success === true
+          ? result.artifacts.transportResult.imageUrl
+          : undefined,
+        REALISTIC_OUTPUT_IMAGE_URL
+      );
+    });
+
+    it("59c. accepted remains successful with HTTPS imageUrl", async () => {
+      const result = await resultWithHttpsTransportImageUrl(
+        transportSuccessWithAcceptedEvidenceInput
+      );
+      assert.equal(result.success, true);
+      assert.equal(result.terminalOutcome, "accepted");
+      assert.equal(
+        result.artifacts.transportResult?.success === true
+          ? result.artifacts.transportResult.imageUrl
+          : undefined,
+        REALISTIC_OUTPUT_IMAGE_URL
+      );
+    });
+
+    it("59d. rejected validation remains rejected, not invalid_runtime_state", async () => {
+      const result = await resultWithHttpsTransportImageUrl(
+        transportSuccessWithSafetyRejectEvidenceInput
+      );
+      assert.equal(result.success, false);
+      assert.equal(result.terminalOutcome, "rejected");
+      assert.notEqual(result.terminalOutcome, "invalid_runtime_state");
+      assert.equal(
+        result.artifacts.transportResult?.success === true
+          ? result.artifacts.transportResult.imageUrl
+          : undefined,
+        REALISTIC_OUTPUT_IMAGE_URL
+      );
+    });
+
+    it("59e. retry_required after validation remains retry_required", async () => {
+      const result = await resultWithHttpsTransportImageUrl(
+        transportSuccessWithRetryEvidenceInput
+      );
+      assert.equal(result.success, false);
+      assert.equal(result.terminalOutcome, "retry_required");
+      assert.equal(
+        result.artifacts.transportResult?.success === true
+          ? result.artifacts.transportResult.imageUrl
+          : undefined,
+        REALISTIC_OUTPUT_IMAGE_URL
+      );
+    });
+
+    it("59f. URL in errors is still redacted and invalidates the result", async () => {
+      const result = await createRuntime().run(validDryRunRuntimeInput);
+      const tainted = structuredClone(result) as AiOsRuntimeResult;
+      tainted.errors.push("https://example.invalid/errors");
+      const sanitized = sanitizeAiOsRuntimeResult(tainted);
+      assert.ok(sanitized.errors.includes(REDACTED_RUNTIME_CONTENT));
+      assert.equal(sanitized.success, false);
+      assert.equal(sanitized.terminalOutcome, "invalid_runtime_state");
+      assert.ok(sanitized.errors.includes(RUNTIME_FORBIDDEN_CONTENT_ERROR));
+    });
+
+    it("59g. URL in warnings is still redacted", async () => {
+      const result = await createRuntime().run(validDryRunRuntimeInput);
+      const tainted = structuredClone(result) as AiOsRuntimeResult;
+      tainted.warnings.push("https://example.invalid/warnings");
+      const sanitized = sanitizeAiOsRuntimeResult(tainted);
+      assert.ok(sanitized.warnings.includes(REDACTED_RUNTIME_CONTENT));
+      assert.equal(sanitized.terminalOutcome, "invalid_runtime_state");
+    });
+
+    it("59h. URL in trace metadata is still redacted", async () => {
+      const result = await createRuntime().run(validDryRunRuntimeInput);
+      const tainted = structuredClone(result) as AiOsRuntimeResult;
+      assert.ok(tainted.trace.stages.length > 0);
+      tainted.trace.stages[0]!.warnings.push(
+        "https://example.invalid/trace-meta"
+      );
+      const sanitized = sanitizeAiOsRuntimeResult(tainted);
+      assert.ok(
+        sanitized.trace.stages[0]!.warnings.includes(REDACTED_RUNTIME_CONTENT)
+      );
+      assert.equal(sanitized.terminalOutcome, "invalid_runtime_state");
+    });
+
+    it("59i. URL in a failed transport result is redacted", async () => {
+      const result = await createRuntime().run(validDryRunRuntimeInput);
+      const tainted = structuredClone(result) as AiOsRuntimeResult;
+      const failed = structuredClone(
+        runtimeTransportTimeoutResult
+      ) as ReplicateTransportResult & { imageUrl: string | null };
+      failed.imageUrl = "https://example.invalid/failed-transport.png";
+      tainted.artifacts.transportResult = failed;
+      const sanitized = sanitizeAiOsRuntimeResult(tainted);
+      assert.equal(
+        sanitized.artifacts.transportResult?.imageUrl,
+        REDACTED_RUNTIME_CONTENT
+      );
+      assert.equal(sanitized.success, false);
+      assert.equal(sanitized.terminalOutcome, "invalid_runtime_state");
+    });
+
+    it("59j. data URI transport imageUrl is rejected", async () => {
+      const result = await createRuntime().run(validDryRunRuntimeInput);
+      const tainted = structuredClone(result) as AiOsRuntimeResult;
+      tainted.artifacts.transportResult = transportSuccessWithHttpsImageUrl(
+        "data:image/png;base64," + "A".repeat(90)
+      );
+      const sanitized = sanitizeAiOsRuntimeResult(tainted);
+      assert.equal(
+        sanitized.artifacts.transportResult?.success === true
+          ? sanitized.artifacts.transportResult.imageUrl
+          : undefined,
+        REDACTED_RUNTIME_CONTENT
+      );
+      assert.equal(sanitized.terminalOutcome, "invalid_runtime_state");
+    });
+
+    it("59k. HTTP transport imageUrl is rejected", async () => {
+      const result = await createRuntime().run(validDryRunRuntimeInput);
+      const tainted = structuredClone(result) as AiOsRuntimeResult;
+      tainted.artifacts.transportResult = transportSuccessWithHttpsImageUrl(
+        "http://cdn.example.invalid/output.png"
+      );
+      const sanitized = sanitizeAiOsRuntimeResult(tainted);
+      assert.equal(
+        sanitized.artifacts.transportResult?.success === true
+          ? sanitized.artifacts.transportResult.imageUrl
+          : undefined,
+        REDACTED_RUNTIME_CONTENT
+      );
+      assert.equal(sanitized.terminalOutcome, "invalid_runtime_state");
+    });
+
+    it("59l. URL with credentials is rejected", async () => {
+      const result = await createRuntime().run(validDryRunRuntimeInput);
+      const tainted = structuredClone(result) as AiOsRuntimeResult;
+      tainted.artifacts.transportResult = transportSuccessWithHttpsImageUrl(
+        "https://user:pass@cdn.example.invalid/output.png"
+      );
+      const sanitized = sanitizeAiOsRuntimeResult(tainted);
+      assert.equal(
+        sanitized.artifacts.transportResult?.success === true
+          ? sanitized.artifacts.transportResult.imageUrl
+          : undefined,
+        REDACTED_RUNTIME_CONTENT
+      );
+      assert.equal(sanitized.terminalOutcome, "invalid_runtime_state");
+    });
+
+    it("59m. Replicate API polling URL is rejected as an image result", async () => {
+      const result = await createRuntime().run(validDryRunRuntimeInput);
+      const tainted = structuredClone(result) as AiOsRuntimeResult;
+      tainted.artifacts.transportResult = transportSuccessWithHttpsImageUrl(
+        "https://api.replicate.com/v1/predictions/pred_poll_forbidden"
+      );
+      const sanitized = sanitizeAiOsRuntimeResult(tainted);
+      assert.equal(
+        sanitized.artifacts.transportResult?.success === true
+          ? sanitized.artifacts.transportResult.imageUrl
+          : undefined,
+        REDACTED_RUNTIME_CONTENT
+      );
+      assert.equal(sanitized.terminalOutcome, "invalid_runtime_state");
+    });
+
+    it("59n. Original result is not mutated when preserving imageUrl", async () => {
+      const result = await resultWithHttpsTransportImageUrl(
+        transportSuccessWithoutEvidenceInput
+      );
+      const before = freezeClone(result);
+      sanitizeAiOsRuntimeResult(result);
+      assert.deepEqual(result, before);
+    });
+
+    it("59o. Repeated sanitization with allowed imageUrl is identical", async () => {
+      const result = await resultWithHttpsTransportImageUrl(
+        transportSuccessWithoutEvidenceInput
+      );
+      const once = sanitizeAiOsRuntimeResult(result);
+      const twice = sanitizeAiOsRuntimeResult(once);
+      assert.deepEqual(once, twice);
+      assert.equal(
+        twice.artifacts.transportResult?.success === true
+          ? twice.artifacts.transportResult.imageUrl
+          : undefined,
+        REALISTIC_OUTPUT_IMAGE_URL
+      );
+    });
+  });
+
+
   describe("Security and architecture", () => {
     it("59. Runtime source contains no direct fetch", () => {
       const source = readRuntimeSources();

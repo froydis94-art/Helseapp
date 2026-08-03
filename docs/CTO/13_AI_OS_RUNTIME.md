@@ -116,6 +116,10 @@ Image URLs must never be used as candidate identity. A mismatch yields `invalid_
 
 Unsafe patterns include `data:image/`, Authorization/Bearer, `REPLICATE_API_TOKEN`, API-key-like text, `http://` / `https://`, long Base64-like strings, stack traces, and token-like `r8_` / `sk-` values.
 
+**Exception — one validated output image URL:** Internal runtime results may carry exactly one legitimate HTTPS URL at `artifacts.transportResult.imageUrl` when `transportResult.success === true` and the URL passes validation (HTTPS only, no credentials, no fragment, not a data URI, not a Replicate API polling URL, no Authorization/token/API-key-like content). That path alone must not invalidate the result. Arbitrary URLs anywhere else remain forbidden.
+
+Log and observability views must not dump raw runtime results as the public surface; they must use a future dedicated safe projection that may further strip or rewrite even this allowed output URL.
+
 Sanitization is deterministic and idempotent. It does not mutate the original result.
 
 ## What it proves
