@@ -433,3 +433,33 @@ export {
   validateProductionTelemetry,
   zeroSamplingProductionConfig,
 } from "./production";
+
+/** AI OS Control Room (authorized fixture-only dry-run inspection). */
+export type {
+  ControlRoomApiFailure,
+  ControlRoomApiResponse,
+  ControlRoomApiSuccess,
+  ControlRoomArtifactProjection,
+  ControlRoomRunRequest,
+  ControlRoomRunResult,
+  ControlRoomSafetyStatus,
+  ControlRoomScenarioId,
+  ControlRoomScenarioSummary,
+  ControlRoomStageView,
+} from "./control-room";
+export {
+  CONTROL_ROOM_FORBIDDEN_CONTENT_ERROR,
+  CONTROL_ROOM_RULES_VERSION,
+  CONTROL_ROOM_SAFETY_STATUS,
+  CONTROL_ROOM_SCHEMA_VERSION,
+  ControlRoomProjectionError,
+  ControlRoomService,
+  ControlRoomServiceError,
+  buildControlRoomFailureShell,
+  getControlRoomScenario,
+  listControlRoomScenarioIds,
+  listControlRoomScenarios,
+  projectControlRoomResult,
+  sanitizeControlRoomProjection,
+  validateControlRoomProjection,
+} from "./control-room";

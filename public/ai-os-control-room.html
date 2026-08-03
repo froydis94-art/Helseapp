@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow,noarchive" />
+    <title>AI OS Control Room</title>
+    <link rel="stylesheet" href="./ai-os-control-room.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="hero">
+        <p class="eyebrow">HelseApp · Internal</p>
+        <h1 class="brand">AI OS Control Room</h1>
+        <p class="subtitle">
+          Inspect the HelseApp AI decision pipeline without generating an image.
+        </p>
+      </header>
+
+      <section class="status-bar" aria-label="Safety status">
+        <div class="status-item">
+          <span class="status-label">Access</span>
+          <span id="accessStatus" class="status-value warn">Locked</span>
+        </div>
+        <div class="status-item">
+          <span class="status-label">Runtime</span>
+          <span class="status-value ok">Dry run only</span>
+        </div>
+        <div class="status-item">
+          <span class="status-label">Provider traffic</span>
+          <span class="status-value ok">Disabled</span>
+        </div>
+        <div class="status-item">
+          <span class="status-label">Image generation</span>
+          <span class="status-value ok">Disabled</span>
+        </div>
+        <div class="status-item">
+          <span class="status-label">Legacy production</span>
+          <span class="status-value ok">Unchanged</span>
+        </div>
+      </section>
+
+      <section class="panel" id="accessPanel">
+        <h2>Access</h2>
+        <p class="panel-copy">
+          Enter the server access key. It stays in memory only for this page
+          session.
+        </p>
+        <form id="unlockForm" class="access-form" autocomplete="off">
+          <label class="field">
+            <span>Access key</span>
+            <input
+              id="accessKeyInput"
+              type="password"
+              name="control-room-access"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </label>
+          <div class="actions">
+            <button type="submit" id="unlockButton" class="btn primary">
+              Unlock Control Room
+            </button>
+            <button type="button" id="lockButton" class="btn ghost" disabled>
+              Lock
+            </button>
+          </div>
+        </form>
+        <p id="accessMessage" class="message" role="status"></p>
+      </section>
+
+      <section class="panel locked-only" id="scenarioPanel" hidden>
+        <h2>Scenarios</h2>
+        <p class="panel-copy">
+          Fixture-only fictional scenarios. Custom profiles, images, and health
+          data are not accepted.
+        </p>
+        <div id="scenarioList" class="scenario-grid"></div>
+        <div class="actions">
+          <button type="button" id="runButton" class="btn primary" disabled>
+            Run AI OS dry run
+          </button>
+        </div>
+        <p id="runMessage" class="message" role="status"></p>
+      </section>
+
+      <section class="panel" id="resultPanel" hidden>
+        <h2>Dry-run result</h2>
+
+        <article class="subpanel" id="pipelineOverview">
+          <h3>A. Pipeline overview</h3>
+          <div id="stageList" class="stage-list"></div>
+        </article>
+
+        <article class="subpanel" id="planPanel">
+          <h3>B. TransformationPlan</h3>
+          <pre id="transformationPlanView" class="code-block"></pre>
+        </article>
+
+        <article class="subpanel" id="visualPanel">
+          <h3>C. VisualDirection</h3>
+          <pre id="visualDirectionView" class="code-block"></pre>
+        </article>
+
+        <article class="subpanel" id="renderPanel">
+          <h3>D. RenderPlan</h3>
+          <div id="renderPlanHighlights" class="kv-grid"></div>
+          <pre id="renderPlanView" class="code-block"></pre>
+        </article>
+
+        <article class="subpanel" id="formatterPanel">
+          <h3>E. Provider Formatter</h3>
+          <div id="formatterMeta" class="kv-grid"></div>
+          <details id="promptDetails">
+            <summary>Show formatted prompt</summary>
+            <h4>Positive prompt</h4>
+            <pre id="positivePromptView" class="code-block"></pre>
+            <h4>Negative prompt</h4>
+            <pre id="negativePromptView" class="code-block"></pre>
+          </details>
+        </article>
+
+        <article class="subpanel" id="versionPanel">
+          <h3>F. Version matrix</h3>
+          <div id="versionMatrix" class="kv-grid"></div>
+        </article>
+
+        <article class="subpanel" id="safetyPanel">
+          <h3>G. Safety panel</h3>
+          <ul id="safetyIndicators" class="safety-list">
+            <li class="ok">Dry run only</li>
+            <li class="ok">No provider request</li>
+            <li class="ok">No image generated</li>
+            <li class="ok">No source image accepted</li>
+            <li class="ok">No health payload accepted</li>
+            <li class="ok">Legacy production unchanged</li>
+          </ul>
+        </article>
+
+        <article class="subpanel" id="rawPanel">
+          <h3>H. Raw developer projection</h3>
+          <details>
+            <summary>Show raw JSON</summary>
+            <pre id="rawProjectionView" class="code-block"></pre>
+          </details>
+        </article>
+      </section>
+    </div>
+    <script src="./ai-os-control-room.js"></script>
+  </body>
+</html>
