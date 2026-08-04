@@ -13,12 +13,9 @@
 
 import { createHash, timingSafeEqual } from "node:crypto";
 
-import {
-  ControlRoomService,
-  ControlRoomServiceError,
-  listControlRoomScenarios,
-  type ControlRoomApiResponse,
-  type ControlRoomScenarioId,
+import type {
+  ControlRoomApiResponse,
+  ControlRoomScenarioId,
 } from "../src/ai/control-room";
 
 const ACCESS_HEADER = "x-ai-os-control-room-key";
@@ -41,6 +38,12 @@ type ControlRoomConfigurationStatus =
   | "disabled"
   | "missing_access_key"
   | "ready";
+
+type ControlRoomRuntimeModule = typeof import("../src/ai/control-room/index");
+
+async function loadControlRoomModule(): Promise<ControlRoomRuntimeModule> {
+  return import("../src/ai/control-room/index");
+}
 
 const ALLOWED_SCENARIO_IDS = new Set<string>([
   "balanced_recomposition_12w",
@@ -271,8 +274,11 @@ function hasQueryAccessKey(req: VercelLikeRequest): boolean {
   });
 }
 
-async function handleGet(res: VercelLikeResponse): Promise<void> {
-  const service = new ControlRoomService();
+async function handleGet(
+  res: VercelLikeResponse,
+  controlRoomModule: ControlRoomRuntimeModule
+): Promise<void> {
+  const service = new controlRoomModule.ControlRoomService();
   send(res, 200, {
     ok: true,
     enabled: true,
@@ -282,7 +288,8 @@ async function handleGet(res: VercelLikeResponse): Promise<void> {
 
 async function handlePost(
   req: VercelLikeRequest,
-  res: VercelLikeResponse
+  res: VercelLikeResponse,
+  controlRoomModule: ControlRoomRuntimeModule
 ): Promise<void> {
   if (hasQueryAccessKey(req)) {
     send(res, 400, {
@@ -341,7 +348,7 @@ async function handlePost(
     return;
   }
 
-  const service = new ControlRoomService();
+  const service = new controlRoomModule.ControlRoomService();
   try {
     const result = await service.runScenario(
       scenarioId as ControlRoomScenarioId
@@ -349,11 +356,11 @@ async function handlePost(
     send(res, 200, {
       ok: true,
       enabled: true,
-      scenarios: listControlRoomScenarios(),
+      scenarios: controlRoomModule.listControlRoomScenarios(),
       result,
     });
   } catch (error) {
-    if (error instanceof ControlRoomServiceError) {
+    if (error instanceof controlRoomModule.ControlRoomServiceError) {
       if (error.code === "scenario_not_found") {
         send(res, 404, {
           ok: false,
@@ -416,22 +423,35 @@ export default async function handler(
       return;
     }
 
+    if (method !== "GET" && method !== "POST") {
+      send(res, 405, {
+        ok: false,
+        enabled: true,
+        code: "method_not_allowed",
+        message: "Method not allowed.",
+      });
+      return;
+    }
+
+    let controlRoomModule: ControlRoomRuntimeModule;
+    try {
+      controlRoomModule = await loadControlRoomModule();
+    } catch {
+      send(res, 500, {
+        ok: false,
+        enabled: true,
+        code: "runtime_failure",
+        message: "Runtime failure.",
+      });
+      return;
+    }
+
     if (method === "GET") {
-      await handleGet(res);
+      await handleGet(res, controlRoomModule);
       return;
     }
 
-    if (method === "POST") {
-      await handlePost(req, res);
-      return;
-    }
-
-    send(res, 405, {
-      ok: false,
-      enabled: true,
-      code: "method_not_allowed",
-      message: "Method not allowed.",
-    });
+    await handlePost(req, res, controlRoomModule);
   } catch {
     send(res, 500, {
       ok: false,

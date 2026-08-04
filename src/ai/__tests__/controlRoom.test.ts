@@ -726,7 +726,7 @@ describe("DEMAND_016 Control Room", () => {
     });
 
     it("53. POST requires authorization", () => {
-      assert.match(apiSource, /method === "POST"/);
+      assert.match(apiSource, /method !== "GET" && method !== "POST"|method === "POST"/);
       assert.match(apiSource, /isAuthorized\(req\)/);
     });
 
@@ -1457,16 +1457,22 @@ describe("DEMAND_016 Control Room", () => {
     });
   });
 
-  describe("PATCH_016C Vercel deployment fix", () => {
+  describe("PATCH_016D Control Room lazy-load fix", () => {
     const apiSource = read(apiPath);
 
-    it("1. API uses static control-room import (no dynamic import)", () => {
+    it("1. API uses lazy module loading and no static value import", () => {
+      assert.match(apiSource, /async function loadControlRoomModule/);
       assert.match(
         apiSource,
-        /import\s*\{[\s\S]*ControlRoomService[\s\S]*\}\s*from\s*"\.\.\/src\/ai\/control-room"/
+        /return import\(["']\.\.\/src\/ai\/control-room\/index["']\)/
       );
-      assert.equal(apiSource.includes("loadControlRoomModule"), false);
-      assert.equal(/await\s+import\s*\(\s*["']\.\.\/src\/ai\/control-room["']\s*\)/.test(apiSource), false);
+      assert.equal(
+        /import\s*\{[\s\S]*ControlRoomService[\s\S]*\}\s*from\s*["']\.\.\/src\/ai\/control-room["']/.test(
+          apiSource
+        ),
+        false
+      );
+      assert.equal(apiSource.includes("ControlRoomServiceError"), true);
     });
 
     it("2. API does not export Next/Vercel config.runtime", () => {
@@ -1575,7 +1581,7 @@ describe("DEMAND_016 Control Room", () => {
     it("11. Docs mention Vercel-safe API shape", () => {
       const docs = read(docsPath);
       assert.match(docs, /Vercel|deployment|config\.runtime|nodejs/i);
-      assert.match(docs, /node:crypto|static import|serverless/i);
+      assert.match(docs, /node:crypto|lazy import|serverless/i);
     });
 
     it("12. vercel.json was not required for this fix", () => {
