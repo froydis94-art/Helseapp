@@ -1487,9 +1487,10 @@ describe("DEMAND_016 Control Room", () => {
       assert.equal(apiSource.includes("ControlRoomServiceError"), true);
     });
 
-    it("2. API does not export Next/Vercel config.runtime", () => {
-      assert.equal(/export\s+const\s+config\s*=/.test(apiSource), false);
-      assert.equal(/runtime\s*:\s*["']nodejs["']/.test(apiSource), false);
+    it("2. API explicitly pins Node.js runtime", () => {
+      assert.equal(/export\s+const\s+config\s*=/.test(apiSource), true);
+      assert.equal(/runtime\s*:\s*["']nodejs["']/.test(apiSource), true);
+      assert.equal(/runtime\s*:\s*["']edge["']/.test(apiSource), false);
       assert.equal(/maxDuration\s*:\s*60/.test(apiSource), false);
     });
 

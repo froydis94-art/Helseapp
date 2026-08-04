@@ -17,6 +17,10 @@ const ACCESS_HEADER = "x-ai-os-control-room-key";
 const ACCESS_HEADER_CANONICAL = "X-AI-OS-Control-Room-Key";
 const MIN_ACCESS_KEY_LENGTH = 24;
 
+export const config = {
+  runtime: "nodejs",
+} as const;
+
 export const CONTROL_ROOM_RESPONSE_META = {
   service: "ai-os-control-room",
   apiVersion: "1.1",
