@@ -26,7 +26,19 @@ const ALLOWED_SCENARIO_IDS = new Set([
 ]);
 
 async function loadControlRoomModule() {
-  return await import("../src/ai/control-room/index");
+  const imported = await import("../src/ai/control-room/index");
+  // CJS/tsx dynamic-import interop may nest named exports under `.default`.
+  if (
+    imported != null &&
+    typeof imported === "object" &&
+    typeof imported.ControlRoomService !== "function" &&
+    imported.default != null &&
+    typeof imported.default === "object" &&
+    typeof imported.default.ControlRoomService === "function"
+  ) {
+    return imported.default;
+  }
+  return imported;
 }
 
 function readEnv(name) {

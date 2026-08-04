@@ -96,6 +96,10 @@ HTML error page.
 Unauthorized GET responses still return JSON with `code: "unauthorized"` and
 the same `meta` object. OPTIONS may remain 204 without a JSON body.
 
+Failure fields are top-level (`ok`, `enabled`, `code`, `message`, `meta`) —
+not nested under `error`. UI identity match requires `meta.service` and
+`meta.apiVersion` exactly as above.
+
 ## Safe UI diagnostic codes
 
 When unlock fails, the page shows a safe diagnostic block using `textContent`

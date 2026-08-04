@@ -990,8 +990,16 @@ describe("DEMAND_016 Control Room", () => {
         assert.match(apiSource, new RegExp(code));
       }
       assert.equal(apiSource.includes("digestAccessKey(provided)"), true);
+      // Digests must never appear inside a json(...) response argument.
+      // Keep the window tight so later `module.exports.digestAccessKey` is not a false positive.
       assert.equal(
-        /res\.status\([^)]+\)\.json\([\s\S]*digestAccessKey/.test(apiSource),
+        /res\.status\([^)]+\)\.json\(\s*\{[\s\S]{0,400}?digestAccessKey/.test(
+          apiSource
+        ),
+        false
+      );
+      assert.equal(
+        /withMeta\(\s*\{[\s\S]{0,400}?digestAccessKey/.test(apiSource),
         false
       );
       const docs = read(docsPath);
