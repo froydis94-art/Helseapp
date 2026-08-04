@@ -34,7 +34,7 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, "..", "..", "..");
 const controlRoomDir = join(__dirname, "..", "control-room");
-const apiPath = join(repoRoot, "api", "ai-os-control-room.ts");
+const apiPath = join(repoRoot, "api", "ai-os-control-room.js");
 const uiHtmlPath = join(repoRoot, "public", "ai-os-control-room.html");
 const uiCssPath = join(repoRoot, "public", "ai-os-control-room.css");
 const uiJsPath = join(repoRoot, "public", "ai-os-control-room.js");
@@ -127,7 +127,21 @@ type AccessKeyAuthHelpers = {
 async function loadAccessKeyAuthHelpers(): Promise<AccessKeyAuthHelpers> {
   // Variable URL keeps api/ outside tsc rootDir while still exercising real helpers.
   const href = pathToFileURL(apiPath).href;
-  const mod = (await import(href)) as AccessKeyAuthHelpers;
+  const imported = (await import(href)) as Record<string, unknown>;
+  const cjsDefault =
+    imported.default && typeof imported.default === "object"
+      ? (imported.default as Record<string, unknown>)
+      : {};
+  const mod = {
+    ...cjsDefault,
+    ...imported,
+    default:
+      typeof imported.default === "function"
+        ? imported.default
+        : typeof cjsDefault.default === "function"
+          ? cjsDefault.default
+          : undefined,
+  } as AccessKeyAuthHelpers;
   assert.equal(typeof mod.digestAccessKey, "function");
   assert.equal(typeof mod.timingSafeStringEqual, "function");
   assert.equal(typeof mod.resolveControlRoomAccessHeader, "function");
@@ -1487,16 +1501,15 @@ describe("DEMAND_016 Control Room", () => {
       assert.equal(apiSource.includes("ControlRoomServiceError"), true);
     });
 
-    it("2. API explicitly pins Node.js runtime", () => {
-      assert.equal(/export\s+const\s+config\s*=/.test(apiSource), true);
-      assert.equal(/runtime\s*:\s*["']nodejs["']/.test(apiSource), true);
+    it("2. API avoids extra top-level runtime config export", () => {
+      assert.equal(/export\s+const\s+config\s*=/.test(apiSource), false);
       assert.equal(/runtime\s*:\s*["']edge["']/.test(apiSource), false);
       assert.equal(/maxDuration\s*:\s*60/.test(apiSource), false);
     });
 
-    it("3. Crypto import uses node:crypto proven by prior green deploy", () => {
-      assert.match(apiSource, /from\s+"node:crypto"/);
-      assert.equal(/from\s+"crypto"/.test(apiSource), false);
+    it("3. Crypto import uses CommonJS broad compatibility form", () => {
+      assert.match(apiSource, /require\("crypto"\)/);
+      assert.equal(/node:crypto/.test(apiSource), false);
     });
 
     it("4. Response meta identity remains 1.1", async () => {
@@ -1603,6 +1616,16 @@ describe("DEMAND_016 Control Room", () => {
       assert.equal(/ai-os-control-room/.test(vercel), false);
       assert.equal(/"maxDuration"/.test(vercel), false);
       assert.equal(/"runtime"/.test(vercel), false);
+    });
+
+    it("13. Disabled malformed request still returns JSON envelope meta", async () => {
+      const mod = await loadAccessKeyAuthHelpers();
+      await withControlRoomEnv({ enabled: "0" }, async () => {
+        const { res, state } = createMockResponse();
+        await mod.default(undefined as unknown as Record<string, unknown>, res);
+        assert.equal(state.statusCode, 404);
+        assertSafeMeta(state.body);
+      });
     });
   });
 });
