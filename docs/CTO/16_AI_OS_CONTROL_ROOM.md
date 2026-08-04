@@ -220,10 +220,10 @@ This later milestone must require:
 > Control Room may never become an unguarded provider or production execution
 > surface.
 
-## Vercel serverless notes (PATCH 016D)
+## Vercel serverless notes (PATCH 016D / 016E)
 
-Control Room API is a plain Vercel Node serverless TypeScript handler under
-`api/ai-os-control-room.ts`.
+Control Room API is a plain Vercel Node serverless CommonJS handler under
+`api/ai-os-control-room.js`.
 
 Do **not** export Next.js-style function config such as:
 
@@ -233,16 +233,27 @@ export const config = { runtime: "nodejs", maxDuration: 60 };
 
 `@vercel/node` hard-fails builds when `config.runtime: "nodejs"` is present
 (`config.runtime` semantics are evolving; Node is already the default for
-`/api/*.ts`). Prefer:
+`/api/*`). Prefer:
 
-- static `import` from `../src/ai/control-room`
-- lazy runtime module loading via `import("../src/ai/control-room/index")`
-- `import { createHash, timingSafeEqual } from "node:crypto"`
+- lazy module loading via literal `require("../src/ai/control-room/index")`
+  (only after feature flag + authorization)
+- `require("crypto")` for SHA-256 timing-safe access comparison
 - default handler export only (plus test helper exports)
 
 To avoid cold-start module initialization failures from returning generic non-JSON
 500 pages, Control Room loads the service module only after feature-flag and
-access-key checks pass. Lazy-load failures are returned as safe
-`runtime_failure` JSON with standard `meta` identity and no stack/module path.
+access-key checks pass. Authorized GET lists scenarios only and does not
+construct `ControlRoomService` or run `AiOsRuntime`. Lazy-load and later-phase
+failures return safe `runtime_failure` JSON with standard `meta` identity, an
+allowlisted `diagnostic` code, and no stack/module path.
+
+Safe authorized `diagnostic` values:
+
+- `module_load_failed`
+- `module_shape_invalid`
+- `scenario_list_failed`
+- `service_construct_failed`
+- `scenario_run_failed`
+- `projection_failed`
 
 No `vercel.json` functions override is required for Control Room.

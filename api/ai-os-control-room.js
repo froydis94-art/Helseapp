@@ -25,20 +25,53 @@ const ALLOWED_SCENARIO_IDS = new Set([
   "athletic_strength_24w",
 ]);
 
-async function loadControlRoomModule() {
-  const imported = await import("../src/ai/control-room/index");
-  // CJS/tsx dynamic-import interop may nest named exports under `.default`.
-  if (
-    imported != null &&
-    typeof imported === "object" &&
-    typeof imported.ControlRoomService !== "function" &&
-    imported.default != null &&
-    typeof imported.default === "object" &&
-    typeof imported.default.ControlRoomService === "function"
-  ) {
-    return imported.default;
+/**
+ * Lazy load after feature-flag + authorization.
+ * Literal require path so Vercel can trace/bundle; preferred over dynamic import
+ * for this CommonJS shim (PATCH 016E).
+ */
+function loadControlRoomModule() {
+  return require("../src/ai/control-room/index");
+}
+
+/**
+ * Accept only proven module shapes:
+ * A) named CJS exports
+ * B) one default object containing the same exports
+ */
+function normalizeControlRoomModule(imported) {
+  if (imported == null || typeof imported !== "object") {
+    return null;
   }
-  return imported;
+
+  if (
+    typeof imported.ControlRoomService === "function" &&
+    typeof imported.ControlRoomServiceError === "function" &&
+    typeof imported.listControlRoomScenarios === "function"
+  ) {
+    return {
+      ControlRoomService: imported.ControlRoomService,
+      ControlRoomServiceError: imported.ControlRoomServiceError,
+      listControlRoomScenarios: imported.listControlRoomScenarios,
+    };
+  }
+
+  const nested = imported.default;
+  if (
+    nested != null &&
+    typeof nested === "object" &&
+    typeof nested.ControlRoomService === "function" &&
+    typeof nested.ControlRoomServiceError === "function" &&
+    typeof nested.listControlRoomScenarios === "function"
+  ) {
+    return {
+      ControlRoomService: nested.ControlRoomService,
+      ControlRoomServiceError: nested.ControlRoomServiceError,
+      listControlRoomScenarios: nested.listControlRoomScenarios,
+    };
+  }
+
+  return null;
 }
 
 function readEnv(name) {
@@ -168,6 +201,16 @@ function send(res, status, body) {
   res.status(status).json(withMeta(body));
 }
 
+function sendRuntimeFailure(res, diagnostic) {
+  send(res, 500, {
+    ok: false,
+    enabled: true,
+    code: "runtime_failure",
+    message: "Runtime failure.",
+    diagnostic,
+  });
+}
+
 function disabledResponse(res) {
   send(res, 404, {
     ok: false,
@@ -219,12 +262,28 @@ function hasQueryAccessKey(req) {
   });
 }
 
-async function handleGet(res, controlRoomModule) {
-  const service = new controlRoomModule.ControlRoomService();
+/**
+ * Authorized GET: list scenarios only — no ControlRoomService construct,
+ * no AiOsRuntime, no scenario execution.
+ */
+function handleGet(res, controlRoomModule) {
+  if (typeof controlRoomModule.listControlRoomScenarios !== "function") {
+    sendRuntimeFailure(res, "module_shape_invalid");
+    return;
+  }
+
+  let scenarios;
+  try {
+    scenarios = controlRoomModule.listControlRoomScenarios();
+  } catch {
+    sendRuntimeFailure(res, "scenario_list_failed");
+    return;
+  }
+
   send(res, 200, {
     ok: true,
     enabled: true,
-    scenarios: service.listScenarios(),
+    scenarios,
   });
 }
 
@@ -286,17 +345,40 @@ async function handlePost(req, res, controlRoomModule) {
     return;
   }
 
-  const service = new controlRoomModule.ControlRoomService();
+  if (typeof controlRoomModule.ControlRoomService !== "function") {
+    sendRuntimeFailure(res, "module_shape_invalid");
+    return;
+  }
+
+  let service;
+  try {
+    service = new controlRoomModule.ControlRoomService();
+  } catch {
+    sendRuntimeFailure(res, "service_construct_failed");
+    return;
+  }
+
   try {
     const result = await service.runScenario(scenarioId);
+    let scenarios;
+    try {
+      scenarios = controlRoomModule.listControlRoomScenarios();
+    } catch {
+      sendRuntimeFailure(res, "scenario_list_failed");
+      return;
+    }
     send(res, 200, {
       ok: true,
       enabled: true,
-      scenarios: controlRoomModule.listControlRoomScenarios(),
+      scenarios,
       result,
     });
   } catch (error) {
-    if (error instanceof controlRoomModule.ControlRoomServiceError) {
+    if (
+      error != null &&
+      typeof error === "object" &&
+      error instanceof controlRoomModule.ControlRoomServiceError
+    ) {
       if (error.code === "scenario_not_found") {
         send(res, 404, {
           ok: false,
@@ -315,20 +397,10 @@ async function handlePost(req, res, controlRoomModule) {
         });
         return;
       }
-      send(res, 500, {
-        ok: false,
-        enabled: true,
-        code: "runtime_failure",
-        message: "Runtime failure.",
-      });
+      sendRuntimeFailure(res, "scenario_run_failed");
       return;
     }
-    send(res, 500, {
-      ok: false,
-      enabled: true,
-      code: "runtime_failure",
-      message: "Runtime failure.",
-    });
+    sendRuntimeFailure(res, "scenario_run_failed");
   }
 }
 
@@ -368,32 +440,30 @@ async function handler(req, res) {
       return;
     }
 
-    let controlRoomModule;
+    let loaded;
     try {
-      controlRoomModule = await loadControlRoomModule();
+      // Call through exports so tests can stub the loader without reloading the handler.
+      loaded = module.exports.loadControlRoomModule();
     } catch {
-      send(res, 500, {
-        ok: false,
-        enabled: true,
-        code: "runtime_failure",
-        message: "Runtime failure.",
-      });
+      sendRuntimeFailure(res, "module_load_failed");
+      return;
+    }
+
+    const controlRoomModule = normalizeControlRoomModule(loaded);
+    if (controlRoomModule == null) {
+      sendRuntimeFailure(res, "module_shape_invalid");
       return;
     }
 
     if (method === "GET") {
-      await handleGet(res, controlRoomModule);
+      handleGet(res, controlRoomModule);
       return;
     }
 
     await handlePost(safeReq, res, controlRoomModule);
   } catch {
-    send(res, 500, {
-      ok: false,
-      enabled: true,
-      code: "runtime_failure",
-      message: "Runtime failure.",
-    });
+    // Unexpected authorized-path failure — keep diagnostic in the allowlisted set.
+    sendRuntimeFailure(res, "scenario_run_failed");
   }
 }
 
@@ -404,3 +474,5 @@ module.exports.digestAccessKey = digestAccessKey;
 module.exports.timingSafeStringEqual = timingSafeStringEqual;
 module.exports.resolveControlRoomAccessHeader = resolveControlRoomAccessHeader;
 module.exports.getControlRoomConfigurationStatus = getControlRoomConfigurationStatus;
+module.exports.loadControlRoomModule = loadControlRoomModule;
+module.exports.normalizeControlRoomModule = normalizeControlRoomModule;
