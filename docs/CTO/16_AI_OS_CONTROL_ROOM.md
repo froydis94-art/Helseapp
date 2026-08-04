@@ -215,3 +215,24 @@ This later milestone must require:
 
 > Control Room may never become an unguarded provider or production execution
 > surface.
+
+## Vercel serverless notes (PATCH 016C)
+
+Control Room API is a plain Vercel Node serverless TypeScript handler under
+`api/ai-os-control-room.ts`.
+
+Do **not** export Next.js-style function config such as:
+
+```ts
+export const config = { runtime: "nodejs", maxDuration: 60 };
+```
+
+`@vercel/node` hard-fails builds when `config.runtime: "nodejs"` is present
+(`config.runtime` semantics are evolving; Node is already the default for
+`/api/*.ts`). Prefer:
+
+- static `import` from `../src/ai/control-room`
+- `import { createHash, timingSafeEqual } from "node:crypto"`
+- default handler export only (plus test helper exports)
+
+No `vercel.json` functions override is required for Control Room.

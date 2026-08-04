@@ -11,18 +11,15 @@
  * service logic in src/ai/control-room.
  */
 
-import { createHash, timingSafeEqual } from "crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 
-import type {
-  ControlRoomApiResponse,
-  ControlRoomScenarioId,
+import {
+  ControlRoomService,
+  ControlRoomServiceError,
+  listControlRoomScenarios,
+  type ControlRoomApiResponse,
+  type ControlRoomScenarioId,
 } from "../src/ai/control-room";
-
-/** Explicit Node.js serverless runtime for Vercel. */
-export const config = {
-  runtime: "nodejs" as const,
-  maxDuration: 60,
-};
 
 const ACCESS_HEADER = "x-ai-os-control-room-key";
 const ACCESS_HEADER_CANONICAL = "X-AI-OS-Control-Room-Key";
@@ -274,16 +271,7 @@ function hasQueryAccessKey(req: VercelLikeRequest): boolean {
   });
 }
 
-async function loadControlRoomModule(): Promise<
-  typeof import("../src/ai/control-room")
-> {
-  // Dynamic import keeps cold-start failures inside the handler try/catch so
-  // Vercel HTML error pages are not returned for unlock diagnostics.
-  return import("../src/ai/control-room");
-}
-
 async function handleGet(res: VercelLikeResponse): Promise<void> {
-  const { ControlRoomService } = await loadControlRoomModule();
   const service = new ControlRoomService();
   send(res, 200, {
     ok: true,
@@ -352,12 +340,6 @@ async function handlePost(
     });
     return;
   }
-
-  const {
-    ControlRoomService,
-    ControlRoomServiceError,
-    listControlRoomScenarios,
-  } = await loadControlRoomModule();
 
   const service = new ControlRoomService();
   try {

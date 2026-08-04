@@ -1456,4 +1456,134 @@ describe("DEMAND_016 Control Room", () => {
       assert.match(docs, /owner does \*\*not\*\* need browser developer tools|does \*\*not\*\* need browser developer tools/i);
     });
   });
+
+  describe("PATCH_016C Vercel deployment fix", () => {
+    const apiSource = read(apiPath);
+
+    it("1. API uses static control-room import (no dynamic import)", () => {
+      assert.match(
+        apiSource,
+        /import\s*\{[\s\S]*ControlRoomService[\s\S]*\}\s*from\s*"\.\.\/src\/ai\/control-room"/
+      );
+      assert.equal(apiSource.includes("loadControlRoomModule"), false);
+      assert.equal(/await\s+import\s*\(\s*["']\.\.\/src\/ai\/control-room["']\s*\)/.test(apiSource), false);
+    });
+
+    it("2. API does not export Next/Vercel config.runtime", () => {
+      assert.equal(/export\s+const\s+config\s*=/.test(apiSource), false);
+      assert.equal(/runtime\s*:\s*["']nodejs["']/.test(apiSource), false);
+      assert.equal(/maxDuration\s*:\s*60/.test(apiSource), false);
+    });
+
+    it("3. Crypto import uses node:crypto proven by prior green deploy", () => {
+      assert.match(apiSource, /from\s+"node:crypto"/);
+      assert.equal(/from\s+"crypto"/.test(apiSource), false);
+    });
+
+    it("4. Response meta identity remains 1.1", async () => {
+      const mod = await loadAccessKeyAuthHelpers();
+      assert.equal(mod.CONTROL_ROOM_RESPONSE_META.service, "ai-os-control-room");
+      assert.equal(mod.CONTROL_ROOM_RESPONSE_META.apiVersion, "1.1");
+    });
+
+    it("5. Disabled JSON still includes meta", async () => {
+      const mod = await loadAccessKeyAuthHelpers();
+      await withControlRoomEnv({ enabled: undefined }, async () => {
+        const { res, state } = createMockResponse();
+        await mod.default({ method: "GET", headers: {} }, res);
+        assert.equal(state.statusCode, 404);
+        assertSafeMeta(state.body);
+      });
+    });
+
+    it("6. Unauthorized JSON still includes meta", async () => {
+      const mod = await loadAccessKeyAuthHelpers();
+      await withControlRoomEnv(
+        { enabled: "1", accessKey: PATCH_016B_TEST_KEY },
+        async () => {
+          const { res, state } = createMockResponse();
+          await mod.default({ method: "GET", headers: {} }, res);
+          assert.equal(state.statusCode, 401);
+          assertSafeMeta(state.body);
+        }
+      );
+    });
+
+    it("7. Authorized GET still succeeds with scenarios", async () => {
+      const mod = await loadAccessKeyAuthHelpers();
+      await withControlRoomEnv(
+        { enabled: "1", accessKey: PATCH_016B_TEST_KEY },
+        async () => {
+          const { res, state } = createMockResponse();
+          await mod.default(
+            {
+              method: "GET",
+              headers: { "x-ai-os-control-room-key": PATCH_016B_TEST_KEY },
+            },
+            res
+          );
+          assert.equal(state.statusCode, 200);
+          assertSafeMeta(state.body);
+          assert.equal((state.body as { ok?: boolean }).ok, true);
+        }
+      );
+    });
+
+    it("8. Header resolution remains case-insensitive", async () => {
+      const mod = await loadAccessKeyAuthHelpers();
+      assert.equal(
+        mod.resolveControlRoomAccessHeader({
+          "X-AI-OS-Control-Room-Key": PATCH_016B_TEST_KEY,
+        }),
+        PATCH_016B_TEST_KEY
+      );
+    });
+
+    it("9. SHA-256 timing-safe auth remains intact", async () => {
+      const { digestAccessKey, timingSafeStringEqual } =
+        await loadAccessKeyAuthHelpers();
+      assert.match(apiSource, /createHash\("sha256"\)/);
+      assert.match(apiSource, /timingSafeEqual/);
+      assert.equal(digestAccessKey("x").length, 32);
+      assert.equal(
+        timingSafeStringEqual(PATCH_016B_TEST_KEY, PATCH_016B_TEST_KEY),
+        true
+      );
+    });
+
+    it("10. Query access key remains rejected", async () => {
+      const mod = await loadAccessKeyAuthHelpers();
+      await withControlRoomEnv(
+        { enabled: "1", accessKey: PATCH_016B_TEST_KEY },
+        async () => {
+          const { res, state } = createMockResponse();
+          await mod.default(
+            {
+              method: "POST",
+              headers: { "x-ai-os-control-room-key": PATCH_016B_TEST_KEY },
+              query: { accessKey: PATCH_016B_TEST_KEY },
+              body: { scenarioId: "balanced_recomposition_12w" },
+            },
+            res
+          );
+          assert.equal(state.statusCode, 400);
+          assertSafeMeta(state.body);
+        }
+      );
+    });
+
+    it("11. Docs mention Vercel-safe API shape", () => {
+      const docs = read(docsPath);
+      assert.match(docs, /Vercel|deployment|config\.runtime|nodejs/i);
+      assert.match(docs, /node:crypto|static import|serverless/i);
+    });
+
+    it("12. vercel.json was not required for this fix", () => {
+      const vercelJsonPath = join(repoRoot, "vercel.json");
+      const vercel = read(vercelJsonPath);
+      assert.equal(/ai-os-control-room/.test(vercel), false);
+      assert.equal(/"maxDuration"/.test(vercel), false);
+      assert.equal(/"runtime"/.test(vercel), false);
+    });
+  });
 });
