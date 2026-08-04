@@ -147,12 +147,38 @@
     );
   }
 
+  var ALLOWED_DIAGNOSTICS = {
+    module_load_failed: true,
+    module_shape_invalid: true,
+    scenario_list_failed: true,
+    service_construct_failed: true,
+    scenario_run_failed: true,
+    projection_failed: true,
+  };
+
+  function safeDiagnostic(payload) {
+    if (
+      !payload ||
+      typeof payload !== "object" ||
+      typeof payload.diagnostic !== "string"
+    ) {
+      return null;
+    }
+    if (!ALLOWED_DIAGNOSTICS[payload.diagnostic]) {
+      return null;
+    }
+    return payload.diagnostic;
+  }
+
   function formatUnlockFailure(code, httpStatus, options) {
     var lines = [
       "Unable to unlock Control Room.",
       "Code: " + String(code),
       "HTTP: " + String(httpStatus),
     ];
+    if (options && options.diagnostic) {
+      lines.push("Diagnostic: " + String(options.diagnostic));
+    }
     if (options && options.message) {
       lines.push(String(options.message));
     }
@@ -480,6 +506,7 @@
               safeCode(payload, "api_response_invalid"),
               status,
               {
+                diagnostic: safeDiagnostic(payload),
                 message: apiMessage(payload, "Unable to unlock Control Room."),
                 metaMatch: true,
               }
@@ -571,7 +598,14 @@
         if (payload.code === "runtime_failure") {
           setMessage(
             runMessage,
-            apiMessage(payload, "Runtime failure."),
+            formatUnlockFailure("runtime_failure", status, {
+              diagnostic: safeDiagnostic(payload),
+              message: apiMessage(payload, "Runtime failure."),
+              metaMatch: true,
+            }).replace(
+              "Unable to unlock Control Room.",
+              "Unable to run dry run."
+            ),
             "error"
           );
           return;

@@ -34,7 +34,9 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, "..", "..", "..");
 const controlRoomDir = join(__dirname, "..", "control-room");
-const apiPath = join(repoRoot, "api", "ai-os-control-room.js");
+const apiPath = join(repoRoot, "api", "ai-os-control-room.ts");
+const runtimeBridgePath = join(repoRoot, "api", "_control-room-runtime.ts");
+const imageRoutePath = join(repoRoot, "api", "generate-future-you.js");
 const uiHtmlPath = join(repoRoot, "public", "ai-os-control-room.html");
 const uiCssPath = join(repoRoot, "public", "ai-os-control-room.css");
 const uiJsPath = join(repoRoot, "public", "ai-os-control-room.js");
@@ -1492,11 +1494,15 @@ describe("DEMAND_016 Control Room", () => {
   describe("PATCH_016D Control Room lazy-load fix", () => {
     const apiSource = read(apiPath);
 
-    it("1. API uses lazy module loading and no static value import", () => {
+    it("1. API uses lazy module loading via local runtime bridge", () => {
       assert.match(apiSource, /function loadControlRoomModule/);
       assert.match(
         apiSource,
-        /require\(["']\.\.\/src\/ai\/control-room\/index["']\)/
+        /require\(["']\.\/_control-room-runtime["']\)/
+      );
+      assert.equal(
+        /require\(["']\.\.\/src\/ai\/control-room\/index["']\)/.test(apiSource),
+        false
       );
       assert.equal(
         /import\s*\{[\s\S]*ControlRoomService[\s\S]*\}\s*from\s*["']\.\.\/src\/ai\/control-room["']/.test(
@@ -1514,6 +1520,10 @@ describe("DEMAND_016 Control Room", () => {
         /await\s+import\(["']\.\.\/src\/ai\/control-room\/index["']\)/.test(
           apiSource
         ),
+        false
+      );
+      assert.equal(
+        /import\(["']\.\.\/src\/ai\/control-room\/index["']\)/.test(apiSource),
         false
       );
       assert.equal(apiSource.includes("ControlRoomServiceError"), true);
@@ -2139,13 +2149,17 @@ describe("DEMAND_016 Control Room", () => {
       assert.equal(apiSource.includes("api.replicate.com"), false);
       assert.equal(/fetch\s*\(/.test(apiSource), false);
       assert.match(docs, /module_load_failed/);
-      assert.match(docs, /require\(["']\.\.\/src\/ai\/control-room\/index["']\)/);
+      assert.match(docs, /_control-room-runtime/);
     });
 
-    it("17. Loader uses literal require and normalizes accepted shapes only", () => {
+    it("17. Loader uses literal local bridge require and normalizes accepted shapes only", () => {
       assert.match(
         apiSource,
-        /require\(["']\.\.\/src\/ai\/control-room\/index["']\)/
+        /require\(["']\.\/_control-room-runtime["']\)/
+      );
+      assert.equal(
+        /require\(["']\.\.\/src\/ai\/control-room\/index["']\)/.test(apiSource),
+        false
       );
       assert.equal(/eval\s*\(/.test(apiSource), false);
       assert.equal(/new\s+Function\b/.test(apiSource), false);
@@ -2184,6 +2198,263 @@ describe("DEMAND_016 Control Room", () => {
         }),
         null
       );
+    });
+  });
+
+  describe("PATCH_016F diagnostic UI and runtime bridge", () => {
+    const apiSource = read(apiPath);
+    const bridgeSource = read(runtimeBridgePath);
+    const uiSource = read(uiJsPath);
+    const docs = read(docsPath);
+    const imageRoute = read(imageRoutePath);
+    const ALLOWED = [
+      "module_load_failed",
+      "module_shape_invalid",
+      "scenario_list_failed",
+      "service_construct_failed",
+      "scenario_run_failed",
+      "projection_failed",
+    ];
+
+    function extractFormatUnlockFailureSource(): string {
+      const start = uiSource.indexOf("function formatUnlockFailure");
+      assert.ok(start >= 0);
+      const end = uiSource.indexOf("function handleAuthFailure", start);
+      assert.ok(end > start);
+      return uiSource.slice(start, end);
+    }
+
+    it("1. UI surfaces allowlisted diagnostic via textContent", () => {
+      assert.match(uiSource, /safeDiagnostic/);
+      assert.match(uiSource, /ALLOWED_DIAGNOSTICS/);
+      assert.match(uiSource, /Diagnostic: /);
+      for (const code of ALLOWED) {
+        assert.match(uiSource, new RegExp(code));
+      }
+      assert.equal(uiSource.includes("innerHTML"), false);
+      assert.match(uiSource, /textContent/);
+      const fmt = extractFormatUnlockFailureSource();
+      assert.match(fmt, /Diagnostic:/);
+      assert.match(fmt, /options\.diagnostic/);
+    });
+
+    it("2. UI rejects arbitrary diagnostic values", () => {
+      assert.match(uiSource, /function safeDiagnostic/);
+      assert.match(
+        uiSource,
+        /if\s*\(\s*!ALLOWED_DIAGNOSTICS\[payload\.diagnostic\]\s*\)/
+      );
+      assert.match(uiSource, /return null;/);
+      // Must not concatenate payload.diagnostic without allowlist gate.
+      assert.equal(
+        /Diagnostic:\s*["']?\s*\+\s*payload\.diagnostic/.test(uiSource),
+        false
+      );
+    });
+
+    it("3. UI failure formatting uses textContent only", () => {
+      assert.equal(uiSource.includes("innerHTML"), false);
+      assert.equal(uiSource.includes("outerHTML"), false);
+      assert.match(uiSource, /setMessage\(accessMessage/);
+      assert.match(uiSource, /el\.textContent/);
+    });
+
+    it("4. Handler never runtime-requires or imports raw control-room index", () => {
+      assert.equal(
+        /require\(["']\.\.\/src\/ai\/control-room\/index["']\)/.test(apiSource),
+        false
+      );
+      assert.equal(
+        /import\(["']\.\.\/src\/ai\/control-room\/index["']\)/.test(apiSource),
+        false
+      );
+      assert.equal(
+        /from\s+["']\.\.\/src\/ai\/control-room\/index["']/.test(apiSource),
+        false
+      );
+      assert.match(apiSource, /require\(["']\.\/_control-room-runtime["']\)/);
+      assert.match(
+        bridgeSource,
+        /from\s+["']\.\.\/src\/ai\/control-room\/index["']/
+      );
+      assert.match(bridgeSource, /listControlRoomScenarios/);
+      assert.match(bridgeSource, /ControlRoomService/);
+      assert.match(docs, /_control-room-runtime/);
+    });
+
+    it("5. Authorized GET returns four scenarios without constructing service", async () => {
+      const mod = await loadAccessKeyAuthHelpers();
+      let constructed = 0;
+      class TrackingService {
+        constructor() {
+          constructed += 1;
+        }
+        async runScenario() {
+          return {};
+        }
+      }
+      const original = mod.loadControlRoomModule;
+      mod.loadControlRoomModule = () => ({
+        ControlRoomService: TrackingService,
+        ControlRoomServiceError: class extends Error {
+          code = "runtime_failure";
+        },
+        listControlRoomScenarios: () =>
+          listControlRoomScenarios().map((s) => ({ ...s })),
+      });
+      try {
+        await withControlRoomEnv(
+          { enabled: "1", accessKey: PATCH_016B_TEST_KEY },
+          async () => {
+            const { res, state } = createMockResponse();
+            await mod.default(
+              {
+                method: "GET",
+                headers: { "x-ai-os-control-room-key": PATCH_016B_TEST_KEY },
+              },
+              res
+            );
+            assert.equal(state.statusCode, 200);
+            const body = state.body as {
+              ok?: boolean;
+              enabled?: boolean;
+              scenarios?: unknown[];
+              meta?: { service?: string; apiVersion?: string };
+            };
+            assert.equal(body.ok, true);
+            assert.equal(body.enabled, true);
+            assert.equal(body.scenarios?.length, 4);
+            assert.equal(body.meta?.service, "ai-os-control-room");
+            assert.equal(body.meta?.apiVersion, "1.1");
+            assert.equal(constructed, 0);
+          }
+        );
+      } finally {
+        mod.loadControlRoomModule = original;
+      }
+    });
+
+    it("6. Unauthorized GET returns 401 with meta", async () => {
+      const mod = await loadAccessKeyAuthHelpers();
+      await withControlRoomEnv(
+        { enabled: "1", accessKey: PATCH_016B_TEST_KEY },
+        async () => {
+          const { res, state } = createMockResponse();
+          await mod.default({ method: "GET", headers: {} }, res);
+          assert.equal(state.statusCode, 401);
+          assertSafeMeta(state.body);
+          assert.equal((state.body as { code?: string }).code, "unauthorized");
+        }
+      );
+    });
+
+    it("7. Module load failure returns safe allowlisted diagnostic", async () => {
+      const mod = await loadAccessKeyAuthHelpers();
+      const original = mod.loadControlRoomModule;
+      mod.loadControlRoomModule = () => {
+        throw new Error("secret-path-/src/ai/control-room/index.ts");
+      };
+      try {
+        await withControlRoomEnv(
+          { enabled: "1", accessKey: PATCH_016B_TEST_KEY },
+          async () => {
+            const { res, state } = createMockResponse();
+            await mod.default(
+              {
+                method: "GET",
+                headers: { "x-ai-os-control-room-key": PATCH_016B_TEST_KEY },
+              },
+              res
+            );
+            assert.equal(state.statusCode, 500);
+            const body = state.body as {
+              code?: string;
+              diagnostic?: string;
+              message?: string;
+            };
+            assert.equal(body.code, "runtime_failure");
+            assert.equal(body.diagnostic, "module_load_failed");
+            assertSafeMeta(state.body);
+            const text = JSON.stringify(state.body);
+            assert.equal(text.includes("secret-path"), false);
+            assert.equal(text.includes("index.ts"), false);
+            assert.equal(text.includes("stack"), false);
+          }
+        );
+      } finally {
+        mod.loadControlRoomModule = original;
+      }
+    });
+
+    it("8. Runtime failure never leaks raw error or path", async () => {
+      const mod = await loadAccessKeyAuthHelpers();
+      const original = mod.loadControlRoomModule;
+      mod.loadControlRoomModule = () => {
+        throw new Error("C:\\src\\ai\\control-room\\index.ts boom");
+      };
+      try {
+        await withControlRoomEnv(
+          { enabled: "1", accessKey: PATCH_016B_TEST_KEY },
+          async () => {
+            const { res, state } = createMockResponse();
+            await mod.default(
+              {
+                method: "GET",
+                headers: { "x-ai-os-control-room-key": PATCH_016B_TEST_KEY },
+              },
+              res
+            );
+            const text = JSON.stringify(state.body);
+            assert.equal(text.includes("boom"), false);
+            assert.equal(/\\src\\|\/src\//.test(text), false);
+            assert.equal(text.includes(".ts"), false);
+            assert.equal(apiSource.includes("error.message"), false);
+            assert.equal(apiSource.includes("String(error)"), false);
+          }
+        );
+      } finally {
+        mod.loadControlRoomModule = original;
+      }
+    });
+
+    it("9. SHA-256 timing-safe header auth remains unchanged", async () => {
+      const { digestAccessKey, timingSafeStringEqual } =
+        await loadAccessKeyAuthHelpers();
+      assert.match(apiSource, /createHash\("sha256"\)/);
+      assert.match(apiSource, /timingSafeEqual/);
+      assert.equal(apiSource.includes("cookie"), false);
+      assert.equal(
+        timingSafeStringEqual(PATCH_016B_TEST_KEY, PATCH_016B_TEST_KEY),
+        true
+      );
+      assert.equal(digestAccessKey("x").length, 32);
+    });
+
+    it("10. No provider traffic in Control Room API", () => {
+      assert.equal(/fetch\s*\(/.test(apiSource), false);
+      assert.equal(apiSource.includes("api.replicate.com"), false);
+      assert.equal(apiSource.includes("REPLICATE_API_TOKEN"), false);
+      assert.equal(bridgeSource.includes("api.replicate.com"), false);
+      assert.equal(bridgeSource.includes("REPLICATE_API_TOKEN"), false);
+    });
+
+    it("11. Feature flag exact 1 and header-only key model preserved", () => {
+      assert.match(
+        apiSource,
+        /AI_OS_CONTROL_ROOM_ENABLED["']\s*\)\s*===\s*["']1["']|AI_OS_CONTROL_ROOM_ENABLED["']\s*===\s*["']1["']/
+      );
+      assert.match(apiSource, /X-AI-OS-Control-Room-Key|x-ai-os-control-room-key/);
+      assert.equal(apiSource.includes("document.cookie"), false);
+      assert.equal(/export\s+const\s+config\s*=/.test(apiSource), false);
+      assert.equal(/runtime\s*:\s*["']nodejs["']/.test(apiSource), false);
+    });
+
+    it("12. Production image route remains untouched by Control Room", () => {
+      assert.equal(imageRoute.includes("ControlRoom"), false);
+      assert.equal(imageRoute.includes("ai-os-control-room"), false);
+      assert.equal(imageRoute.includes("_control-room-runtime"), false);
+      assert.equal(apiSource.includes("generate-future-you"), false);
+      assert.equal(bridgeSource.includes("generate-future-you"), false);
     });
   });
 });

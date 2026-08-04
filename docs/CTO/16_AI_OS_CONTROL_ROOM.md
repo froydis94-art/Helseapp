@@ -130,7 +130,8 @@ Diagnostics never show:
 2. Redeploy Production.
 3. Open `/ai-os-control-room.html`.
 4. Enter the access key and unlock.
-5. If it fails, copy only the on-page **Code** and **HTTP** status.
+5. If it fails, copy only the on-page **Code**, **HTTP**, and **Diagnostic**
+   (when shown).
 6. Never share the access key.
 
 ## Fixture-only constraint
@@ -220,10 +221,11 @@ This later milestone must require:
 > Control Room may never become an unguarded provider or production execution
 > surface.
 
-## Vercel serverless notes (PATCH 016D / 016E)
+## Vercel serverless notes (PATCH 016D / 016E / 016F)
 
-Control Room API is a plain Vercel Node serverless CommonJS handler under
-`api/ai-os-control-room.js`.
+Control Room API is a Vercel Node serverless TypeScript handler under
+`api/ai-os-control-room.ts`, with a local runtime bridge at
+`api/_control-room-runtime.ts`.
 
 Do **not** export Next.js-style function config such as:
 
@@ -235,8 +237,11 @@ export const config = { runtime: "nodejs", maxDuration: 60 };
 (`config.runtime` semantics are evolving; Node is already the default for
 `/api/*`). Prefer:
 
-- lazy module loading via literal `require("../src/ai/control-room/index")`
-  (only after feature flag + authorization)
+- TypeScript API entry so Vercel compiles the AI OS Control Room graph into the
+  function bundle (never runtime-`require` / `import` raw
+  `../src/ai/control-room/index` TypeScript from the handler)
+- lazy load of the local bridge `./_control-room-runtime` only after feature
+  flag + authorization
 - `require("crypto")` for SHA-256 timing-safe access comparison
 - default handler export only (plus test helper exports)
 
@@ -255,5 +260,9 @@ Safe authorized `diagnostic` values:
 - `service_construct_failed`
 - `scenario_run_failed`
 - `projection_failed`
+
+The unlock UI surfaces allowlisted `diagnostic` values as
+`Diagnostic: <value>` via `textContent` only (never arbitrary diagnostic,
+raw errors, stacks, paths, env, or keys).
 
 No `vercel.json` functions override is required for Control Room.

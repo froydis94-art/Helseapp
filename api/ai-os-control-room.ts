@@ -5,9 +5,14 @@
  * Access key: AI_OS_CONTROL_ROOM_ACCESS_KEY (header X-AI-OS-Control-Room-Key)
  *
  * Disabled by default. No CORS wildcard. No provider network. No secrets returned.
+ *
+ * PATCH 016F: TypeScript entry so Vercel compiles the Control Room graph.
+ * Lazy-loads only ./_control-room-runtime (never raw src/ai control-room TypeScript).
  */
 
-const crypto = require("crypto");
+// CJS crypto require kept for broad Vercel Node compatibility (PATCH 016D).
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const crypto = require("crypto") as typeof import("crypto");
 
 const ACCESS_HEADER = "x-ai-os-control-room-key";
 const ACCESS_HEADER_CANONICAL = "X-AI-OS-Control-Room-Key";
@@ -25,78 +30,111 @@ const ALLOWED_SCENARIO_IDS = new Set([
   "athletic_strength_24w",
 ]);
 
+type ControlRoomModuleShape = {
+  ControlRoomService: new () => {
+    runScenario(id: string): Promise<unknown>;
+  };
+  ControlRoomServiceError: new (
+    code: string,
+    message: string
+  ) => Error & { code: string };
+  listControlRoomScenarios: () => unknown[];
+};
+
+type VercelLikeResponse = {
+  setHeader(name: string, value: string): void;
+  status(code: number): { json(body: unknown): void; end(): void };
+  json?(body: unknown): void;
+  end?(): void;
+};
+
 /**
  * Lazy load after feature-flag + authorization.
- * Literal require path so Vercel can trace/bundle; preferred over dynamic import
- * for this CommonJS shim (PATCH 016E).
+ * Literal require of the local compiled bridge only (PATCH 016F).
  */
-function loadControlRoomModule() {
-  return require("../src/ai/control-room/index");
+function loadControlRoomModule(): unknown {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require("./_control-room-runtime");
 }
 
 /**
  * Accept only proven module shapes:
- * A) named CJS exports
+ * A) named CJS/TS exports
  * B) one default object containing the same exports
  */
-function normalizeControlRoomModule(imported) {
+function normalizeControlRoomModule(
+  imported: unknown
+): ControlRoomModuleShape | null {
   if (imported == null || typeof imported !== "object") {
     return null;
   }
 
+  const record = imported as Record<string, unknown>;
+
   if (
-    typeof imported.ControlRoomService === "function" &&
-    typeof imported.ControlRoomServiceError === "function" &&
-    typeof imported.listControlRoomScenarios === "function"
+    typeof record.ControlRoomService === "function" &&
+    typeof record.ControlRoomServiceError === "function" &&
+    typeof record.listControlRoomScenarios === "function"
   ) {
     return {
-      ControlRoomService: imported.ControlRoomService,
-      ControlRoomServiceError: imported.ControlRoomServiceError,
-      listControlRoomScenarios: imported.listControlRoomScenarios,
+      ControlRoomService: record.ControlRoomService as ControlRoomModuleShape["ControlRoomService"],
+      ControlRoomServiceError:
+        record.ControlRoomServiceError as ControlRoomModuleShape["ControlRoomServiceError"],
+      listControlRoomScenarios:
+        record.listControlRoomScenarios as ControlRoomModuleShape["listControlRoomScenarios"],
     };
   }
 
-  const nested = imported.default;
+  const nested = record.default;
   if (
     nested != null &&
     typeof nested === "object" &&
-    typeof nested.ControlRoomService === "function" &&
-    typeof nested.ControlRoomServiceError === "function" &&
-    typeof nested.listControlRoomScenarios === "function"
+    typeof (nested as Record<string, unknown>).ControlRoomService ===
+      "function" &&
+    typeof (nested as Record<string, unknown>).ControlRoomServiceError ===
+      "function" &&
+    typeof (nested as Record<string, unknown>).listControlRoomScenarios ===
+      "function"
   ) {
+    const n = nested as Record<string, unknown>;
     return {
-      ControlRoomService: nested.ControlRoomService,
-      ControlRoomServiceError: nested.ControlRoomServiceError,
-      listControlRoomScenarios: nested.listControlRoomScenarios,
+      ControlRoomService: n.ControlRoomService as ControlRoomModuleShape["ControlRoomService"],
+      ControlRoomServiceError:
+        n.ControlRoomServiceError as ControlRoomModuleShape["ControlRoomServiceError"],
+      listControlRoomScenarios:
+        n.listControlRoomScenarios as ControlRoomModuleShape["listControlRoomScenarios"],
     };
   }
 
   return null;
 }
 
-function readEnv(name) {
+function readEnv(name: string): string | undefined {
   if (typeof process === "undefined" || process.env == null) return undefined;
   const value = process.env[name];
   return typeof value === "string" ? value : undefined;
 }
 
-function isControlRoomEnabled() {
+function isControlRoomEnabled(): boolean {
   return readEnv("AI_OS_CONTROL_ROOM_ENABLED") === "1";
 }
 
-function getConfiguredAccessKey() {
+function getConfiguredAccessKey(): string | undefined {
   const key = readEnv("AI_OS_CONTROL_ROOM_ACCESS_KEY");
   if (key == null || key.length < MIN_ACCESS_KEY_LENGTH) return undefined;
   return key;
 }
 
-function getControlRoomConfigurationStatus() {
+function getControlRoomConfigurationStatus():
+  | "disabled"
+  | "missing_access_key"
+  | "ready" {
   if (!isControlRoomEnabled()) return "disabled";
   if (getConfiguredAccessKey() == null) return "missing_access_key";
   return "ready";
 }
 
-function normalizeHeaderToken(value) {
+function normalizeHeaderToken(value: unknown): string | undefined {
   if (typeof value === "string") return value;
   if (Array.isArray(value)) {
     const first = value[0];
@@ -105,28 +143,34 @@ function normalizeHeaderToken(value) {
   return undefined;
 }
 
-function resolveControlRoomAccessHeader(headers) {
+function resolveControlRoomAccessHeader(headers: unknown): string | undefined {
   if (headers == null) return undefined;
   const target = ACCESS_HEADER;
 
-  if (typeof headers.get === "function") {
+  const headersObj = headers as {
+    get?: (name: string) => unknown;
+    entries?: () => IterableIterator<[string, unknown]> | Array<[string, unknown]>;
+    forEach?: (cb: (value: unknown, key: string) => void) => void;
+    [key: string]: unknown;
+  };
+
+  if (typeof headersObj.get === "function") {
     const viaGet =
-      normalizeHeaderToken(headers.get(ACCESS_HEADER_CANONICAL)) ??
-      normalizeHeaderToken(headers.get(ACCESS_HEADER)) ??
-      normalizeHeaderToken(headers.get(target));
+      normalizeHeaderToken(headersObj.get(ACCESS_HEADER_CANONICAL)) ??
+      normalizeHeaderToken(headersObj.get(ACCESS_HEADER)) ??
+      normalizeHeaderToken(headersObj.get(target));
     if (viaGet != null) return viaGet;
   }
 
-  const asRecord = headers;
   const direct =
-    normalizeHeaderToken(asRecord[ACCESS_HEADER_CANONICAL]) ??
-    normalizeHeaderToken(asRecord[ACCESS_HEADER]) ??
-    normalizeHeaderToken(asRecord[target]);
+    normalizeHeaderToken(headersObj[ACCESS_HEADER_CANONICAL]) ??
+    normalizeHeaderToken(headersObj[ACCESS_HEADER]) ??
+    normalizeHeaderToken(headersObj[target]);
   if (direct != null) return direct;
 
-  if (typeof headers.entries === "function") {
+  if (typeof headersObj.entries === "function") {
     try {
-      for (const entry of headers.entries()) {
+      for (const entry of headersObj.entries() as Iterable<[string, unknown]>) {
         const key = entry?.[0];
         const value = entry?.[1];
         if (typeof key === "string" && key.toLowerCase() === target) {
@@ -139,10 +183,10 @@ function resolveControlRoomAccessHeader(headers) {
     }
   }
 
-  if (typeof headers.forEach === "function") {
-    let found;
+  if (typeof headersObj.forEach === "function") {
+    let found: string | undefined;
     try {
-      headers.forEach((value, key) => {
+      headersObj.forEach((value, key) => {
         if (found != null) return;
         if (typeof key === "string" && key.toLowerCase() === target) {
           found = normalizeHeaderToken(value);
@@ -154,9 +198,9 @@ function resolveControlRoomAccessHeader(headers) {
     if (found != null) return found;
   }
 
-  for (const key of Object.keys(asRecord)) {
+  for (const key of Object.keys(headersObj)) {
     if (key.toLowerCase() === target) {
-      const resolved = normalizeHeaderToken(asRecord[key]);
+      const resolved = normalizeHeaderToken(headersObj[key]);
       if (resolved != null) return resolved;
     }
   }
@@ -164,11 +208,11 @@ function resolveControlRoomAccessHeader(headers) {
   return undefined;
 }
 
-function digestAccessKey(value) {
+function digestAccessKey(value: string): Buffer {
   return crypto.createHash("sha256").update(value, "utf8").digest();
 }
 
-function timingSafeStringEqual(provided, expected) {
+function timingSafeStringEqual(provided: string, expected: string): boolean {
   const providedDigest = digestAccessKey(provided);
   const expectedDigest = digestAccessKey(expected);
   return crypto.timingSafeEqual(providedDigest, expectedDigest);
@@ -182,26 +226,43 @@ function isAuthorized(req) {
   return timingSafeStringEqual(provided, expected);
 }
 
-function setSecurityHeaders(res) {
+function setSecurityHeaders(res: VercelLikeResponse): void {
   res.setHeader("Cache-Control", "no-store");
   res.setHeader("Content-Type", "application/json");
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "no-referrer");
 }
 
-function withMeta(body) {
+function withMeta<T extends Record<string, unknown>>(body: T): T & {
+  meta: typeof CONTROL_ROOM_RESPONSE_META;
+} {
   return {
     ...body,
     meta: { ...CONTROL_ROOM_RESPONSE_META },
   };
 }
 
-function send(res, status, body) {
+function send(
+  res: VercelLikeResponse,
+  status: number,
+  body: Record<string, unknown>
+): void {
   setSecurityHeaders(res);
-  res.status(status).json(withMeta(body));
+  const payload = withMeta(body);
+  const statusResult = res.status(status);
+  if (typeof statusResult.json === "function") {
+    statusResult.json(payload);
+    return;
+  }
+  if (typeof res.json === "function") {
+    res.json(payload);
+  }
 }
 
-function sendRuntimeFailure(res, diagnostic) {
+function sendRuntimeFailure(
+  res: VercelLikeResponse,
+  diagnostic: string
+): void {
   send(res, 500, {
     ok: false,
     enabled: true,
@@ -211,7 +272,7 @@ function sendRuntimeFailure(res, diagnostic) {
   });
 }
 
-function disabledResponse(res) {
+function disabledResponse(res: VercelLikeResponse): void {
   send(res, 404, {
     ok: false,
     enabled: false,
@@ -220,7 +281,7 @@ function disabledResponse(res) {
   });
 }
 
-function unauthorizedResponse(res) {
+function unauthorizedResponse(res: VercelLikeResponse): void {
   send(res, 401, {
     ok: false,
     enabled: true,
@@ -229,26 +290,26 @@ function unauthorizedResponse(res) {
   });
 }
 
-function parseJsonBody(body) {
+function parseJsonBody(body: unknown): Record<string, unknown> | null {
   if (body == null) return null;
   if (typeof body === "string") {
     try {
-      const parsed = JSON.parse(body);
+      const parsed = JSON.parse(body) as unknown;
       if (parsed == null || typeof parsed !== "object" || Array.isArray(parsed)) {
         return null;
       }
-      return parsed;
+      return parsed as Record<string, unknown>;
     } catch {
       return null;
     }
   }
   if (typeof body === "object" && !Array.isArray(body)) {
-    return body;
+    return body as Record<string, unknown>;
   }
   return null;
 }
 
-function hasQueryAccessKey(req) {
+function hasQueryAccessKey(req: { query?: Record<string, unknown> }): boolean {
   if (!req.query) return false;
   const keys = Object.keys(req.query);
   return keys.some((key) => {
@@ -266,13 +327,16 @@ function hasQueryAccessKey(req) {
  * Authorized GET: list scenarios only — no ControlRoomService construct,
  * no AiOsRuntime, no scenario execution.
  */
-function handleGet(res, controlRoomModule) {
+function handleGet(
+  res: VercelLikeResponse,
+  controlRoomModule: ControlRoomModuleShape
+): void {
   if (typeof controlRoomModule.listControlRoomScenarios !== "function") {
     sendRuntimeFailure(res, "module_shape_invalid");
     return;
   }
 
-  let scenarios;
+  let scenarios: unknown;
   try {
     scenarios = controlRoomModule.listControlRoomScenarios();
   } catch {
@@ -287,7 +351,11 @@ function handleGet(res, controlRoomModule) {
   });
 }
 
-async function handlePost(req, res, controlRoomModule) {
+async function handlePost(
+  req: { body?: unknown; query?: Record<string, unknown> },
+  res: VercelLikeResponse,
+  controlRoomModule: ControlRoomModuleShape
+): Promise<void> {
   if (hasQueryAccessKey(req)) {
     send(res, 400, {
       ok: false,
@@ -350,7 +418,7 @@ async function handlePost(req, res, controlRoomModule) {
     return;
   }
 
-  let service;
+  let service: { runScenario(id: string): Promise<unknown> };
   try {
     service = new controlRoomModule.ControlRoomService();
   } catch {
@@ -360,7 +428,7 @@ async function handlePost(req, res, controlRoomModule) {
 
   try {
     const result = await service.runScenario(scenarioId);
-    let scenarios;
+    let scenarios: unknown;
     try {
       scenarios = controlRoomModule.listControlRoomScenarios();
     } catch {
@@ -379,7 +447,8 @@ async function handlePost(req, res, controlRoomModule) {
       typeof error === "object" &&
       error instanceof controlRoomModule.ControlRoomServiceError
     ) {
-      if (error.code === "scenario_not_found") {
+      const typed = error as Error & { code: string };
+      if (typed.code === "scenario_not_found") {
         send(res, 404, {
           ok: false,
           enabled: true,
@@ -388,7 +457,7 @@ async function handlePost(req, res, controlRoomModule) {
         });
         return;
       }
-      if (error.code === "unsafe_result") {
+      if (typed.code === "unsafe_result") {
         send(res, 500, {
           ok: false,
           enabled: true,
@@ -404,7 +473,10 @@ async function handlePost(req, res, controlRoomModule) {
   }
 }
 
-async function handler(req, res) {
+async function handler(
+  req: { method?: string; headers?: unknown; body?: unknown; query?: Record<string, unknown> } | null | undefined,
+  res: VercelLikeResponse
+): Promise<void> {
   try {
     const safeReq =
       req != null && typeof req === "object" ? req : { method: "GET" };
@@ -440,10 +512,12 @@ async function handler(req, res) {
       return;
     }
 
-    let loaded;
+    let loaded: unknown;
     try {
       // Call through exports so tests can stub the loader without reloading the handler.
-      loaded = module.exports.loadControlRoomModule();
+      loaded = (
+        module.exports as { loadControlRoomModule: () => unknown }
+      ).loadControlRoomModule();
     } catch {
       sendRuntimeFailure(res, "module_load_failed");
       return;
@@ -473,6 +547,7 @@ module.exports.CONTROL_ROOM_RESPONSE_META = CONTROL_ROOM_RESPONSE_META;
 module.exports.digestAccessKey = digestAccessKey;
 module.exports.timingSafeStringEqual = timingSafeStringEqual;
 module.exports.resolveControlRoomAccessHeader = resolveControlRoomAccessHeader;
-module.exports.getControlRoomConfigurationStatus = getControlRoomConfigurationStatus;
+module.exports.getControlRoomConfigurationStatus =
+  getControlRoomConfigurationStatus;
 module.exports.loadControlRoomModule = loadControlRoomModule;
 module.exports.normalizeControlRoomModule = normalizeControlRoomModule;
