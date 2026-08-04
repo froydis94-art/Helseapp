@@ -13,11 +13,6 @@
 
 import { createHash, timingSafeEqual } from "node:crypto";
 
-import type {
-  ControlRoomApiResponse,
-  ControlRoomScenarioId,
-} from "../src/ai/control-room";
-
 const ACCESS_HEADER = "x-ai-os-control-room-key";
 const ACCESS_HEADER_CANONICAL = "X-AI-OS-Control-Room-Key";
 const MIN_ACCESS_KEY_LENGTH = 24;
@@ -30,6 +25,15 @@ export const CONTROL_ROOM_RESPONSE_META = {
 type ControlRoomResponseMeta = typeof CONTROL_ROOM_RESPONSE_META;
 
 /** Local intersection — avoids editing shared ControlRoomTypes for meta. */
+type ControlRoomApiResponse = {
+  ok: boolean;
+  enabled: boolean;
+  code?: string;
+  message?: string;
+  scenarios?: unknown[];
+  result?: unknown;
+};
+
 type ControlRoomHttpResponse = ControlRoomApiResponse & {
   meta: ControlRoomResponseMeta;
 };
@@ -39,10 +43,17 @@ type ControlRoomConfigurationStatus =
   | "missing_access_key"
   | "ready";
 
-type ControlRoomRuntimeModule = typeof import("../src/ai/control-room/index");
+type ControlRoomRuntimeModule = {
+  ControlRoomService: new () => {
+    listScenarios(): unknown[];
+    runScenario(scenarioId: string): Promise<unknown>;
+  };
+  ControlRoomServiceError: new (...args: unknown[]) => { code?: string };
+  listControlRoomScenarios(): unknown[];
+};
 
 async function loadControlRoomModule(): Promise<ControlRoomRuntimeModule> {
-  return import("../src/ai/control-room/index");
+  return (await import("../src/ai/control-room/index")) as ControlRoomRuntimeModule;
 }
 
 const ALLOWED_SCENARIO_IDS = new Set<string>([
@@ -350,9 +361,7 @@ async function handlePost(
 
   const service = new controlRoomModule.ControlRoomService();
   try {
-    const result = await service.runScenario(
-      scenarioId as ControlRoomScenarioId
-    );
+    const result = await service.runScenario(scenarioId);
     send(res, 200, {
       ok: true,
       enabled: true,

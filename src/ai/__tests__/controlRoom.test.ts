@@ -1464,10 +1464,22 @@ describe("DEMAND_016 Control Room", () => {
       assert.match(apiSource, /async function loadControlRoomModule/);
       assert.match(
         apiSource,
-        /return import\(["']\.\.\/src\/ai\/control-room\/index["']\)/
+        /import\(["']\.\.\/src\/ai\/control-room\/index["']\)/
       );
       assert.equal(
         /import\s*\{[\s\S]*ControlRoomService[\s\S]*\}\s*from\s*["']\.\.\/src\/ai\/control-room["']/.test(
+          apiSource
+        ),
+        false
+      );
+      assert.equal(
+        /import\s+type\s*\{[\s\S]*\}\s*from\s*["']\.\.\/src\/ai\/control-room["']/.test(
+          apiSource
+        ),
+        false
+      );
+      assert.equal(
+        /typeof\s+import\(["']\.\.\/src\/ai\/control-room\/index["']\)/.test(
           apiSource
         ),
         false
