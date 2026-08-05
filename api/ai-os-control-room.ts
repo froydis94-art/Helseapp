@@ -6,9 +6,12 @@
  *
  * Disabled by default. No CORS wildcard. No provider network. No secrets returned.
  *
- * PATCH 016F: TypeScript entry so Vercel compiles the Control Room graph.
- * Lazy-loads only ./_control-room-runtime (never raw src/ai control-room TypeScript).
+ * PATCH 016G: One bundled TypeScript Vercel handler. GET imports ControlRoomFixtures
+ * only. POST lazy-loads ControlRoomService from its exact module. No api-to-api
+ * bridge and no control-room barrel import.
  */
+
+import { listControlRoomScenarios } from "../src/ai/control-room/ControlRoomFixtures";
 
 // CJS crypto require kept for broad Vercel Node compatibility (PATCH 016D).
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -30,7 +33,7 @@ const ALLOWED_SCENARIO_IDS = new Set([
   "athletic_strength_24w",
 ]);
 
-type ControlRoomModuleShape = {
+type ControlRoomServiceModuleShape = {
   ControlRoomService: new () => {
     runScenario(id: string): Promise<unknown>;
   };
@@ -38,7 +41,6 @@ type ControlRoomModuleShape = {
     code: string,
     message: string
   ) => Error & { code: string };
-  listControlRoomScenarios: () => unknown[];
 };
 
 type VercelLikeResponse = {
@@ -49,22 +51,37 @@ type VercelLikeResponse = {
 };
 
 /**
- * Lazy load after feature-flag + authorization.
- * Literal require of the local compiled bridge only (PATCH 016F).
+ * Mutable helpers so tests can stub list/load without reloading the handler.
+ * Handler always calls through this object (never a frozen binding).
  */
-function loadControlRoomModule(): unknown {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  return require("./_control-room-runtime");
-}
+const apiHelpers = {
+  listScenariosForGet(): unknown[] {
+    return listControlRoomScenarios();
+  },
+
+  /**
+   * POST-only: load ControlRoomService from the exact module path after auth +
+   * request validation. Never load from api/, barrel index, or computed paths.
+   */
+  async loadControlRoomServiceModule(): Promise<unknown> {
+    return import("../src/ai/control-room/ControlRoomService");
+  },
+
+  normalizeControlRoomServiceModule(
+    imported: unknown
+  ): ControlRoomServiceModuleShape | null {
+    return normalizeControlRoomServiceModule(imported);
+  },
+};
 
 /**
  * Accept only proven module shapes:
- * A) named CJS/TS exports
+ * A) named exports with ControlRoomService + ControlRoomServiceError
  * B) one default object containing the same exports
  */
-function normalizeControlRoomModule(
+function normalizeControlRoomServiceModule(
   imported: unknown
-): ControlRoomModuleShape | null {
+): ControlRoomServiceModuleShape | null {
   if (imported == null || typeof imported !== "object") {
     return null;
   }
@@ -73,15 +90,13 @@ function normalizeControlRoomModule(
 
   if (
     typeof record.ControlRoomService === "function" &&
-    typeof record.ControlRoomServiceError === "function" &&
-    typeof record.listControlRoomScenarios === "function"
+    typeof record.ControlRoomServiceError === "function"
   ) {
     return {
-      ControlRoomService: record.ControlRoomService as ControlRoomModuleShape["ControlRoomService"],
+      ControlRoomService:
+        record.ControlRoomService as ControlRoomServiceModuleShape["ControlRoomService"],
       ControlRoomServiceError:
-        record.ControlRoomServiceError as ControlRoomModuleShape["ControlRoomServiceError"],
-      listControlRoomScenarios:
-        record.listControlRoomScenarios as ControlRoomModuleShape["listControlRoomScenarios"],
+        record.ControlRoomServiceError as ControlRoomServiceModuleShape["ControlRoomServiceError"],
     };
   }
 
@@ -92,21 +107,34 @@ function normalizeControlRoomModule(
     typeof (nested as Record<string, unknown>).ControlRoomService ===
       "function" &&
     typeof (nested as Record<string, unknown>).ControlRoomServiceError ===
-      "function" &&
-    typeof (nested as Record<string, unknown>).listControlRoomScenarios ===
       "function"
   ) {
     const n = nested as Record<string, unknown>;
     return {
-      ControlRoomService: n.ControlRoomService as ControlRoomModuleShape["ControlRoomService"],
+      ControlRoomService:
+        n.ControlRoomService as ControlRoomServiceModuleShape["ControlRoomService"],
       ControlRoomServiceError:
-        n.ControlRoomServiceError as ControlRoomModuleShape["ControlRoomServiceError"],
-      listControlRoomScenarios:
-        n.listControlRoomScenarios as ControlRoomModuleShape["listControlRoomScenarios"],
+        n.ControlRoomServiceError as ControlRoomServiceModuleShape["ControlRoomServiceError"],
     };
   }
 
   return null;
+}
+
+function isControlRoomServiceError(
+  error: unknown,
+  ErrorCtor: ControlRoomServiceModuleShape["ControlRoomServiceError"]
+): error is Error & { code: string } {
+  if (error instanceof ErrorCtor) {
+    return typeof (error as Error & { code?: unknown }).code === "string";
+  }
+  // Structural fallback when instanceof fails across bundle copies.
+  return (
+    error != null &&
+    typeof error === "object" &&
+    (error as Error).name === "ControlRoomServiceError" &&
+    typeof (error as { code?: unknown }).code === "string"
+  );
 }
 
 function readEnv(name: string): string | undefined {
@@ -218,7 +246,7 @@ function timingSafeStringEqual(provided: string, expected: string): boolean {
   return crypto.timingSafeEqual(providedDigest, expectedDigest);
 }
 
-function isAuthorized(req) {
+function isAuthorized(req: { headers?: unknown }): boolean {
   const expected = getConfiguredAccessKey();
   if (expected == null) return false;
   const provided = resolveControlRoomAccessHeader(req.headers);
@@ -324,21 +352,13 @@ function hasQueryAccessKey(req: { query?: Record<string, unknown> }): boolean {
 }
 
 /**
- * Authorized GET: list scenarios only — no ControlRoomService construct,
- * no AiOsRuntime, no scenario execution.
+ * Authorized GET: list scenarios via ControlRoomFixtures only —
+ * no ControlRoomService construct, no AiOsRuntime, no scenario execution.
  */
-function handleGet(
-  res: VercelLikeResponse,
-  controlRoomModule: ControlRoomModuleShape
-): void {
-  if (typeof controlRoomModule.listControlRoomScenarios !== "function") {
-    sendRuntimeFailure(res, "module_shape_invalid");
-    return;
-  }
-
+function handleGet(res: VercelLikeResponse): void {
   let scenarios: unknown;
   try {
-    scenarios = controlRoomModule.listControlRoomScenarios();
+    scenarios = apiHelpers.listScenariosForGet();
   } catch {
     sendRuntimeFailure(res, "scenario_list_failed");
     return;
@@ -353,8 +373,7 @@ function handleGet(
 
 async function handlePost(
   req: { body?: unknown; query?: Record<string, unknown> },
-  res: VercelLikeResponse,
-  controlRoomModule: ControlRoomModuleShape
+  res: VercelLikeResponse
 ): Promise<void> {
   if (hasQueryAccessKey(req)) {
     send(res, 400, {
@@ -413,7 +432,17 @@ async function handlePost(
     return;
   }
 
-  if (typeof controlRoomModule.ControlRoomService !== "function") {
+  // Heavy service module loads only after flag, auth, method, JSON, allowlist.
+  let loaded: unknown;
+  try {
+    loaded = await apiHelpers.loadControlRoomServiceModule();
+  } catch {
+    sendRuntimeFailure(res, "module_load_failed");
+    return;
+  }
+
+  const controlRoomModule = apiHelpers.normalizeControlRoomServiceModule(loaded);
+  if (controlRoomModule == null) {
     sendRuntimeFailure(res, "module_shape_invalid");
     return;
   }
@@ -430,7 +459,7 @@ async function handlePost(
     const result = await service.runScenario(scenarioId);
     let scenarios: unknown;
     try {
-      scenarios = controlRoomModule.listControlRoomScenarios();
+      scenarios = apiHelpers.listScenariosForGet();
     } catch {
       sendRuntimeFailure(res, "scenario_list_failed");
       return;
@@ -442,13 +471,8 @@ async function handlePost(
       result,
     });
   } catch (error) {
-    if (
-      error != null &&
-      typeof error === "object" &&
-      error instanceof controlRoomModule.ControlRoomServiceError
-    ) {
-      const typed = error as Error & { code: string };
-      if (typed.code === "scenario_not_found") {
+    if (isControlRoomServiceError(error, controlRoomModule.ControlRoomServiceError)) {
+      if (error.code === "scenario_not_found") {
         send(res, 404, {
           ok: false,
           enabled: true,
@@ -457,7 +481,7 @@ async function handlePost(
         });
         return;
       }
-      if (typed.code === "unsafe_result") {
+      if (error.code === "unsafe_result") {
         send(res, 500, {
           ok: false,
           enabled: true,
@@ -512,34 +536,64 @@ async function handler(
       return;
     }
 
-    let loaded: unknown;
-    try {
-      // Call through exports so tests can stub the loader without reloading the handler.
-      loaded = (
-        module.exports as { loadControlRoomModule: () => unknown }
-      ).loadControlRoomModule();
-    } catch {
-      sendRuntimeFailure(res, "module_load_failed");
-      return;
-    }
-
-    const controlRoomModule = normalizeControlRoomModule(loaded);
-    if (controlRoomModule == null) {
-      sendRuntimeFailure(res, "module_shape_invalid");
-      return;
-    }
-
     if (method === "GET") {
-      handleGet(res, controlRoomModule);
+      handleGet(res);
       return;
     }
 
-    await handlePost(safeReq, res, controlRoomModule);
+    await handlePost(safeReq, res);
   } catch {
     // Unexpected authorized-path failure — keep diagnostic in the allowlisted set.
     sendRuntimeFailure(res, "scenario_run_failed");
   }
 }
+
+// Hang helpers on the handler for CJS-style test stubbing and Vercel default export.
+(handler as unknown as { default: typeof handler }).default = handler;
+(handler as unknown as { CONTROL_ROOM_RESPONSE_META: typeof CONTROL_ROOM_RESPONSE_META }).CONTROL_ROOM_RESPONSE_META =
+  CONTROL_ROOM_RESPONSE_META;
+(handler as unknown as { digestAccessKey: typeof digestAccessKey }).digestAccessKey =
+  digestAccessKey;
+(handler as unknown as { timingSafeStringEqual: typeof timingSafeStringEqual }).timingSafeStringEqual =
+  timingSafeStringEqual;
+(handler as unknown as {
+  resolveControlRoomAccessHeader: typeof resolveControlRoomAccessHeader;
+}).resolveControlRoomAccessHeader = resolveControlRoomAccessHeader;
+(handler as unknown as {
+  getControlRoomConfigurationStatus: typeof getControlRoomConfigurationStatus;
+}).getControlRoomConfigurationStatus = getControlRoomConfigurationStatus;
+
+// Stubbable methods: assignment on the live handler replaces apiHelpers implementations.
+Object.defineProperty(handler, "listScenariosForGet", {
+  configurable: true,
+  enumerable: true,
+  get() {
+    return apiHelpers.listScenariosForGet.bind(apiHelpers);
+  },
+  set(fn: typeof apiHelpers.listScenariosForGet) {
+    apiHelpers.listScenariosForGet = fn;
+  },
+});
+Object.defineProperty(handler, "loadControlRoomServiceModule", {
+  configurable: true,
+  enumerable: true,
+  get() {
+    return apiHelpers.loadControlRoomServiceModule.bind(apiHelpers);
+  },
+  set(fn: typeof apiHelpers.loadControlRoomServiceModule) {
+    apiHelpers.loadControlRoomServiceModule = fn;
+  },
+});
+Object.defineProperty(handler, "normalizeControlRoomServiceModule", {
+  configurable: true,
+  enumerable: true,
+  get() {
+    return apiHelpers.normalizeControlRoomServiceModule.bind(apiHelpers);
+  },
+  set(fn: typeof apiHelpers.normalizeControlRoomServiceModule) {
+    apiHelpers.normalizeControlRoomServiceModule = fn;
+  },
+});
 
 module.exports = handler;
 module.exports.default = handler;
@@ -549,5 +603,5 @@ module.exports.timingSafeStringEqual = timingSafeStringEqual;
 module.exports.resolveControlRoomAccessHeader = resolveControlRoomAccessHeader;
 module.exports.getControlRoomConfigurationStatus =
   getControlRoomConfigurationStatus;
-module.exports.loadControlRoomModule = loadControlRoomModule;
-module.exports.normalizeControlRoomModule = normalizeControlRoomModule;
+module.exports.normalizeControlRoomServiceModule =
+  normalizeControlRoomServiceModule;

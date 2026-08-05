@@ -7,7 +7,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
@@ -35,6 +35,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, "..", "..", "..");
 const controlRoomDir = join(__dirname, "..", "control-room");
 const apiPath = join(repoRoot, "api", "ai-os-control-room.ts");
+const apiJsPath = join(repoRoot, "api", "ai-os-control-room.js");
 const runtimeBridgePath = join(repoRoot, "api", "_control-room-runtime.ts");
 const imageRoutePath = join(repoRoot, "api", "generate-future-you.js");
 const uiHtmlPath = join(repoRoot, "public", "ai-os-control-room.html");
@@ -101,16 +102,14 @@ function containsForbidden(value: unknown): boolean {
   return PERSONAL_PATTERNS.some((pattern) => pattern.test(text));
 }
 
-type ControlRoomModuleShape = {
+type ControlRoomServiceModuleShape = {
   ControlRoomService: new () => {
-    listScenarios(): unknown[];
     runScenario(id: string): Promise<unknown>;
   };
   ControlRoomServiceError: new (
     code: string,
     message: string
   ) => Error & { code: string };
-  listControlRoomScenarios: () => unknown[];
 };
 
 type AccessKeyAuthHelpers = {
@@ -127,8 +126,11 @@ type AccessKeyAuthHelpers = {
     service: string;
     apiVersion: string;
   };
-  loadControlRoomModule: () => unknown;
-  normalizeControlRoomModule: (imported: unknown) => ControlRoomModuleShape | null;
+  listScenariosForGet: () => unknown[];
+  loadControlRoomServiceModule: () => Promise<unknown>;
+  normalizeControlRoomServiceModule: (
+    imported: unknown
+  ) => ControlRoomServiceModuleShape | null;
   default: (
     req: Record<string, unknown>,
     res: {
@@ -156,8 +158,9 @@ async function loadAccessKeyAuthHelpers(): Promise<AccessKeyAuthHelpers> {
   assert.equal(typeof liveExports.timingSafeStringEqual, "function");
   assert.equal(typeof liveExports.resolveControlRoomAccessHeader, "function");
   assert.equal(typeof liveExports.getControlRoomConfigurationStatus, "function");
-  assert.equal(typeof liveExports.loadControlRoomModule, "function");
-  assert.equal(typeof liveExports.normalizeControlRoomModule, "function");
+  assert.equal(typeof liveExports.listScenariosForGet, "function");
+  assert.equal(typeof liveExports.loadControlRoomServiceModule, "function");
+  assert.equal(typeof liveExports.normalizeControlRoomServiceModule, "function");
   assert.equal(typeof liveExports.default, "function");
   return liveExports;
 }
@@ -753,7 +756,7 @@ describe("DEMAND_016 Control Room", () => {
 
     it("53. POST requires authorization", () => {
       assert.match(apiSource, /method !== "GET" && method !== "POST"|method === "POST"/);
-      assert.match(apiSource, /isAuthorized\(req\)/);
+      assert.match(apiSource, /isAuthorized\(/);
     });
 
     it("54. POST accepts only scenarioId", () => {
@@ -1494,11 +1497,18 @@ describe("DEMAND_016 Control Room", () => {
   describe("PATCH_016D Control Room lazy-load fix", () => {
     const apiSource = read(apiPath);
 
-    it("1. API uses lazy module loading via local runtime bridge", () => {
-      assert.match(apiSource, /function loadControlRoomModule/);
+    it("1. API uses fixtures import for GET and exact service module for POST", () => {
       assert.match(
         apiSource,
-        /require\(["']\.\/_control-room-runtime["']\)/
+        /from\s+["']\.\.\/src\/ai\/control-room\/ControlRoomFixtures["']/
+      );
+      assert.match(
+        apiSource,
+        /import\(["']\.\.\/src\/ai\/control-room\/ControlRoomService["']\)/
+      );
+      assert.equal(
+        /require\(["']\.\/_control-room-runtime["']\)/.test(apiSource),
+        false
       );
       assert.equal(
         /require\(["']\.\.\/src\/ai\/control-room\/index["']\)/.test(apiSource),
@@ -1635,7 +1645,7 @@ describe("DEMAND_016 Control Room", () => {
     it("11. Docs mention Vercel-safe API shape", () => {
       const docs = read(docsPath);
       assert.match(docs, /Vercel|deployment|config\.runtime|nodejs/i);
-      assert.match(docs, /require\(|lazy|serverless/i);
+      assert.match(docs, /ControlRoomFixtures|ControlRoomService|serverless/i);
     });
 
     it("12. vercel.json was not required for this fix", () => {
@@ -1680,24 +1690,24 @@ describe("DEMAND_016 Control Room", () => {
       assert.equal(/\.ts\b|\.js\b|\\src\\|\/src\//.test(text), false);
     }
 
-    async function withStubbedLoader(
+    async function withStubbedServiceLoader(
       mod: AccessKeyAuthHelpers,
-      stub: () => unknown,
+      stub: () => Promise<unknown> | unknown,
       run: () => Promise<void>
     ): Promise<void> {
-      const original = mod.loadControlRoomModule;
-      mod.loadControlRoomModule = stub;
+      const original = mod.loadControlRoomServiceModule;
+      mod.loadControlRoomServiceModule = async () => stub();
       try {
         await run();
       } finally {
-        mod.loadControlRoomModule = original;
+        mod.loadControlRoomServiceModule = original;
       }
     }
 
-    it("1. Disabled requests never load the Control Room module", async () => {
+    it("1. Disabled requests never load the Control Room service module", async () => {
       const mod = await loadAccessKeyAuthHelpers();
       let loads = 0;
-      await withStubbedLoader(
+      await withStubbedServiceLoader(
         mod,
         () => {
           loads += 1;
@@ -1715,10 +1725,10 @@ describe("DEMAND_016 Control Room", () => {
       );
     });
 
-    it("2. Unauthorized requests never load the Control Room module", async () => {
+    it("2. Unauthorized requests never load the Control Room service module", async () => {
       const mod = await loadAccessKeyAuthHelpers();
       let loads = 0;
-      await withStubbedLoader(
+      await withStubbedServiceLoader(
         mod,
         () => {
           loads += 1;
@@ -1739,15 +1749,14 @@ describe("DEMAND_016 Control Room", () => {
       );
     });
 
-    it("3. Authorized request loads the module once per handler invocation", async () => {
+    it("3. Authorized GET does not load the Control Room service module", async () => {
       const mod = await loadAccessKeyAuthHelpers();
       let loads = 0;
-      const real = mod.loadControlRoomModule;
-      await withStubbedLoader(
+      await withStubbedServiceLoader(
         mod,
         () => {
           loads += 1;
-          return real();
+          throw new Error("should-not-load-on-get");
         },
         async () => {
           await withControlRoomEnv(
@@ -1762,7 +1771,7 @@ describe("DEMAND_016 Control Room", () => {
                 res
               );
               assert.equal(state.statusCode, 200);
-              assert.equal(loads, 1);
+              assert.equal(loads, 0);
             }
           );
         }
@@ -1776,22 +1785,17 @@ describe("DEMAND_016 Control Room", () => {
         constructor() {
           constructed += 1;
         }
-        listScenarios() {
-          return [];
-        }
         async runScenario() {
           return {};
         }
       }
-      await withStubbedLoader(
+      await withStubbedServiceLoader(
         mod,
         () => ({
           ControlRoomService: TrackingService,
           ControlRoomServiceError: class extends Error {
             code = "runtime_failure";
           },
-          listControlRoomScenarios: () =>
-            listControlRoomScenarios().map((s) => ({ ...s })),
         }),
         async () => {
           await withControlRoomEnv(
@@ -1845,13 +1849,17 @@ describe("DEMAND_016 Control Room", () => {
             EXPECTED_IDS
           );
           assertSafeMeta(state.body);
+          assert.equal(
+            Object.prototype.hasOwnProperty.call(body, "diagnostic"),
+            false
+          );
         }
       );
     });
 
     it("6. Module load failure returns diagnostic module_load_failed", async () => {
       const mod = await loadAccessKeyAuthHelpers();
-      await withStubbedLoader(
+      await withStubbedServiceLoader(
         mod,
         () => {
           throw new Error("simulated-load-failure");
@@ -1863,8 +1871,9 @@ describe("DEMAND_016 Control Room", () => {
               const { res, state } = createMockResponse();
               await mod.default(
                 {
-                  method: "GET",
+                  method: "POST",
                   headers: { "x-ai-os-control-room-key": PATCH_016B_TEST_KEY },
+                  body: { scenarioId: "balanced_recomposition_12w" },
                 },
                 res
               );
@@ -1885,7 +1894,7 @@ describe("DEMAND_016 Control Room", () => {
 
     it("7. Invalid module shape returns diagnostic module_shape_invalid", async () => {
       const mod = await loadAccessKeyAuthHelpers();
-      await withStubbedLoader(
+      await withStubbedServiceLoader(
         mod,
         () => ({ default: { unrelated: true } }),
         async () => {
@@ -1895,8 +1904,9 @@ describe("DEMAND_016 Control Room", () => {
               const { res, state } = createMockResponse();
               await mod.default(
                 {
-                  method: "GET",
+                  method: "POST",
                   headers: { "x-ai-os-control-room-key": PATCH_016B_TEST_KEY },
+                  body: { scenarioId: "balanced_recomposition_12w" },
                 },
                 res
               );
@@ -1914,44 +1924,38 @@ describe("DEMAND_016 Control Room", () => {
 
     it("8. Scenario list failure returns diagnostic scenario_list_failed", async () => {
       const mod = await loadAccessKeyAuthHelpers();
-      await withStubbedLoader(
-        mod,
-        () => ({
-          ControlRoomService: class {},
-          ControlRoomServiceError: class extends Error {
-            code = "runtime_failure";
-          },
-          listControlRoomScenarios: () => {
-            throw new Error("list-boom");
-          },
-        }),
-        async () => {
-          await withControlRoomEnv(
-            { enabled: "1", accessKey: PATCH_016B_TEST_KEY },
-            async () => {
-              const { res, state } = createMockResponse();
-              await mod.default(
-                {
-                  method: "GET",
-                  headers: { "x-ai-os-control-room-key": PATCH_016B_TEST_KEY },
-                },
-                res
-              );
-              assert.equal(state.statusCode, 500);
-              assert.equal(
-                (state.body as { diagnostic?: string }).diagnostic,
-                "scenario_list_failed"
-              );
-              assertNoLeakFields(state.body);
-            }
-          );
-        }
-      );
+      const original = mod.listScenariosForGet;
+      mod.listScenariosForGet = () => {
+        throw new Error("list-boom");
+      };
+      try {
+        await withControlRoomEnv(
+          { enabled: "1", accessKey: PATCH_016B_TEST_KEY },
+          async () => {
+            const { res, state } = createMockResponse();
+            await mod.default(
+              {
+                method: "GET",
+                headers: { "x-ai-os-control-room-key": PATCH_016B_TEST_KEY },
+              },
+              res
+            );
+            assert.equal(state.statusCode, 500);
+            assert.equal(
+              (state.body as { diagnostic?: string }).diagnostic,
+              "scenario_list_failed"
+            );
+            assertNoLeakFields(state.body);
+          }
+        );
+      } finally {
+        mod.listScenariosForGet = original;
+      }
     });
 
     it("9. Service construct failure returns diagnostic service_construct_failed", async () => {
       const mod = await loadAccessKeyAuthHelpers();
-      await withStubbedLoader(
+      await withStubbedServiceLoader(
         mod,
         () => ({
           ControlRoomService: class {
@@ -1962,7 +1966,6 @@ describe("DEMAND_016 Control Room", () => {
           ControlRoomServiceError: class extends Error {
             code = "runtime_failure";
           },
-          listControlRoomScenarios: () => listControlRoomScenarios(),
         }),
         async () => {
           await withControlRoomEnv(
@@ -1998,7 +2001,7 @@ describe("DEMAND_016 Control Room", () => {
           this.name = "ControlRoomServiceError";
         }
       }
-      await withStubbedLoader(
+      await withStubbedServiceLoader(
         mod,
         () => ({
           ControlRoomService: class {
@@ -2007,7 +2010,6 @@ describe("DEMAND_016 Control Room", () => {
             }
           },
           ControlRoomServiceError: RunFailError,
-          listControlRoomScenarios: () => listControlRoomScenarios(),
         }),
         async () => {
           await withControlRoomEnv(
@@ -2040,7 +2042,7 @@ describe("DEMAND_016 Control Room", () => {
 
     it("11. Runtime failure responses never leak raw error fields", async () => {
       const mod = await loadAccessKeyAuthHelpers();
-      await withStubbedLoader(
+      await withStubbedServiceLoader(
         mod,
         () => {
           throw new Error("secret-path-/src/ai/control-room/index.ts");
@@ -2052,8 +2054,9 @@ describe("DEMAND_016 Control Room", () => {
               const { res, state } = createMockResponse();
               await mod.default(
                 {
-                  method: "GET",
+                  method: "POST",
                   headers: { "x-ai-os-control-room-key": PATCH_016B_TEST_KEY },
+                  body: { scenarioId: "balanced_recomposition_12w" },
                 },
                 res
               );
@@ -2149,13 +2152,17 @@ describe("DEMAND_016 Control Room", () => {
       assert.equal(apiSource.includes("api.replicate.com"), false);
       assert.equal(/fetch\s*\(/.test(apiSource), false);
       assert.match(docs, /module_load_failed/);
-      assert.match(docs, /_control-room-runtime/);
+      assert.equal(docs.includes("_control-room-runtime"), false);
     });
 
-    it("17. Loader uses literal local bridge require and normalizes accepted shapes only", () => {
+    it("17. Loader uses exact ControlRoomService import and normalizes accepted shapes only", () => {
       assert.match(
         apiSource,
-        /require\(["']\.\/_control-room-runtime["']\)/
+        /import\(["']\.\.\/src\/ai\/control-room\/ControlRoomService["']\)/
+      );
+      assert.equal(
+        /require\(["']\.\/_control-room-runtime["']\)/.test(apiSource),
+        false
       );
       assert.equal(
         /require\(["']\.\.\/src\/ai\/control-room\/index["']\)/.test(apiSource),
@@ -2164,46 +2171,38 @@ describe("DEMAND_016 Control Room", () => {
       assert.equal(/eval\s*\(/.test(apiSource), false);
       assert.equal(/new\s+Function\b/.test(apiSource), false);
       assert.equal(/readFileSync|createRequire|fs\.|Function\(/.test(apiSource), false);
-      const named = {
-        ControlRoomService: class {},
-        ControlRoomServiceError: class extends Error {},
-        listControlRoomScenarios: () => [],
-      };
-      // Exercise normalize against accepted shapes via exported helper asynchronously below.
-      assert.equal(typeof named.listControlRoomScenarios, "function");
     });
 
-    it("17b. normalizeControlRoomModule accepts A/B shapes and rejects others", async () => {
+    it("17b. normalizeControlRoomServiceModule accepts A/B shapes and rejects others", async () => {
       const mod = await loadAccessKeyAuthHelpers();
       class Svc {}
       class Err extends Error {}
-      const list = () => [];
       const shapeA = {
         ControlRoomService: Svc,
         ControlRoomServiceError: Err,
-        listControlRoomScenarios: list,
       };
       const shapeB = { default: shapeA };
-      assert.equal(mod.normalizeControlRoomModule(shapeA)?.ControlRoomService, Svc);
       assert.equal(
-        mod.normalizeControlRoomModule(shapeB)?.listControlRoomScenarios,
-        list
+        mod.normalizeControlRoomServiceModule(shapeA)?.ControlRoomService,
+        Svc
       );
-      assert.equal(mod.normalizeControlRoomModule({}), null);
-      assert.equal(mod.normalizeControlRoomModule(null), null);
       assert.equal(
-        mod.normalizeControlRoomModule({
+        mod.normalizeControlRoomServiceModule(shapeB)?.ControlRoomServiceError,
+        Err
+      );
+      assert.equal(mod.normalizeControlRoomServiceModule({}), null);
+      assert.equal(mod.normalizeControlRoomServiceModule(null), null);
+      assert.equal(
+        mod.normalizeControlRoomServiceModule({
           ControlRoomService: Svc,
-          listControlRoomScenarios: list,
         }),
         null
       );
     });
   });
 
-  describe("PATCH_016F diagnostic UI and runtime bridge", () => {
+  describe("PATCH_016F diagnostic UI and single bundled API", () => {
     const apiSource = read(apiPath);
-    const bridgeSource = read(runtimeBridgePath);
     const uiSource = read(uiJsPath);
     const docs = read(docsPath);
     const imageRoute = read(imageRoutePath);
@@ -2259,7 +2258,7 @@ describe("DEMAND_016 Control Room", () => {
       assert.match(uiSource, /el\.textContent/);
     });
 
-    it("4. Handler never runtime-requires or imports raw control-room index", () => {
+    it("4. Handler never uses api bridge or control-room barrel", () => {
       assert.equal(
         /require\(["']\.\.\/src\/ai\/control-room\/index["']\)/.test(apiSource),
         false
@@ -2272,19 +2271,30 @@ describe("DEMAND_016 Control Room", () => {
         /from\s+["']\.\.\/src\/ai\/control-room\/index["']/.test(apiSource),
         false
       );
-      assert.match(apiSource, /require\(["']\.\/_control-room-runtime["']\)/);
-      assert.match(
-        bridgeSource,
-        /from\s+["']\.\.\/src\/ai\/control-room\/index["']/
+      assert.equal(
+        /require\(["']\.\/_control-room-runtime["']\)/.test(apiSource),
+        false
       );
-      assert.match(bridgeSource, /listControlRoomScenarios/);
-      assert.match(bridgeSource, /ControlRoomService/);
-      assert.match(docs, /_control-room-runtime/);
+      assert.equal(
+        /import\(["']\.\/_control-room-runtime["']\)/.test(apiSource),
+        false
+      );
+      assert.equal(existsSync(runtimeBridgePath), false);
+      assert.match(
+        apiSource,
+        /from\s+["']\.\.\/src\/ai\/control-room\/ControlRoomFixtures["']/
+      );
+      assert.match(
+        apiSource,
+        /import\(["']\.\.\/src\/ai\/control-room\/ControlRoomService["']\)/
+      );
+      assert.equal(docs.includes("_control-room-runtime"), false);
     });
 
     it("5. Authorized GET returns four scenarios without constructing service", async () => {
       const mod = await loadAccessKeyAuthHelpers();
       let constructed = 0;
+      let serviceLoads = 0;
       class TrackingService {
         constructor() {
           constructed += 1;
@@ -2293,15 +2303,16 @@ describe("DEMAND_016 Control Room", () => {
           return {};
         }
       }
-      const original = mod.loadControlRoomModule;
-      mod.loadControlRoomModule = () => ({
-        ControlRoomService: TrackingService,
-        ControlRoomServiceError: class extends Error {
-          code = "runtime_failure";
-        },
-        listControlRoomScenarios: () =>
-          listControlRoomScenarios().map((s) => ({ ...s })),
-      });
+      const original = mod.loadControlRoomServiceModule;
+      mod.loadControlRoomServiceModule = async () => {
+        serviceLoads += 1;
+        return {
+          ControlRoomService: TrackingService,
+          ControlRoomServiceError: class extends Error {
+            code = "runtime_failure";
+          },
+        };
+      };
       try {
         await withControlRoomEnv(
           { enabled: "1", accessKey: PATCH_016B_TEST_KEY },
@@ -2327,10 +2338,11 @@ describe("DEMAND_016 Control Room", () => {
             assert.equal(body.meta?.service, "ai-os-control-room");
             assert.equal(body.meta?.apiVersion, "1.1");
             assert.equal(constructed, 0);
+            assert.equal(serviceLoads, 0);
           }
         );
       } finally {
-        mod.loadControlRoomModule = original;
+        mod.loadControlRoomServiceModule = original;
       }
     });
 
@@ -2350,8 +2362,8 @@ describe("DEMAND_016 Control Room", () => {
 
     it("7. Module load failure returns safe allowlisted diagnostic", async () => {
       const mod = await loadAccessKeyAuthHelpers();
-      const original = mod.loadControlRoomModule;
-      mod.loadControlRoomModule = () => {
+      const original = mod.loadControlRoomServiceModule;
+      mod.loadControlRoomServiceModule = async () => {
         throw new Error("secret-path-/src/ai/control-room/index.ts");
       };
       try {
@@ -2361,8 +2373,9 @@ describe("DEMAND_016 Control Room", () => {
             const { res, state } = createMockResponse();
             await mod.default(
               {
-                method: "GET",
+                method: "POST",
                 headers: { "x-ai-os-control-room-key": PATCH_016B_TEST_KEY },
+                body: { scenarioId: "balanced_recomposition_12w" },
               },
               res
             );
@@ -2382,14 +2395,14 @@ describe("DEMAND_016 Control Room", () => {
           }
         );
       } finally {
-        mod.loadControlRoomModule = original;
+        mod.loadControlRoomServiceModule = original;
       }
     });
 
     it("8. Runtime failure never leaks raw error or path", async () => {
       const mod = await loadAccessKeyAuthHelpers();
-      const original = mod.loadControlRoomModule;
-      mod.loadControlRoomModule = () => {
+      const original = mod.loadControlRoomServiceModule;
+      mod.loadControlRoomServiceModule = async () => {
         throw new Error("C:\\src\\ai\\control-room\\index.ts boom");
       };
       try {
@@ -2399,8 +2412,9 @@ describe("DEMAND_016 Control Room", () => {
             const { res, state } = createMockResponse();
             await mod.default(
               {
-                method: "GET",
+                method: "POST",
                 headers: { "x-ai-os-control-room-key": PATCH_016B_TEST_KEY },
+                body: { scenarioId: "balanced_recomposition_12w" },
               },
               res
             );
@@ -2413,7 +2427,7 @@ describe("DEMAND_016 Control Room", () => {
           }
         );
       } finally {
-        mod.loadControlRoomModule = original;
+        mod.loadControlRoomServiceModule = original;
       }
     });
 
@@ -2434,8 +2448,6 @@ describe("DEMAND_016 Control Room", () => {
       assert.equal(/fetch\s*\(/.test(apiSource), false);
       assert.equal(apiSource.includes("api.replicate.com"), false);
       assert.equal(apiSource.includes("REPLICATE_API_TOKEN"), false);
-      assert.equal(bridgeSource.includes("api.replicate.com"), false);
-      assert.equal(bridgeSource.includes("REPLICATE_API_TOKEN"), false);
     });
 
     it("11. Feature flag exact 1 and header-only key model preserved", () => {
@@ -2454,7 +2466,408 @@ describe("DEMAND_016 Control Room", () => {
       assert.equal(imageRoute.includes("ai-os-control-room"), false);
       assert.equal(imageRoute.includes("_control-room-runtime"), false);
       assert.equal(apiSource.includes("generate-future-you"), false);
-      assert.equal(bridgeSource.includes("generate-future-you"), false);
+    });
+  });
+
+  describe("PATCH_016G single bundled TypeScript Control Room API", () => {
+    const apiSource = read(apiPath);
+    const uiSource = read(uiJsPath);
+    const docs = read(docsPath);
+    const imageRoute = read(imageRoutePath);
+    const replicateSource = read(join(repoRoot, "lib", "replicate.js"));
+
+    it("1. Only Control Room API entry is TypeScript", () => {
+      assert.equal(existsSync(apiPath), true);
+      assert.match(apiPath, /\.ts$/);
+      assert.equal(existsSync(apiJsPath), false);
+    });
+
+    it("2. JS shim and _control-room-runtime are gone", () => {
+      assert.equal(existsSync(apiJsPath), false);
+      assert.equal(existsSync(runtimeBridgePath), false);
+      assert.equal(apiSource.includes("_control-room-runtime"), false);
+      assert.equal(docs.includes("_control-room-runtime"), false);
+    });
+
+    it("3. No api-to-api require or import", () => {
+      assert.equal(
+        /require\(["']\.\/_control-room-runtime["']\)/.test(apiSource),
+        false
+      );
+      assert.equal(
+        /import\(["']\.\/_control-room-runtime["']\)/.test(apiSource),
+        false
+      );
+      assert.equal(/require\(["']\.\/[^"']+["']\)/.test(apiSource), false);
+      assert.equal(
+        /import\(["']\.\/[^"']+["']\)/.test(apiSource),
+        false
+      );
+    });
+
+    it("4. No control-room barrel import at module scope or runtime", () => {
+      assert.equal(
+        /from\s+["']\.\.\/src\/ai\/control-room["']/.test(apiSource),
+        false
+      );
+      assert.equal(
+        /from\s+["']\.\.\/src\/ai\/control-room\/index["']/.test(apiSource),
+        false
+      );
+      assert.equal(
+        /import\(["']\.\.\/src\/ai\/control-room\/index["']\)/.test(apiSource),
+        false
+      );
+      assert.equal(
+        /require\(["']\.\.\/src\/ai\/control-room\/index["']\)/.test(apiSource),
+        false
+      );
+    });
+
+    it("5. GET uses ControlRoomFixtures direct import", () => {
+      assert.match(
+        apiSource,
+        /import\s*\{\s*listControlRoomScenarios\s*\}\s*from\s*["']\.\.\/src\/ai\/control-room\/ControlRoomFixtures["']/
+      );
+      assert.match(apiSource, /listScenariosForGet/);
+      assert.match(docs, /ControlRoomFixtures/);
+    });
+
+    it("6. Authorized GET returns exactly four scenarios with meta and no diagnostic", async () => {
+      const mod = await loadAccessKeyAuthHelpers();
+      await withControlRoomEnv(
+        { enabled: "1", accessKey: PATCH_016B_TEST_KEY },
+        async () => {
+          const { res, state } = createMockResponse();
+          await mod.default(
+            {
+              method: "GET",
+              headers: { "x-ai-os-control-room-key": PATCH_016B_TEST_KEY },
+            },
+            res
+          );
+          assert.equal(state.statusCode, 200);
+          const body = state.body as {
+            ok?: boolean;
+            enabled?: boolean;
+            scenarios?: { id?: string }[];
+            diagnostic?: unknown;
+          };
+          assert.equal(body.ok, true);
+          assert.equal(body.enabled, true);
+          assert.equal(body.scenarios?.length, 4);
+          assert.deepEqual(
+            body.scenarios?.map((s) => s.id),
+            EXPECTED_IDS
+          );
+          assertSafeMeta(state.body);
+          assert.equal(body.diagnostic, undefined);
+        }
+      );
+    });
+
+    it("7. Authorized GET does not load ControlRoomService or AiOsRuntime path", async () => {
+      const mod = await loadAccessKeyAuthHelpers();
+      let serviceLoads = 0;
+      const original = mod.loadControlRoomServiceModule;
+      mod.loadControlRoomServiceModule = async () => {
+        serviceLoads += 1;
+        throw new Error("service-should-not-load-on-get");
+      };
+      try {
+        await withControlRoomEnv(
+          { enabled: "1", accessKey: PATCH_016B_TEST_KEY },
+          async () => {
+            const { res, state } = createMockResponse();
+            await mod.default(
+              {
+                method: "GET",
+                headers: { "x-ai-os-control-room-key": PATCH_016B_TEST_KEY },
+              },
+              res
+            );
+            assert.equal(state.statusCode, 200);
+            assert.equal(serviceLoads, 0);
+          }
+        );
+      } finally {
+        mod.loadControlRoomServiceModule = original;
+      }
+      // Module-scope GET import is fixtures-only; service/runtime are POST-path.
+      assert.match(apiSource, /ControlRoomFixtures/);
+      assert.equal(
+        /import\s*\{[^}]*AiOsRuntime/.test(apiSource),
+        false
+      );
+      assert.equal(
+        /from\s+["']\.\.\/src\/ai\/runtime/.test(apiSource),
+        false
+      );
+    });
+
+    it("8. Unauthorized and disabled responses stay safe", async () => {
+      const mod = await loadAccessKeyAuthHelpers();
+      await withControlRoomEnv({ enabled: undefined }, async () => {
+        const { res, state } = createMockResponse();
+        await mod.default({ method: "GET", headers: {} }, res);
+        assert.equal(state.statusCode, 404);
+        assert.equal(
+          (state.body as { code?: string }).code,
+          "control_room_disabled"
+        );
+        assertSafeMeta(state.body);
+      });
+      await withControlRoomEnv(
+        { enabled: "1", accessKey: PATCH_016B_TEST_KEY },
+        async () => {
+          const { res, state } = createMockResponse();
+          await mod.default({ method: "GET", headers: {} }, res);
+          assert.equal(state.statusCode, 401);
+          assert.equal((state.body as { code?: string }).code, "unauthorized");
+          assertSafeMeta(state.body);
+        }
+      );
+    });
+
+    it("9. POST loads exact ControlRoomService module after validation", async () => {
+      const mod = await loadAccessKeyAuthHelpers();
+      let loads = 0;
+      let constructed = 0;
+      class TrackingService {
+        constructor() {
+          constructed += 1;
+        }
+        async runScenario(id: string) {
+          return {
+            success: true,
+            scenario: { id },
+            artifacts: null,
+            safety: {},
+            runtime: {},
+          };
+        }
+      }
+      const original = mod.loadControlRoomServiceModule;
+      mod.loadControlRoomServiceModule = async () => {
+        loads += 1;
+        return {
+          ControlRoomService: TrackingService,
+          ControlRoomServiceError: class extends Error {
+            code = "runtime_failure";
+          },
+        };
+      };
+      try {
+        await withControlRoomEnv(
+          { enabled: "1", accessKey: PATCH_016B_TEST_KEY },
+          async () => {
+            // Invalid body must not load service.
+            const bad = createMockResponse();
+            await mod.default(
+              {
+                method: "POST",
+                headers: { "x-ai-os-control-room-key": PATCH_016B_TEST_KEY },
+                body: { scenarioId: "balanced_recomposition_12w", extra: true },
+              },
+              bad.res
+            );
+            assert.equal(bad.state.statusCode, 400);
+            assert.equal(loads, 0);
+
+            const ok = createMockResponse();
+            await mod.default(
+              {
+                method: "POST",
+                headers: { "x-ai-os-control-room-key": PATCH_016B_TEST_KEY },
+                body: { scenarioId: "balanced_recomposition_12w" },
+              },
+              ok.res
+            );
+            assert.equal(ok.state.statusCode, 200);
+            assert.equal(loads, 1);
+            assert.equal(constructed, 1);
+          }
+        );
+      } finally {
+        mod.loadControlRoomServiceModule = original;
+      }
+      assert.match(
+        apiSource,
+        /import\(["']\.\.\/src\/ai\/control-room\/ControlRoomService["']\)/
+      );
+      assert.match(docs, /ControlRoomService/);
+    });
+
+    it("10. Auth rejection paths preserve header-only SHA-256 model", async () => {
+      const mod = await loadAccessKeyAuthHelpers();
+      assert.match(apiSource, /createHash\("sha256"\)/);
+      assert.match(apiSource, /timingSafeEqual/);
+      assert.match(apiSource, /X-AI-OS-Control-Room-Key|x-ai-os-control-room-key/);
+      assert.equal(apiSource.includes("cookie"), false);
+      assert.equal(apiSource.includes("document.cookie"), false);
+      await withControlRoomEnv(
+        { enabled: "1", accessKey: PATCH_016B_TEST_KEY },
+        async () => {
+          const { res, state } = createMockResponse();
+          await mod.default(
+            {
+              method: "POST",
+              headers: { "x-ai-os-control-room-key": PATCH_016B_TEST_KEY },
+              query: { accessKey: PATCH_016B_TEST_KEY },
+              body: { scenarioId: "balanced_recomposition_12w" },
+            },
+            res
+          );
+          assert.equal(state.statusCode, 400);
+          assertSafeMeta(state.body);
+        }
+      );
+    });
+
+    it("11. No provider coupling in Control Room API", () => {
+      assert.equal(/fetch\s*\(/.test(apiSource), false);
+      assert.equal(apiSource.includes("api.replicate.com"), false);
+      assert.equal(apiSource.includes("REPLICATE_API_TOKEN"), false);
+      assert.equal(apiSource.includes("lib/replicate"), false);
+      assert.equal(/export\s+const\s+config\s*=/.test(apiSource), false);
+    });
+
+    it("12. UI diagnostics remain allowlisted textContent-only", () => {
+      assert.match(uiSource, /ALLOWED_DIAGNOSTICS/);
+      assert.match(uiSource, /safeDiagnostic/);
+      assert.match(uiSource, /Diagnostic: /);
+      assert.equal(uiSource.includes("innerHTML"), false);
+      assert.match(uiSource, /textContent/);
+      for (const code of [
+        "module_load_failed",
+        "module_shape_invalid",
+        "scenario_list_failed",
+        "service_construct_failed",
+        "scenario_run_failed",
+        "projection_failed",
+      ]) {
+        assert.match(uiSource, new RegExp(code));
+      }
+    });
+
+    it("13. Production image route remains unchanged", () => {
+      assert.equal(imageRoute.includes("ControlRoom"), false);
+      assert.equal(imageRoute.includes("ai-os-control-room"), false);
+      assert.equal(imageRoute.includes("_control-room-runtime"), false);
+    });
+
+    it("14. lib/replicate.js remains unchanged by Control Room", () => {
+      assert.equal(replicateSource.includes("ControlRoom"), false);
+      assert.equal(replicateSource.includes("AI_OS_CONTROL_ROOM"), false);
+      assert.equal(replicateSource.includes("_control-room-runtime"), false);
+    });
+
+    it("15. Docs describe one TS handler with fixtures GET and service POST", () => {
+      assert.match(docs, /one.*TypeScript|one.*Vercel Node serverless TypeScript/i);
+      assert.match(docs, /ControlRoomFixtures/);
+      assert.match(docs, /ControlRoomService/);
+      assert.equal(docs.includes("api/_control-room-runtime"), false);
+      assert.match(docs, /no api-to-api|must not load another `api\/`/i);
+    });
+
+    it("16. POST invalid scenario never loads service module", async () => {
+      const mod = await loadAccessKeyAuthHelpers();
+      let loads = 0;
+      const original = mod.loadControlRoomServiceModule;
+      mod.loadControlRoomServiceModule = async () => {
+        loads += 1;
+        throw new Error("should-not-load");
+      };
+      try {
+        await withControlRoomEnv(
+          { enabled: "1", accessKey: PATCH_016B_TEST_KEY },
+          async () => {
+            const { res, state } = createMockResponse();
+            await mod.default(
+              {
+                method: "POST",
+                headers: { "x-ai-os-control-room-key": PATCH_016B_TEST_KEY },
+                body: { scenarioId: "not_a_real_scenario" },
+              },
+              res
+            );
+            assert.equal(state.statusCode, 404);
+            assert.equal(loads, 0);
+            assert.equal(
+              (state.body as { code?: string }).code,
+              "scenario_not_found"
+            );
+          }
+        );
+      } finally {
+        mod.loadControlRoomServiceModule = original;
+      }
+    });
+
+    it("17. Scenario list failure diagnostic remains allowlisted", async () => {
+      const mod = await loadAccessKeyAuthHelpers();
+      const original = mod.listScenariosForGet;
+      mod.listScenariosForGet = () => {
+        throw new Error("list-fail");
+      };
+      try {
+        await withControlRoomEnv(
+          { enabled: "1", accessKey: PATCH_016B_TEST_KEY },
+          async () => {
+            const { res, state } = createMockResponse();
+            await mod.default(
+              {
+                method: "GET",
+                headers: { "x-ai-os-control-room-key": PATCH_016B_TEST_KEY },
+              },
+              res
+            );
+            assert.equal(state.statusCode, 500);
+            assert.equal(
+              (state.body as { diagnostic?: string }).diagnostic,
+              "scenario_list_failed"
+            );
+            assertSafeMeta(state.body);
+          }
+        );
+      } finally {
+        mod.listScenariosForGet = original;
+      }
+    });
+
+    it("18. Cache-Control no-store and meta identity preserved", async () => {
+      const mod = await loadAccessKeyAuthHelpers();
+      assert.match(apiSource, /Cache-Control.*no-store|no-store/);
+      await withControlRoomEnv(
+        { enabled: "1", accessKey: PATCH_016B_TEST_KEY },
+        async () => {
+          const { res, state } = createMockResponse();
+          await mod.default(
+            {
+              method: "GET",
+              headers: { "x-ai-os-control-room-key": PATCH_016B_TEST_KEY },
+            },
+            res
+          );
+          assert.equal(state.headers["Cache-Control"], "no-store");
+          assertSafeMeta(state.body);
+        }
+      );
+    });
+
+    it("19. No secret/stack/env leakage in API source responses", () => {
+      assert.equal(apiSource.includes("error.message"), false);
+      assert.equal(apiSource.includes("String(error)"), false);
+      assert.equal(apiSource.includes("stack"), false);
+      assert.equal(/json\([^)]*digest/i.test(apiSource), false);
+    });
+
+    it("20. Typecheck/test/harness scripts remain wired for AI Quality Gate", () => {
+      const pkg = JSON.parse(read(packageJsonPath));
+      assert.ok(pkg.scripts.typecheck.includes("tsc"));
+      assert.ok(pkg.scripts["test:ai"].includes("controlRoom.test.ts"));
+      assert.ok(pkg.scripts["harness:ai"].includes("run-ai-os-v2-harness"));
+      assert.match(docs, /Permanent rule/);
     });
   });
 });

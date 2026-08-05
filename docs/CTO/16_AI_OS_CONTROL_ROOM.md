@@ -221,11 +221,14 @@ This later milestone must require:
 > Control Room may never become an unguarded provider or production execution
 > surface.
 
-## Vercel serverless notes (PATCH 016D / 016E / 016F)
+## Vercel serverless notes (PATCH 016G)
 
-Control Room API is a Vercel Node serverless TypeScript handler under
-`api/ai-os-control-room.ts`, with a local runtime bridge at
-`api/_control-room-runtime.ts`.
+Control Room API is **one** Vercel Node serverless TypeScript handler:
+
+`api/ai-os-control-room.ts`
+
+There is no JS shim for this route and no api-to-api runtime bridge under
+`api/`. One function must not load another `api/` sibling at runtime.
 
 Do **not** export Next.js-style function config such as:
 
@@ -237,20 +240,21 @@ export const config = { runtime: "nodejs", maxDuration: 60 };
 (`config.runtime` semantics are evolving; Node is already the default for
 `/api/*`). Prefer:
 
-- TypeScript API entry so Vercel compiles the AI OS Control Room graph into the
-  function bundle (never runtime-`require` / `import` raw
-  `../src/ai/control-room/index` TypeScript from the handler)
-- lazy load of the local bridge `./_control-room-runtime` only after feature
-  flag + authorization
+- TypeScript API entry so Vercel compiles the Control Room graph into the
+  function bundle
+- authorized **GET** imports `listControlRoomScenarios` from the exact module
+  `../src/ai/control-room/ControlRoomFixtures` (never the control-room barrel /
+  `index`, and never another `api/` file)
+- authorized **POST** loads `ControlRoomService` from the exact module
+  `../src/ai/control-room/ControlRoomService` only after feature flag, auth,
+  method, JSON, and scenario allowlist validation
 - `require("crypto")` for SHA-256 timing-safe access comparison
 - default handler export only (plus test helper exports)
 
-To avoid cold-start module initialization failures from returning generic non-JSON
-500 pages, Control Room loads the service module only after feature-flag and
-access-key checks pass. Authorized GET lists scenarios only and does not
-construct `ControlRoomService` or run `AiOsRuntime`. Lazy-load and later-phase
-failures return safe `runtime_failure` JSON with standard `meta` identity, an
-allowlisted `diagnostic` code, and no stack/module path.
+Authorized GET lists scenarios only and does not construct `ControlRoomService`
+or run `AiOsRuntime`. POST service-load and later-phase failures return safe
+`runtime_failure` JSON with standard `meta` identity, an allowlisted
+`diagnostic` code, and no stack/module path.
 
 Safe authorized `diagnostic` values:
 
