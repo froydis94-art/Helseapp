@@ -6,12 +6,11 @@
  *
  * Disabled by default. No CORS wildcard. No provider network. No secrets returned.
  *
- * PATCH 016G: One bundled TypeScript Vercel handler. GET imports ControlRoomFixtures
- * only. POST lazy-loads ControlRoomService from its exact module. No api-to-api
- * bridge and no control-room barrel import.
+ * PATCH 016G: One bundled TypeScript Vercel handler. No api-to-api bridge and no
+ * control-room barrel. Authorized GET loads listControlRoomScenarios from the
+ * exact ControlRoomFixtures module. Authorized POST loads ControlRoomService
+ * from its exact module after request validation.
  */
-
-import { listControlRoomScenarios } from "../src/ai/control-room/ControlRoomFixtures";
 
 // CJS crypto require kept for broad Vercel Node compatibility (PATCH 016D).
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -53,16 +52,25 @@ type VercelLikeResponse = {
 /**
  * Mutable helpers so tests can stub list/load without reloading the handler.
  * Handler always calls through this object (never a frozen binding).
+ *
+ * Exact module paths only — never api/ siblings, never control-room/index barrel.
  */
 const apiHelpers = {
-  listScenariosForGet(): unknown[] {
-    return listControlRoomScenarios();
+  async loadControlRoomFixturesModule(): Promise<unknown> {
+    return import("../src/ai/control-room/ControlRoomFixtures");
   },
 
-  /**
-   * POST-only: load ControlRoomService from the exact module path after auth +
-   * request validation. Never load from api/, barrel index, or computed paths.
-   */
+  async listScenariosForGet(): Promise<unknown[]> {
+    const imported = await apiHelpers.loadControlRoomFixturesModule();
+    const listFn = resolveListControlRoomScenarios(imported);
+    if (typeof listFn !== "function") {
+      const err = new Error("fixtures_shape_invalid");
+      err.name = "ControlRoomFixturesShapeError";
+      throw err;
+    }
+    return listFn();
+  },
+
   async loadControlRoomServiceModule(): Promise<unknown> {
     return import("../src/ai/control-room/ControlRoomService");
   },
@@ -73,6 +81,27 @@ const apiHelpers = {
     return normalizeControlRoomServiceModule(imported);
   },
 };
+
+function resolveListControlRoomScenarios(
+  imported: unknown
+): (() => unknown[]) | null {
+  if (imported == null || typeof imported !== "object") return null;
+  const record = imported as Record<string, unknown>;
+  if (typeof record.listControlRoomScenarios === "function") {
+    return record.listControlRoomScenarios as () => unknown[];
+  }
+  const nested = record.default;
+  if (
+    nested != null &&
+    typeof nested === "object" &&
+    typeof (nested as Record<string, unknown>).listControlRoomScenarios ===
+      "function"
+  ) {
+    return (nested as Record<string, unknown>)
+      .listControlRoomScenarios as () => unknown[];
+  }
+  return null;
+}
 
 /**
  * Accept only proven module shapes:
@@ -128,7 +157,6 @@ function isControlRoomServiceError(
   if (error instanceof ErrorCtor) {
     return typeof (error as Error & { code?: unknown }).code === "string";
   }
-  // Structural fallback when instanceof fails across bundle copies.
   return (
     error != null &&
     typeof error === "object" &&
@@ -355,10 +383,24 @@ function hasQueryAccessKey(req: { query?: Record<string, unknown> }): boolean {
  * Authorized GET: list scenarios via ControlRoomFixtures only —
  * no ControlRoomService construct, no AiOsRuntime, no scenario execution.
  */
-function handleGet(res: VercelLikeResponse): void {
+async function handleGet(res: VercelLikeResponse): Promise<void> {
+  let imported: unknown;
+  try {
+    imported = await apiHelpers.loadControlRoomFixturesModule();
+  } catch {
+    sendRuntimeFailure(res, "module_load_failed");
+    return;
+  }
+
+  const listFn = resolveListControlRoomScenarios(imported);
+  if (typeof listFn !== "function") {
+    sendRuntimeFailure(res, "module_shape_invalid");
+    return;
+  }
+
   let scenarios: unknown;
   try {
-    scenarios = apiHelpers.listScenariosForGet();
+    scenarios = listFn();
   } catch {
     sendRuntimeFailure(res, "scenario_list_failed");
     return;
@@ -459,7 +501,7 @@ async function handlePost(
     const result = await service.runScenario(scenarioId);
     let scenarios: unknown;
     try {
-      scenarios = apiHelpers.listScenariosForGet();
+      scenarios = await apiHelpers.listScenariosForGet();
     } catch {
       sendRuntimeFailure(res, "scenario_list_failed");
       return;
@@ -537,7 +579,7 @@ async function handler(
     }
 
     if (method === "GET") {
-      handleGet(res);
+      await handleGet(res);
       return;
     }
 
@@ -548,7 +590,6 @@ async function handler(
   }
 }
 
-// Hang helpers on the default export for test stubbing (Vercel uses export default).
 (handler as unknown as { default: typeof handler }).default = handler;
 (handler as unknown as { CONTROL_ROOM_RESPONSE_META: typeof CONTROL_ROOM_RESPONSE_META }).CONTROL_ROOM_RESPONSE_META =
   CONTROL_ROOM_RESPONSE_META;
@@ -562,11 +603,7 @@ async function handler(
 (handler as unknown as {
   getControlRoomConfigurationStatus: typeof getControlRoomConfigurationStatus;
 }).getControlRoomConfigurationStatus = getControlRoomConfigurationStatus;
-(handler as unknown as {
-  normalizeControlRoomServiceModule: typeof normalizeControlRoomServiceModule;
-}).normalizeControlRoomServiceModule = normalizeControlRoomServiceModule;
 
-// Stubbable methods: assignment on the live handler replaces apiHelpers implementations.
 Object.defineProperty(handler, "listScenariosForGet", {
   configurable: true,
   enumerable: true,
@@ -575,6 +612,16 @@ Object.defineProperty(handler, "listScenariosForGet", {
   },
   set(fn: typeof apiHelpers.listScenariosForGet) {
     apiHelpers.listScenariosForGet = fn;
+  },
+});
+Object.defineProperty(handler, "loadControlRoomFixturesModule", {
+  configurable: true,
+  enumerable: true,
+  get() {
+    return apiHelpers.loadControlRoomFixturesModule.bind(apiHelpers);
+  },
+  set(fn: typeof apiHelpers.loadControlRoomFixturesModule) {
+    apiHelpers.loadControlRoomFixturesModule = fn;
   },
 });
 Object.defineProperty(handler, "loadControlRoomServiceModule", {
@@ -598,12 +645,13 @@ Object.defineProperty(handler, "normalizeControlRoomServiceModule", {
   },
 });
 
-export default handler;
-export {
-  CONTROL_ROOM_RESPONSE_META,
-  digestAccessKey,
-  timingSafeStringEqual,
-  resolveControlRoomAccessHeader,
-  getControlRoomConfigurationStatus,
-  normalizeControlRoomServiceModule,
-};
+module.exports = handler;
+module.exports.default = handler;
+module.exports.CONTROL_ROOM_RESPONSE_META = CONTROL_ROOM_RESPONSE_META;
+module.exports.digestAccessKey = digestAccessKey;
+module.exports.timingSafeStringEqual = timingSafeStringEqual;
+module.exports.resolveControlRoomAccessHeader = resolveControlRoomAccessHeader;
+module.exports.getControlRoomConfigurationStatus =
+  getControlRoomConfigurationStatus;
+module.exports.normalizeControlRoomServiceModule =
+  normalizeControlRoomServiceModule;

@@ -126,7 +126,8 @@ type AccessKeyAuthHelpers = {
     service: string;
     apiVersion: string;
   };
-  listScenariosForGet: () => unknown[];
+  listScenariosForGet: () => Promise<unknown[]> | unknown[];
+  loadControlRoomFixturesModule: () => Promise<unknown>;
   loadControlRoomServiceModule: () => Promise<unknown>;
   normalizeControlRoomServiceModule: (
     imported: unknown
@@ -159,6 +160,7 @@ async function loadAccessKeyAuthHelpers(): Promise<AccessKeyAuthHelpers> {
   assert.equal(typeof liveExports.resolveControlRoomAccessHeader, "function");
   assert.equal(typeof liveExports.getControlRoomConfigurationStatus, "function");
   assert.equal(typeof liveExports.listScenariosForGet, "function");
+  assert.equal(typeof liveExports.loadControlRoomFixturesModule, "function");
   assert.equal(typeof liveExports.loadControlRoomServiceModule, "function");
   assert.equal(typeof liveExports.normalizeControlRoomServiceModule, "function");
   assert.equal(typeof liveExports.default, "function");
@@ -1500,7 +1502,7 @@ describe("DEMAND_016 Control Room", () => {
     it("1. API uses fixtures import for GET and exact service module for POST", () => {
       assert.match(
         apiSource,
-        /from\s+["']\.\.\/src\/ai\/control-room\/ControlRoomFixtures["']/
+        /import\(["']\.\.\/src\/ai\/control-room\/ControlRoomFixtures["']\)/
       );
       assert.match(
         apiSource,
@@ -1924,10 +1926,12 @@ describe("DEMAND_016 Control Room", () => {
 
     it("8. Scenario list failure returns diagnostic scenario_list_failed", async () => {
       const mod = await loadAccessKeyAuthHelpers();
-      const original = mod.listScenariosForGet;
-      mod.listScenariosForGet = () => {
-        throw new Error("list-boom");
-      };
+      const original = mod.loadControlRoomFixturesModule;
+      mod.loadControlRoomFixturesModule = async () => ({
+        listControlRoomScenarios: () => {
+          throw new Error("list-boom");
+        },
+      });
       try {
         await withControlRoomEnv(
           { enabled: "1", accessKey: PATCH_016B_TEST_KEY },
@@ -1949,7 +1953,7 @@ describe("DEMAND_016 Control Room", () => {
           }
         );
       } finally {
-        mod.listScenariosForGet = original;
+        mod.loadControlRoomFixturesModule = original;
       }
     });
 
@@ -2282,7 +2286,7 @@ describe("DEMAND_016 Control Room", () => {
       assert.equal(existsSync(runtimeBridgePath), false);
       assert.match(
         apiSource,
-        /from\s+["']\.\.\/src\/ai\/control-room\/ControlRoomFixtures["']/
+        /import\(["']\.\.\/src\/ai\/control-room\/ControlRoomFixtures["']\)/
       );
       assert.match(
         apiSource,
@@ -2524,12 +2528,18 @@ describe("DEMAND_016 Control Room", () => {
       );
     });
 
-    it("5. GET uses ControlRoomFixtures direct import", () => {
+    it("5. GET uses ControlRoomFixtures exact module path", () => {
       assert.match(
         apiSource,
-        /import\s*\{\s*listControlRoomScenarios\s*\}\s*from\s*["']\.\.\/src\/ai\/control-room\/ControlRoomFixtures["']/
+        /import\(["']\.\.\/src\/ai\/control-room\/ControlRoomFixtures["']\)/
       );
-      assert.match(apiSource, /listScenariosForGet/);
+      assert.match(apiSource, /listControlRoomScenarios/);
+      assert.equal(
+        /from\s+["']\.\.\/src\/ai\/control-room\/ControlRoomFixtures["']/.test(
+          apiSource
+        ),
+        false
+      );
       assert.match(docs, /ControlRoomFixtures/);
     });
 
@@ -2806,10 +2816,12 @@ describe("DEMAND_016 Control Room", () => {
 
     it("17. Scenario list failure diagnostic remains allowlisted", async () => {
       const mod = await loadAccessKeyAuthHelpers();
-      const original = mod.listScenariosForGet;
-      mod.listScenariosForGet = () => {
-        throw new Error("list-fail");
-      };
+      const original = mod.loadControlRoomFixturesModule;
+      mod.loadControlRoomFixturesModule = async () => ({
+        listControlRoomScenarios: () => {
+          throw new Error("list-fail");
+        },
+      });
       try {
         await withControlRoomEnv(
           { enabled: "1", accessKey: PATCH_016B_TEST_KEY },
@@ -2831,7 +2843,7 @@ describe("DEMAND_016 Control Room", () => {
           }
         );
       } finally {
-        mod.listScenariosForGet = original;
+        mod.loadControlRoomFixturesModule = original;
       }
     });
 

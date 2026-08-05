@@ -242,9 +242,10 @@ export const config = { runtime: "nodejs", maxDuration: 60 };
 
 - TypeScript API entry so Vercel compiles the Control Room graph into the
   function bundle
-- authorized **GET** imports `listControlRoomScenarios` from the exact module
-  `../src/ai/control-room/ControlRoomFixtures` (never the control-room barrel /
-  `index`, and never another `api/` file)
+- no module-scope import of the control-room barrel / `index`
+- authorized **GET** loads `listControlRoomScenarios` from the exact module
+  `../src/ai/control-room/ControlRoomFixtures` only after feature flag + auth
+  (never another `api/` file)
 - authorized **POST** loads `ControlRoomService` from the exact module
   `../src/ai/control-room/ControlRoomService` only after feature flag, auth,
   method, JSON, and scenario allowlist validation
@@ -252,7 +253,7 @@ export const config = { runtime: "nodejs", maxDuration: 60 };
 - default handler export only (plus test helper exports)
 
 Authorized GET lists scenarios only and does not construct `ControlRoomService`
-or run `AiOsRuntime`. POST service-load and later-phase failures return safe
+or run `AiOsRuntime`. Fixture/service load and later-phase failures return safe
 `runtime_failure` JSON with standard `meta` identity, an allowlisted
 `diagnostic` code, and no stack/module path.
 
