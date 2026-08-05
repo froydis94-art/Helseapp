@@ -548,7 +548,7 @@ async function handler(
   }
 }
 
-// Hang helpers on the handler for CJS-style test stubbing and Vercel default export.
+// Hang helpers on the default export for test stubbing (Vercel uses export default).
 (handler as unknown as { default: typeof handler }).default = handler;
 (handler as unknown as { CONTROL_ROOM_RESPONSE_META: typeof CONTROL_ROOM_RESPONSE_META }).CONTROL_ROOM_RESPONSE_META =
   CONTROL_ROOM_RESPONSE_META;
@@ -562,6 +562,9 @@ async function handler(
 (handler as unknown as {
   getControlRoomConfigurationStatus: typeof getControlRoomConfigurationStatus;
 }).getControlRoomConfigurationStatus = getControlRoomConfigurationStatus;
+(handler as unknown as {
+  normalizeControlRoomServiceModule: typeof normalizeControlRoomServiceModule;
+}).normalizeControlRoomServiceModule = normalizeControlRoomServiceModule;
 
 // Stubbable methods: assignment on the live handler replaces apiHelpers implementations.
 Object.defineProperty(handler, "listScenariosForGet", {
@@ -595,13 +598,12 @@ Object.defineProperty(handler, "normalizeControlRoomServiceModule", {
   },
 });
 
-module.exports = handler;
-module.exports.default = handler;
-module.exports.CONTROL_ROOM_RESPONSE_META = CONTROL_ROOM_RESPONSE_META;
-module.exports.digestAccessKey = digestAccessKey;
-module.exports.timingSafeStringEqual = timingSafeStringEqual;
-module.exports.resolveControlRoomAccessHeader = resolveControlRoomAccessHeader;
-module.exports.getControlRoomConfigurationStatus =
-  getControlRoomConfigurationStatus;
-module.exports.normalizeControlRoomServiceModule =
-  normalizeControlRoomServiceModule;
+export default handler;
+export {
+  CONTROL_ROOM_RESPONSE_META,
+  digestAccessKey,
+  timingSafeStringEqual,
+  resolveControlRoomAccessHeader,
+  getControlRoomConfigurationStatus,
+  normalizeControlRoomServiceModule,
+};
