@@ -6,35 +6,77 @@
  *
  * Disabled by default. No CORS wildcard. No provider network. No secrets returned.
  *
- * Pure ESM TypeScript Vercel handler. Static import of ControlRoomServerEntry
- * (fixtures list only) so the bundler inlines the GET unlock graph. Service is
- * loaded via a literal dynamic import only on authorized POST after validation —
- * never at cold start, never via api/ siblings or the control-room barrel.
+ * Vercel Node for this project cannot execute ../src TypeScript modules at
+ * runtime (dynamic import yields module_load_failed; module-scope
+ * require/import yields FUNCTION_INVOCATION_FAILED). GET unlock therefore
+ * uses inlined scenario summaries kept identical to ControlRoomFixtures
+ * (enforced by tests). POST still loads ControlRoomService via a literal
+ * dynamic import after validation (bundler-traceable; may still fail if the
+ * TS graph is absent).
+ *
+ * No api-to-api bridge, no control-room barrel, no JS shim primary route.
  */
 
-import { createHash, timingSafeEqual } from "crypto";
-import { listControlRoomScenarios } from "../src/ai/control-room/ControlRoomServerEntry";
+// CJS crypto require kept for broad Vercel Node compatibility (PATCH 016D).
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const crypto = require("crypto") as typeof import("crypto");
 
 const ACCESS_HEADER = "x-ai-os-control-room-key";
 const ACCESS_HEADER_CANONICAL = "X-AI-OS-Control-Room-Key";
 const MIN_ACCESS_KEY_LENGTH = 24;
 
-export const CONTROL_ROOM_RESPONSE_META = {
+const CONTROL_ROOM_RESPONSE_META = {
   service: "ai-os-control-room",
   apiVersion: "1.1",
 };
 
-const ALLOWED_SCENARIO_IDS = new Set([
-  "balanced_recomposition_12w",
-  "upper_body_definition_8w",
-  "gradual_fat_loss_16w",
-  "athletic_strength_24w",
-]);
+/**
+ * Exact public summaries from ControlRoomFixtures.listControlRoomScenarios().
+ * Inlined so GET unlock boots without loading the src/ TypeScript graph on Vercel.
+ * Must stay byte-identical to fixture summaries (see controlRoom.test.ts).
+ */
+const CONTROL_ROOM_SCENARIO_SUMMARIES = [
+  {
+    id: "balanced_recomposition_12w",
+    title: "Balanced recomposition (12 weeks)",
+    description:
+      "A moderate, balanced body-recomposition scenario with gradual fat reduction and modest muscle development.",
+    timelineWeeks: 12,
+    focusZones: ["waist", "shoulders"],
+    direction: "recomposition",
+  },
+  {
+    id: "upper_body_definition_8w",
+    title: "Upper-body definition (8 weeks)",
+    description:
+      "A conservative upper-body definition scenario emphasizing shoulders and back without extreme targets.",
+    timelineWeeks: 8,
+    focusZones: ["shoulders", "back", "arms"],
+    direction: "upper_body_definition",
+  },
+  {
+    id: "gradual_fat_loss_16w",
+    title: "Gradual fat loss (16 weeks)",
+    description:
+      "A gradual and physiologically conservative fat-loss scenario with light muscle maintenance.",
+    timelineWeeks: 16,
+    focusZones: ["waist", "core"],
+    direction: "fat_loss",
+  },
+  {
+    id: "athletic_strength_24w",
+    title: "Athletic strength (24 weeks)",
+    description:
+      "A longer athletic-strength scenario focused on shoulders, legs, and back without extreme muscle growth.",
+    timelineWeeks: 24,
+    focusZones: ["shoulders", "legs", "back"],
+    direction: "athletic_strength",
+  },
+] as const;
 
-/** Bundled fixtures surface — returned by stubbable loader helpers. */
-const BUNDLED_FIXTURES_MODULE = {
-  listControlRoomScenarios,
-};
+const ALLOWED_SCENARIO_IDS = new Set(
+  CONTROL_ROOM_SCENARIO_SUMMARIES.map((s) => s.id)
+);
 
 type ControlRoomServiceModuleShape = {
   ControlRoomService: new () => {
@@ -53,14 +95,26 @@ type VercelLikeResponse = {
   end?(): void;
 };
 
+function cloneScenarioSummaries(): unknown[] {
+  return CONTROL_ROOM_SCENARIO_SUMMARIES.map((summary) => ({
+    id: summary.id,
+    title: summary.title,
+    description: summary.description,
+    timelineWeeks: summary.timelineWeeks,
+    focusZones: [...summary.focusZones],
+    direction: summary.direction,
+  }));
+}
+
 /**
  * Mutable helpers so tests can stub list/load without reloading the handler.
- * Fixtures come from the compile-time static import. Service uses a literal
- * dynamic import so the bundler can emit a chunk without evaluating it at boot.
+ * GET list is inlined (no src import). POST service uses literal dynamic import.
  */
 const apiHelpers = {
   async loadControlRoomFixturesModule(): Promise<unknown> {
-    return BUNDLED_FIXTURES_MODULE;
+    return {
+      listControlRoomScenarios: cloneScenarioSummaries,
+    };
   },
 
   async listScenariosForGet(): Promise<unknown[]> {
@@ -75,7 +129,7 @@ const apiHelpers = {
   },
 
   async loadControlRoomServiceModule(): Promise<unknown> {
-    // Literal path — bundler-traceable. Evaluated only on authorized POST.
+    // Literal path for bundler tracing. Not evaluated on GET / unauthorized boot.
     return import("../src/ai/control-room/ControlRoomService");
   },
 
@@ -112,7 +166,7 @@ function resolveListControlRoomScenarios(
  * A) named exports with ControlRoomService + ControlRoomServiceError
  * B) one default object containing the same exports
  */
-export function normalizeControlRoomServiceModule(
+function normalizeControlRoomServiceModule(
   imported: unknown
 ): ControlRoomServiceModuleShape | null {
   if (imported == null || typeof imported !== "object") {
@@ -185,7 +239,7 @@ function getConfiguredAccessKey(): string | undefined {
   return key;
 }
 
-export function getControlRoomConfigurationStatus():
+function getControlRoomConfigurationStatus():
   | "disabled"
   | "missing_access_key"
   | "ready" {
@@ -203,9 +257,7 @@ function normalizeHeaderToken(value: unknown): string | undefined {
   return undefined;
 }
 
-export function resolveControlRoomAccessHeader(
-  headers: unknown
-): string | undefined {
+function resolveControlRoomAccessHeader(headers: unknown): string | undefined {
   if (headers == null) return undefined;
   const target = ACCESS_HEADER;
 
@@ -270,17 +322,14 @@ export function resolveControlRoomAccessHeader(
   return undefined;
 }
 
-export function digestAccessKey(value: string): Buffer {
-  return createHash("sha256").update(value, "utf8").digest();
+function digestAccessKey(value: string): Buffer {
+  return crypto.createHash("sha256").update(value, "utf8").digest();
 }
 
-export function timingSafeStringEqual(
-  provided: string,
-  expected: string
-): boolean {
+function timingSafeStringEqual(provided: string, expected: string): boolean {
   const providedDigest = digestAccessKey(provided);
   const expectedDigest = digestAccessKey(expected);
-  return timingSafeEqual(providedDigest, expectedDigest);
+  return crypto.timingSafeEqual(providedDigest, expectedDigest);
 }
 
 function isAuthorized(req: { headers?: unknown }): boolean {
@@ -389,7 +438,7 @@ function hasQueryAccessKey(req: { query?: Record<string, unknown> }): boolean {
 }
 
 /**
- * Authorized GET: list scenarios via bundled fixtures only —
+ * Authorized GET: list inlined fixture summaries only —
  * no ControlRoomService construct, no AiOsRuntime, no scenario execution.
  */
 async function handleGet(res: VercelLikeResponse): Promise<void> {
@@ -598,6 +647,20 @@ async function handler(
   }
 }
 
+(handler as unknown as { default: typeof handler }).default = handler;
+(handler as unknown as { CONTROL_ROOM_RESPONSE_META: typeof CONTROL_ROOM_RESPONSE_META }).CONTROL_ROOM_RESPONSE_META =
+  CONTROL_ROOM_RESPONSE_META;
+(handler as unknown as { digestAccessKey: typeof digestAccessKey }).digestAccessKey =
+  digestAccessKey;
+(handler as unknown as { timingSafeStringEqual: typeof timingSafeStringEqual }).timingSafeStringEqual =
+  timingSafeStringEqual;
+(handler as unknown as {
+  resolveControlRoomAccessHeader: typeof resolveControlRoomAccessHeader;
+}).resolveControlRoomAccessHeader = resolveControlRoomAccessHeader;
+(handler as unknown as {
+  getControlRoomConfigurationStatus: typeof getControlRoomConfigurationStatus;
+}).getControlRoomConfigurationStatus = getControlRoomConfigurationStatus;
+
 Object.defineProperty(handler, "listScenariosForGet", {
   configurable: true,
   enumerable: true,
@@ -639,22 +702,13 @@ Object.defineProperty(handler, "normalizeControlRoomServiceModule", {
   },
 });
 
-// Attach auth helpers on the function for test mutation compatibility.
-(handler as unknown as { CONTROL_ROOM_RESPONSE_META: typeof CONTROL_ROOM_RESPONSE_META }).CONTROL_ROOM_RESPONSE_META =
-  CONTROL_ROOM_RESPONSE_META;
-(handler as unknown as { digestAccessKey: typeof digestAccessKey }).digestAccessKey =
-  digestAccessKey;
-(handler as unknown as { timingSafeStringEqual: typeof timingSafeStringEqual }).timingSafeStringEqual =
-  timingSafeStringEqual;
-(handler as unknown as {
-  resolveControlRoomAccessHeader: typeof resolveControlRoomAccessHeader;
-}).resolveControlRoomAccessHeader = resolveControlRoomAccessHeader;
-(handler as unknown as {
-  getControlRoomConfigurationStatus: typeof getControlRoomConfigurationStatus;
-}).getControlRoomConfigurationStatus = getControlRoomConfigurationStatus;
-(handler as unknown as {
-  normalizeControlRoomServiceModule: typeof normalizeControlRoomServiceModule;
-}).normalizeControlRoomServiceModule = normalizeControlRoomServiceModule;
-(handler as unknown as { default: typeof handler }).default = handler;
-
-export default handler;
+module.exports = handler;
+module.exports.default = handler;
+module.exports.CONTROL_ROOM_RESPONSE_META = CONTROL_ROOM_RESPONSE_META;
+module.exports.digestAccessKey = digestAccessKey;
+module.exports.timingSafeStringEqual = timingSafeStringEqual;
+module.exports.resolveControlRoomAccessHeader = resolveControlRoomAccessHeader;
+module.exports.getControlRoomConfigurationStatus =
+  getControlRoomConfigurationStatus;
+module.exports.normalizeControlRoomServiceModule =
+  normalizeControlRoomServiceModule;

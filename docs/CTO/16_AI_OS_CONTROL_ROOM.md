@@ -240,22 +240,21 @@ export const config = { runtime: "nodejs", maxDuration: 60 };
 (`config.runtime` semantics are evolving; Node is already the default for
 `/api/*`). Prefer:
 
-- Pure ESM TypeScript API entry so Vercel/esbuild can compile the Control Room
-  graph into the function bundle (no CJS `require` of ESM `src/` modules — that
-  crashes cold start with `FUNCTION_INVOCATION_FAILED`)
-- **static** `import { listControlRoomScenarios } from
-  "../src/ai/control-room/ControlRoomServerEntry"` (ServerEntry re-exports
-  Fixtures only — never the control-room barrel / `index`, never Service at
-  cold start)
+- TypeScript API entry that boots without loading `../src` TypeScript modules
+  at module scope (Vercel cannot execute that graph here: dynamic import →
+  `module_load_failed`; module-scope import/require →
+  `FUNCTION_INVOCATION_FAILED`)
+- authorized **GET** returns four scenario summaries inlined in the API entry
+  (kept identical to `ControlRoomFixtures.listControlRoomScenarios()` by tests;
+  never constructs `ControlRoomService` / `AiOsRuntime`)
 - authorized **POST** loads `ControlRoomService` via a literal
   `import("../src/ai/control-room/ControlRoomService")` only after feature flag,
-  auth, method, JSON, and scenario allowlist validation (deferred off the GET
-  boot path; still a bundler-traceable literal, not an api/ sibling)
-- authorized **GET** calls the bundled `listControlRoomScenarios` only after
-  feature flag + auth (never constructs `ControlRoomService` / `AiOsRuntime`)
-- `import { createHash, timingSafeEqual } from "crypto"` for SHA-256 timing-safe
-  access comparison
-- default ESM handler export only (plus named / function-attached test helpers)
+  auth, method, JSON, and scenario allowlist validation (not hard-coded dry-run
+  results; never an api/ sibling or control-room barrel)
+- optional `src/ai/control-room/ControlRoomServerEntry.ts` remains a fixtures-only
+  re-export for local/server tooling — the API entry does not import it at boot
+- `require("crypto")` for SHA-256 timing-safe access comparison
+- default handler export only (plus test helper exports)
 
 Authorized GET lists scenarios only and does not construct `ControlRoomService`
 or run `AiOsRuntime`. Fixture/service resolution and later-phase failures return

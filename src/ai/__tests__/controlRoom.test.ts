@@ -1500,10 +1500,8 @@ describe("DEMAND_016 Control Room", () => {
     const apiSource = read(apiPath);
 
     it("1. API uses fixtures import for GET and exact service module for POST", () => {
-      assert.match(
-        apiSource,
-        /from\s+["']\.\.\/src\/ai\/control-room\/ControlRoomServerEntry["']/
-      );
+      assert.match(apiSource, /CONTROL_ROOM_SCENARIO_SUMMARIES/);
+      assert.match(apiSource, /balanced_recomposition_12w/);
       assert.match(
         apiSource,
         /import\(["']\.\.\/src\/ai\/control-room\/ControlRoomService["']\)/
@@ -1512,6 +1510,10 @@ describe("DEMAND_016 Control Room", () => {
       assert.match(apiSource, /ControlRoomService/);
       assert.equal(
         /require\(["']\.\.\/src\/ai\/control-room\//.test(apiSource),
+        false
+      );
+      assert.equal(
+        /from\s+["']\.\.\/src\/ai\/control-room\//.test(apiSource),
         false
       );
       assert.equal(
@@ -1553,11 +1555,9 @@ describe("DEMAND_016 Control Room", () => {
       assert.equal(/maxDuration\s*:\s*60/.test(apiSource), false);
     });
 
-    it("3. Crypto import uses ESM crypto named imports", () => {
-      assert.match(apiSource, /from\s+["']crypto["']/);
-      assert.match(apiSource, /createHash/);
-      assert.match(apiSource, /timingSafeEqual/);
-      assert.equal(/require\(["']crypto["']\)/.test(apiSource), false);
+    it("3. Crypto import uses CommonJS broad compatibility form", () => {
+      assert.match(apiSource, /require\("crypto"\)/);
+      assert.equal(/node:crypto/.test(apiSource), false);
     });
 
     it("4. Response meta identity remains 1.1", async () => {
@@ -2167,7 +2167,7 @@ describe("DEMAND_016 Control Room", () => {
       assert.equal(docs.includes("_control-room-runtime"), false);
     });
 
-    it("17. Loader uses bundled ControlRoomService import and normalizes accepted shapes only", () => {
+    it("17. Loader uses ControlRoomService literal import and normalizes accepted shapes only", () => {
       assert.match(
         apiSource,
         /import\(["']\.\.\/src\/ai\/control-room\/ControlRoomService["']\)/
@@ -2299,10 +2299,7 @@ describe("DEMAND_016 Control Room", () => {
         false
       );
       assert.equal(existsSync(runtimeBridgePath), false);
-      assert.match(
-        apiSource,
-        /from\s+["']\.\.\/src\/ai\/control-room\/ControlRoomServerEntry["']/
-      );
+      assert.match(apiSource, /CONTROL_ROOM_SCENARIO_SUMMARIES/);
       assert.match(
         apiSource,
         /import\(["']\.\.\/src\/ai\/control-room\/ControlRoomService["']\)/
@@ -2311,6 +2308,10 @@ describe("DEMAND_016 Control Room", () => {
       assert.match(apiSource, /ControlRoomService/);
       assert.equal(
         /require\(["']\.\.\/src\/ai\/control-room\//.test(apiSource),
+        false
+      );
+      assert.equal(
+        /from\s+["']\.\.\/src\/ai\/control-room\//.test(apiSource),
         false
       );
       assert.equal(docs.includes("_control-room-runtime"), false);
@@ -2549,18 +2550,30 @@ describe("DEMAND_016 Control Room", () => {
       );
     });
 
-    it("5. GET uses bundled static Control Room module imports", () => {
-      assert.match(
-        apiSource,
-        /from\s+["']\.\.\/src\/ai\/control-room\/ControlRoomServerEntry["']/
-      );
+    it("5. GET uses inlined fixture summaries (no src module load at boot)", () => {
+      assert.match(apiSource, /CONTROL_ROOM_SCENARIO_SUMMARIES/);
       assert.match(apiSource, /listControlRoomScenarios/);
-      assert.equal(/export\s+default\s+handler/.test(apiSource), true);
-      assert.equal(/module\.exports\s*=/.test(apiSource), false);
+      assert.match(apiSource, /module\.exports\s*=\s*handler/);
       assert.equal(
         /import\s*\(\s*["']\.\.\/src\/ai\/control-room\/ControlRoomFixtures["']\s*\)/.test(
           apiSource
         ),
+        false
+      );
+      assert.equal(
+        /from\s+["']\.\.\/src\/ai\/control-room\/ControlRoomFixtures["']/.test(
+          apiSource
+        ),
+        false
+      );
+      assert.equal(
+        /from\s+["']\.\.\/src\/ai\/control-room\/ControlRoomServerEntry["']/.test(
+          apiSource
+        ),
+        false
+      );
+      assert.equal(
+        /require\(["']\.\.\/src\//.test(apiSource),
         false
       );
       // Service stays on deferred literal dynamic import (POST only).
@@ -2574,18 +2587,19 @@ describe("DEMAND_016 Control Room", () => {
         ),
         false
       );
-      assert.match(docs, /ControlRoomServerEntry|ControlRoomFixtures/);
-      assert.equal(existsSync(join(controlRoomDir, "ControlRoomServerEntry.ts")), true);
-      const entrySource = read(join(controlRoomDir, "ControlRoomServerEntry.ts"));
-      assert.match(entrySource, /listControlRoomScenarios/);
-      assert.equal(
-        /export\s*\{[^}]*ControlRoomService/.test(entrySource),
-        false
+      assert.match(docs, /inlined|ControlRoomFixtures/);
+      // Inlined summaries must match ControlRoomFixtures exactly.
+      assert.deepEqual(
+        listControlRoomScenarios().map((s) => s.id),
+        EXPECTED_IDS
       );
-      assert.equal(
-        /from\s+["']\.\/ControlRoomService["']/.test(entrySource),
-        false
-      );
+      for (const summary of listControlRoomScenarios()) {
+        assert.match(apiSource, new RegExp(summary.id));
+        assert.match(
+          apiSource,
+          new RegExp(summary.title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+        );
+      }
     });
 
     it("6. Authorized GET returns exactly four scenarios with meta and no diagnostic", async () => {
@@ -2649,7 +2663,7 @@ describe("DEMAND_016 Control Room", () => {
         mod.loadControlRoomServiceModule = original;
       }
       // GET must not invoke the service loader; API must not import runtime directly.
-      assert.match(apiSource, /ControlRoomServerEntry|ControlRoomFixtures/);
+      assert.match(apiSource, /CONTROL_ROOM_SCENARIO_SUMMARIES/);
       assert.equal(
         /import\s*\{[^}]*AiOsRuntime/.test(apiSource),
         false
@@ -2826,9 +2840,8 @@ describe("DEMAND_016 Control Room", () => {
 
     it("15. Docs describe one TS handler with fixtures GET and service POST", () => {
       assert.match(docs, /one.*TypeScript|one.*Vercel Node serverless TypeScript/i);
-      assert.match(docs, /ControlRoomServerEntry|ControlRoomFixtures/);
+      assert.match(docs, /ControlRoomFixtures|inlined/i);
       assert.match(docs, /ControlRoomService/);
-      assert.match(docs, /static|bundled/i);
       assert.equal(docs.includes("api/_control-room-runtime"), false);
       assert.match(docs, /no api-to-api|must not load another `api\/`/i);
     });
