@@ -221,7 +221,7 @@ This later milestone must require:
 > Control Room may never become an unguarded provider or production execution
 > surface.
 
-## Vercel serverless notes (PATCH 016G)
+## Vercel serverless notes (PATCH 016G+)
 
 Control Room API is **one** Vercel Node serverless TypeScript handler:
 
@@ -242,19 +242,23 @@ export const config = { runtime: "nodejs", maxDuration: 60 };
 
 - TypeScript API entry so Vercel compiles the Control Room graph into the
   function bundle
-- no module-scope import of the control-room barrel / `index`
-- authorized **GET** loads `listControlRoomScenarios` from the exact module
-  `../src/ai/control-room/ControlRoomFixtures` only after feature flag + auth
-  (never another `api/` file)
-- authorized **POST** loads `ControlRoomService` from the exact module
-  `../src/ai/control-room/ControlRoomService` only after feature flag, auth,
-  method, JSON, and scenario allowlist validation
+- **static** import of `listControlRoomScenarios`, `ControlRoomService`, and
+  `ControlRoomServiceError` from
+  `../src/ai/control-room/ControlRoomServerEntry` (pure re-exports of the exact
+  Fixtures + Service modules — never the control-room barrel / `index`)
+- no runtime `import("../src/...")` / filesystem lookup for Control Room modules
+  (those fail on Vercel with `module_load_failed` when the TS graph is not in
+  the deployed function bundle)
+- authorized **GET** calls the bundled `listControlRoomScenarios` only after
+  feature flag + auth (never constructs `ControlRoomService` / `AiOsRuntime`)
+- authorized **POST** constructs bundled `ControlRoomService` only after feature
+  flag, auth, method, JSON, and scenario allowlist validation
 - `require("crypto")` for SHA-256 timing-safe access comparison
 - default handler export only (plus test helper exports)
 
 Authorized GET lists scenarios only and does not construct `ControlRoomService`
-or run `AiOsRuntime`. Fixture/service load and later-phase failures return safe
-`runtime_failure` JSON with standard `meta` identity, an allowlisted
+or run `AiOsRuntime`. Fixture/service resolution and later-phase failures return
+safe `runtime_failure` JSON with standard `meta` identity, an allowlisted
 `diagnostic` code, and no stack/module path.
 
 Safe authorized `diagnostic` values:

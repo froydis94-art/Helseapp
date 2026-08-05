@@ -1502,11 +1502,13 @@ describe("DEMAND_016 Control Room", () => {
     it("1. API uses fixtures import for GET and exact service module for POST", () => {
       assert.match(
         apiSource,
-        /import\(["']\.\.\/src\/ai\/control-room\/ControlRoomFixtures["']\)/
+        /from\s+["']\.\.\/src\/ai\/control-room\/ControlRoomServerEntry["']/
       );
-      assert.match(
-        apiSource,
-        /import\(["']\.\.\/src\/ai\/control-room\/ControlRoomService["']\)/
+      assert.match(apiSource, /listControlRoomScenarios/);
+      assert.match(apiSource, /ControlRoomService/);
+      assert.equal(
+        /import\s*\(\s*["']\.\.\/src\/[^"']+["']\s*\)/.test(apiSource),
+        false
       );
       assert.equal(
         /require\(["']\.\/_control-room-runtime["']\)/.test(apiSource),
@@ -2159,10 +2161,17 @@ describe("DEMAND_016 Control Room", () => {
       assert.equal(docs.includes("_control-room-runtime"), false);
     });
 
-    it("17. Loader uses exact ControlRoomService import and normalizes accepted shapes only", () => {
+    it("17. Loader uses bundled ControlRoomService import and normalizes accepted shapes only", () => {
       assert.match(
         apiSource,
-        /import\(["']\.\.\/src\/ai\/control-room\/ControlRoomService["']\)/
+        /from\s+["']\.\.\/src\/ai\/control-room\/ControlRoomServerEntry["']/
+      );
+      assert.match(apiSource, /ControlRoomService/);
+      assert.equal(
+        /import\s*\(\s*["']\.\.\/src\/ai\/control-room\/ControlRoomService["']\s*\)/.test(
+          apiSource
+        ),
+        false
       );
       assert.equal(
         /require\(["']\.\/_control-room-runtime["']\)/.test(apiSource),
@@ -2286,11 +2295,13 @@ describe("DEMAND_016 Control Room", () => {
       assert.equal(existsSync(runtimeBridgePath), false);
       assert.match(
         apiSource,
-        /import\(["']\.\.\/src\/ai\/control-room\/ControlRoomFixtures["']\)/
+        /from\s+["']\.\.\/src\/ai\/control-room\/ControlRoomServerEntry["']/
       );
-      assert.match(
-        apiSource,
-        /import\(["']\.\.\/src\/ai\/control-room\/ControlRoomService["']\)/
+      assert.match(apiSource, /listControlRoomScenarios/);
+      assert.match(apiSource, /ControlRoomService/);
+      assert.equal(
+        /import\s*\(\s*["']\.\.\/src\/[^"']+["']\s*\)/.test(apiSource),
+        false
       );
       assert.equal(docs.includes("_control-room-runtime"), false);
     });
@@ -2528,19 +2539,30 @@ describe("DEMAND_016 Control Room", () => {
       );
     });
 
-    it("5. GET uses ControlRoomFixtures exact module path", () => {
+    it("5. GET uses bundled static Control Room module imports", () => {
       assert.match(
         apiSource,
-        /import\(["']\.\.\/src\/ai\/control-room\/ControlRoomFixtures["']\)/
+        /from\s+["']\.\.\/src\/ai\/control-room\/ControlRoomServerEntry["']/
       );
       assert.match(apiSource, /listControlRoomScenarios/);
       assert.equal(
-        /from\s+["']\.\.\/src\/ai\/control-room\/ControlRoomFixtures["']/.test(
+        /import\s*\(\s*["']\.\.\/src\/[^"']+["']\s*\)/.test(apiSource),
+        false
+      );
+      assert.equal(
+        /import\s*\(\s*["']\.\.\/src\/ai\/control-room\/ControlRoomFixtures["']\s*\)/.test(
           apiSource
         ),
         false
       );
-      assert.match(docs, /ControlRoomFixtures/);
+      assert.equal(
+        /import\s*\(\s*["']\.\.\/src\/ai\/control-room\/ControlRoomService["']\s*\)/.test(
+          apiSource
+        ),
+        false
+      );
+      assert.match(docs, /ControlRoomServerEntry|ControlRoomFixtures/);
+      assert.equal(existsSync(join(controlRoomDir, "ControlRoomServerEntry.ts")), true);
     });
 
     it("6. Authorized GET returns exactly four scenarios with meta and no diagnostic", async () => {
@@ -2603,8 +2625,8 @@ describe("DEMAND_016 Control Room", () => {
       } finally {
         mod.loadControlRoomServiceModule = original;
       }
-      // Module-scope GET import is fixtures-only; service/runtime are POST-path.
-      assert.match(apiSource, /ControlRoomFixtures/);
+      // GET must not invoke the service loader; API must not import runtime directly.
+      assert.match(apiSource, /ControlRoomServerEntry|ControlRoomFixtures/);
       assert.equal(
         /import\s*\{[^}]*AiOsRuntime/.test(apiSource),
         false
@@ -2701,9 +2723,16 @@ describe("DEMAND_016 Control Room", () => {
       } finally {
         mod.loadControlRoomServiceModule = original;
       }
+      assert.match(apiSource, /ControlRoomService/);
       assert.match(
         apiSource,
-        /import\(["']\.\.\/src\/ai\/control-room\/ControlRoomService["']\)/
+        /from\s+["']\.\.\/src\/ai\/control-room\/ControlRoomServerEntry["']/
+      );
+      assert.equal(
+        /import\s*\(\s*["']\.\.\/src\/ai\/control-room\/ControlRoomService["']\s*\)/.test(
+          apiSource
+        ),
+        false
       );
       assert.match(docs, /ControlRoomService/);
     });
@@ -2774,8 +2803,9 @@ describe("DEMAND_016 Control Room", () => {
 
     it("15. Docs describe one TS handler with fixtures GET and service POST", () => {
       assert.match(docs, /one.*TypeScript|one.*Vercel Node serverless TypeScript/i);
-      assert.match(docs, /ControlRoomFixtures/);
+      assert.match(docs, /ControlRoomServerEntry|ControlRoomFixtures/);
       assert.match(docs, /ControlRoomService/);
+      assert.match(docs, /static|bundled/i);
       assert.equal(docs.includes("api/_control-room-runtime"), false);
       assert.match(docs, /no api-to-api|must not load another `api\/`/i);
     });

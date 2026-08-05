@@ -6,11 +6,18 @@
  *
  * Disabled by default. No CORS wildcard. No provider network. No secrets returned.
  *
- * PATCH 016G: One bundled TypeScript Vercel handler. No api-to-api bridge and no
- * control-room barrel. Authorized GET loads listControlRoomScenarios from the
- * exact ControlRoomFixtures module. Authorized POST loads ControlRoomService
- * from its exact module after request validation.
+ * Bundled TypeScript Vercel handler. Static imports from ControlRoomServerEntry
+ * (exact list + service re-exports) so Vercel compiles one function bundle.
+ * No api-to-api bridge, no control-room barrel, no runtime dynamic import of
+ * ../src paths that can fail unresolved on the serverless filesystem.
  */
+
+// Compile-time-bundled Control Room graph (not a runtime filesystem lookup).
+import {
+  listControlRoomScenarios,
+  ControlRoomService,
+  ControlRoomServiceError,
+} from "../src/ai/control-room/ControlRoomServerEntry";
 
 // CJS crypto require kept for broad Vercel Node compatibility (PATCH 016D).
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -31,6 +38,17 @@ const ALLOWED_SCENARIO_IDS = new Set([
   "gradual_fat_loss_16w",
   "athletic_strength_24w",
 ]);
+
+/** Bundled fixtures surface — returned by stubbable loader helpers (never dynamic import). */
+const BUNDLED_FIXTURES_MODULE = {
+  listControlRoomScenarios,
+};
+
+/** Bundled service surface — returned by stubbable loader helpers (never dynamic import). */
+const BUNDLED_SERVICE_MODULE = {
+  ControlRoomService,
+  ControlRoomServiceError,
+};
 
 type ControlRoomServiceModuleShape = {
   ControlRoomService: new () => {
@@ -53,11 +71,11 @@ type VercelLikeResponse = {
  * Mutable helpers so tests can stub list/load without reloading the handler.
  * Handler always calls through this object (never a frozen binding).
  *
- * Exact module paths only — never api/ siblings, never control-room/index barrel.
+ * Loaders return the compile-time-bundled modules — never import(), never api/ siblings.
  */
 const apiHelpers = {
   async loadControlRoomFixturesModule(): Promise<unknown> {
-    return import("../src/ai/control-room/ControlRoomFixtures");
+    return BUNDLED_FIXTURES_MODULE;
   },
 
   async listScenariosForGet(): Promise<unknown[]> {
@@ -72,7 +90,7 @@ const apiHelpers = {
   },
 
   async loadControlRoomServiceModule(): Promise<unknown> {
-    return import("../src/ai/control-room/ControlRoomService");
+    return BUNDLED_SERVICE_MODULE;
   },
 
   normalizeControlRoomServiceModule(
@@ -380,7 +398,7 @@ function hasQueryAccessKey(req: { query?: Record<string, unknown> }): boolean {
 }
 
 /**
- * Authorized GET: list scenarios via ControlRoomFixtures only —
+ * Authorized GET: list scenarios via bundled ControlRoomFixtures only —
  * no ControlRoomService construct, no AiOsRuntime, no scenario execution.
  */
 async function handleGet(res: VercelLikeResponse): Promise<void> {
@@ -474,7 +492,7 @@ async function handlePost(
     return;
   }
 
-  // Heavy service module loads only after flag, auth, method, JSON, allowlist.
+  // Bundled service module is resolved only after flag, auth, method, JSON, allowlist.
   let loaded: unknown;
   try {
     loaded = await apiHelpers.loadControlRoomServiceModule();
