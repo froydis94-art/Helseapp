@@ -6,22 +6,27 @@
  *
  * Disabled by default. No CORS wildcard. No provider network. No secrets returned.
  *
- * Bundled TypeScript Vercel handler. Static imports from ControlRoomServerEntry
- * (exact list + service re-exports) so Vercel compiles one function bundle.
- * No api-to-api bridge, no control-room barrel, no runtime dynamic import of
- * ../src paths that can fail unresolved on the serverless filesystem.
+ * Bundled TypeScript Vercel handler. Compile-time-traced requires (not runtime
+ * dynamic import of ../src) so Vercel includes the Control Room graph in the
+ * function bundle. Fixtures load at module scope for GET unlock; Service is
+ * required only on authorized POST after validation (and guarded) so
+ * unauthorized/disabled paths still return identified JSON if the heavy graph
+ * fails to initialize.
+ *
+ * No api-to-api bridge, no control-room barrel, no JS shim primary route.
  */
-
-// Compile-time-bundled Control Room graph (not a runtime filesystem lookup).
-import {
-  listControlRoomScenarios,
-  ControlRoomService,
-  ControlRoomServiceError,
-} from "../src/ai/control-room/ControlRoomServerEntry";
 
 // CJS crypto require kept for broad Vercel Node compatibility (PATCH 016D).
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const crypto = require("crypto") as typeof import("crypto");
+
+// Lightweight fixtures graph — compile-time traced, safe for cold-start boot.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const controlRoomServerEntry = require("../src/ai/control-room/ControlRoomServerEntry") as {
+  listControlRoomScenarios: () => unknown[];
+};
+
+const listControlRoomScenarios = controlRoomServerEntry.listControlRoomScenarios;
 
 const ACCESS_HEADER = "x-ai-os-control-room-key";
 const ACCESS_HEADER_CANONICAL = "X-AI-OS-Control-Room-Key";
@@ -39,15 +44,9 @@ const ALLOWED_SCENARIO_IDS = new Set([
   "athletic_strength_24w",
 ]);
 
-/** Bundled fixtures surface — returned by stubbable loader helpers (never dynamic import). */
+/** Bundled fixtures surface — returned by stubbable loader helpers. */
 const BUNDLED_FIXTURES_MODULE = {
   listControlRoomScenarios,
-};
-
-/** Bundled service surface — returned by stubbable loader helpers (never dynamic import). */
-const BUNDLED_SERVICE_MODULE = {
-  ControlRoomService,
-  ControlRoomServiceError,
 };
 
 type ControlRoomServiceModuleShape = {
@@ -68,10 +67,26 @@ type VercelLikeResponse = {
 };
 
 /**
+ * Resolve the heavy ControlRoomService module via a compile-time-traced require.
+ * Kept off the unauthorized cold-start path; string literal so Vercel/nft includes it.
+ */
+function requireControlRoomServiceModule(): ControlRoomServiceModuleShape {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const imported = require("../src/ai/control-room/ControlRoomService") as unknown;
+  const normalized = normalizeControlRoomServiceModule(imported);
+  if (normalized == null) {
+    const err = new Error("module_shape_invalid");
+    err.name = "ControlRoomServiceShapeError";
+    throw err;
+  }
+  return normalized;
+}
+
+/**
  * Mutable helpers so tests can stub list/load without reloading the handler.
  * Handler always calls through this object (never a frozen binding).
  *
- * Loaders return the compile-time-bundled modules — never import(), never api/ siblings.
+ * No import(), no api/ siblings, no control-room barrel.
  */
 const apiHelpers = {
   async loadControlRoomFixturesModule(): Promise<unknown> {
@@ -90,7 +105,7 @@ const apiHelpers = {
   },
 
   async loadControlRoomServiceModule(): Promise<unknown> {
-    return BUNDLED_SERVICE_MODULE;
+    return requireControlRoomServiceModule();
   },
 
   normalizeControlRoomServiceModule(
@@ -492,7 +507,7 @@ async function handlePost(
     return;
   }
 
-  // Bundled service module is resolved only after flag, auth, method, JSON, allowlist.
+  // Heavy service module resolves only after flag, auth, method, JSON, allowlist.
   let loaded: unknown;
   try {
     loaded = await apiHelpers.loadControlRoomServiceModule();

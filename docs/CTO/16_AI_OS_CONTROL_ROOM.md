@@ -242,17 +242,17 @@ export const config = { runtime: "nodejs", maxDuration: 60 };
 
 - TypeScript API entry so Vercel compiles the Control Room graph into the
   function bundle
-- **static** import of `listControlRoomScenarios`, `ControlRoomService`, and
-  `ControlRoomServiceError` from
-  `../src/ai/control-room/ControlRoomServerEntry` (pure re-exports of the exact
-  Fixtures + Service modules — never the control-room barrel / `index`)
-- no runtime `import("../src/...")` / filesystem lookup for Control Room modules
-  (those fail on Vercel with `module_load_failed` when the TS graph is not in
-  the deployed function bundle)
+- compile-time-traced `require("../src/ai/control-room/ControlRoomServerEntry")`
+  for `listControlRoomScenarios` only (ServerEntry re-exports Fixtures — never
+  the control-room barrel / `index`, never Service at cold start)
+- compile-time-traced `require("../src/ai/control-room/ControlRoomService")`
+  only on authorized POST after validation (literal path, not dynamic `import`)
+- no runtime `import("../src/...")` filesystem lookups (those fail on Vercel with
+  `module_load_failed` when the TS graph is not in the deployed function bundle)
 - authorized **GET** calls the bundled `listControlRoomScenarios` only after
   feature flag + auth (never constructs `ControlRoomService` / `AiOsRuntime`)
-- authorized **POST** constructs bundled `ControlRoomService` only after feature
-  flag, auth, method, JSON, and scenario allowlist validation
+- authorized **POST** constructs `ControlRoomService` only after feature flag,
+  auth, method, JSON, and scenario allowlist validation
 - `require("crypto")` for SHA-256 timing-safe access comparison
 - default handler export only (plus test helper exports)
 

@@ -1,12 +1,9 @@
 /**
- * Control Room server entry — pure re-exports for the Vercel API bundle.
+ * Control Room server entry — lightweight pure re-exports for the Vercel API.
  *
- * Keeps the API handler on one statically traced graph without importing the
- * control-room barrel (index) or any api/ sibling.
+ * GET unlock must boot without loading the heavy service / runtime graph.
+ * This file re-exports only listControlRoomScenarios from ControlRoomFixtures
+ * (no barrel, no service class, no provider coupling).
  */
 
 export { listControlRoomScenarios } from "./ControlRoomFixtures";
-export {
-  ControlRoomService,
-  ControlRoomServiceError,
-} from "./ControlRoomService";
