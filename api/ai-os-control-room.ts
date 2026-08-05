@@ -6,33 +6,20 @@
  *
  * Disabled by default. No CORS wildcard. No provider network. No secrets returned.
  *
- * Bundled TypeScript Vercel handler. Compile-time-traced requires (not runtime
- * dynamic import of ../src) so Vercel includes the Control Room graph in the
- * function bundle. Fixtures load at module scope for GET unlock; Service is
- * required only on authorized POST after validation (and guarded) so
- * unauthorized/disabled paths still return identified JSON if the heavy graph
- * fails to initialize.
- *
- * No api-to-api bridge, no control-room barrel, no JS shim primary route.
+ * Pure ESM TypeScript Vercel handler. Static import of ControlRoomServerEntry
+ * (fixtures list only) so the bundler inlines the GET unlock graph. Service is
+ * loaded via a literal dynamic import only on authorized POST after validation —
+ * never at cold start, never via api/ siblings or the control-room barrel.
  */
 
-// CJS crypto require kept for broad Vercel Node compatibility (PATCH 016D).
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const crypto = require("crypto") as typeof import("crypto");
-
-// Lightweight fixtures graph — compile-time traced, safe for cold-start boot.
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const controlRoomServerEntry = require("../src/ai/control-room/ControlRoomServerEntry") as {
-  listControlRoomScenarios: () => unknown[];
-};
-
-const listControlRoomScenarios = controlRoomServerEntry.listControlRoomScenarios;
+import { createHash, timingSafeEqual } from "crypto";
+import { listControlRoomScenarios } from "../src/ai/control-room/ControlRoomServerEntry";
 
 const ACCESS_HEADER = "x-ai-os-control-room-key";
 const ACCESS_HEADER_CANONICAL = "X-AI-OS-Control-Room-Key";
 const MIN_ACCESS_KEY_LENGTH = 24;
 
-const CONTROL_ROOM_RESPONSE_META = {
+export const CONTROL_ROOM_RESPONSE_META = {
   service: "ai-os-control-room",
   apiVersion: "1.1",
 };
@@ -67,26 +54,9 @@ type VercelLikeResponse = {
 };
 
 /**
- * Resolve the heavy ControlRoomService module via a compile-time-traced require.
- * Kept off the unauthorized cold-start path; string literal so Vercel/nft includes it.
- */
-function requireControlRoomServiceModule(): ControlRoomServiceModuleShape {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const imported = require("../src/ai/control-room/ControlRoomService") as unknown;
-  const normalized = normalizeControlRoomServiceModule(imported);
-  if (normalized == null) {
-    const err = new Error("module_shape_invalid");
-    err.name = "ControlRoomServiceShapeError";
-    throw err;
-  }
-  return normalized;
-}
-
-/**
  * Mutable helpers so tests can stub list/load without reloading the handler.
- * Handler always calls through this object (never a frozen binding).
- *
- * No import(), no api/ siblings, no control-room barrel.
+ * Fixtures come from the compile-time static import. Service uses a literal
+ * dynamic import so the bundler can emit a chunk without evaluating it at boot.
  */
 const apiHelpers = {
   async loadControlRoomFixturesModule(): Promise<unknown> {
@@ -105,7 +75,8 @@ const apiHelpers = {
   },
 
   async loadControlRoomServiceModule(): Promise<unknown> {
-    return requireControlRoomServiceModule();
+    // Literal path — bundler-traceable. Evaluated only on authorized POST.
+    return import("../src/ai/control-room/ControlRoomService");
   },
 
   normalizeControlRoomServiceModule(
@@ -141,7 +112,7 @@ function resolveListControlRoomScenarios(
  * A) named exports with ControlRoomService + ControlRoomServiceError
  * B) one default object containing the same exports
  */
-function normalizeControlRoomServiceModule(
+export function normalizeControlRoomServiceModule(
   imported: unknown
 ): ControlRoomServiceModuleShape | null {
   if (imported == null || typeof imported !== "object") {
@@ -214,7 +185,7 @@ function getConfiguredAccessKey(): string | undefined {
   return key;
 }
 
-function getControlRoomConfigurationStatus():
+export function getControlRoomConfigurationStatus():
   | "disabled"
   | "missing_access_key"
   | "ready" {
@@ -232,7 +203,9 @@ function normalizeHeaderToken(value: unknown): string | undefined {
   return undefined;
 }
 
-function resolveControlRoomAccessHeader(headers: unknown): string | undefined {
+export function resolveControlRoomAccessHeader(
+  headers: unknown
+): string | undefined {
   if (headers == null) return undefined;
   const target = ACCESS_HEADER;
 
@@ -297,14 +270,17 @@ function resolveControlRoomAccessHeader(headers: unknown): string | undefined {
   return undefined;
 }
 
-function digestAccessKey(value: string): Buffer {
-  return crypto.createHash("sha256").update(value, "utf8").digest();
+export function digestAccessKey(value: string): Buffer {
+  return createHash("sha256").update(value, "utf8").digest();
 }
 
-function timingSafeStringEqual(provided: string, expected: string): boolean {
+export function timingSafeStringEqual(
+  provided: string,
+  expected: string
+): boolean {
   const providedDigest = digestAccessKey(provided);
   const expectedDigest = digestAccessKey(expected);
-  return crypto.timingSafeEqual(providedDigest, expectedDigest);
+  return timingSafeEqual(providedDigest, expectedDigest);
 }
 
 function isAuthorized(req: { headers?: unknown }): boolean {
@@ -413,7 +389,7 @@ function hasQueryAccessKey(req: { query?: Record<string, unknown> }): boolean {
 }
 
 /**
- * Authorized GET: list scenarios via bundled ControlRoomFixtures only —
+ * Authorized GET: list scenarios via bundled fixtures only —
  * no ControlRoomService construct, no AiOsRuntime, no scenario execution.
  */
 async function handleGet(res: VercelLikeResponse): Promise<void> {
@@ -507,7 +483,6 @@ async function handlePost(
     return;
   }
 
-  // Heavy service module resolves only after flag, auth, method, JSON, allowlist.
   let loaded: unknown;
   try {
     loaded = await apiHelpers.loadControlRoomServiceModule();
@@ -623,20 +598,6 @@ async function handler(
   }
 }
 
-(handler as unknown as { default: typeof handler }).default = handler;
-(handler as unknown as { CONTROL_ROOM_RESPONSE_META: typeof CONTROL_ROOM_RESPONSE_META }).CONTROL_ROOM_RESPONSE_META =
-  CONTROL_ROOM_RESPONSE_META;
-(handler as unknown as { digestAccessKey: typeof digestAccessKey }).digestAccessKey =
-  digestAccessKey;
-(handler as unknown as { timingSafeStringEqual: typeof timingSafeStringEqual }).timingSafeStringEqual =
-  timingSafeStringEqual;
-(handler as unknown as {
-  resolveControlRoomAccessHeader: typeof resolveControlRoomAccessHeader;
-}).resolveControlRoomAccessHeader = resolveControlRoomAccessHeader;
-(handler as unknown as {
-  getControlRoomConfigurationStatus: typeof getControlRoomConfigurationStatus;
-}).getControlRoomConfigurationStatus = getControlRoomConfigurationStatus;
-
 Object.defineProperty(handler, "listScenariosForGet", {
   configurable: true,
   enumerable: true,
@@ -678,13 +639,22 @@ Object.defineProperty(handler, "normalizeControlRoomServiceModule", {
   },
 });
 
-module.exports = handler;
-module.exports.default = handler;
-module.exports.CONTROL_ROOM_RESPONSE_META = CONTROL_ROOM_RESPONSE_META;
-module.exports.digestAccessKey = digestAccessKey;
-module.exports.timingSafeStringEqual = timingSafeStringEqual;
-module.exports.resolveControlRoomAccessHeader = resolveControlRoomAccessHeader;
-module.exports.getControlRoomConfigurationStatus =
-  getControlRoomConfigurationStatus;
-module.exports.normalizeControlRoomServiceModule =
-  normalizeControlRoomServiceModule;
+// Attach auth helpers on the function for test mutation compatibility.
+(handler as unknown as { CONTROL_ROOM_RESPONSE_META: typeof CONTROL_ROOM_RESPONSE_META }).CONTROL_ROOM_RESPONSE_META =
+  CONTROL_ROOM_RESPONSE_META;
+(handler as unknown as { digestAccessKey: typeof digestAccessKey }).digestAccessKey =
+  digestAccessKey;
+(handler as unknown as { timingSafeStringEqual: typeof timingSafeStringEqual }).timingSafeStringEqual =
+  timingSafeStringEqual;
+(handler as unknown as {
+  resolveControlRoomAccessHeader: typeof resolveControlRoomAccessHeader;
+}).resolveControlRoomAccessHeader = resolveControlRoomAccessHeader;
+(handler as unknown as {
+  getControlRoomConfigurationStatus: typeof getControlRoomConfigurationStatus;
+}).getControlRoomConfigurationStatus = getControlRoomConfigurationStatus;
+(handler as unknown as {
+  normalizeControlRoomServiceModule: typeof normalizeControlRoomServiceModule;
+}).normalizeControlRoomServiceModule = normalizeControlRoomServiceModule;
+(handler as unknown as { default: typeof handler }).default = handler;
+
+export default handler;

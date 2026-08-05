@@ -1502,16 +1502,16 @@ describe("DEMAND_016 Control Room", () => {
     it("1. API uses fixtures import for GET and exact service module for POST", () => {
       assert.match(
         apiSource,
-        /require\(["']\.\.\/src\/ai\/control-room\/ControlRoomServerEntry["']\)/
+        /from\s+["']\.\.\/src\/ai\/control-room\/ControlRoomServerEntry["']/
       );
       assert.match(
         apiSource,
-        /require\(["']\.\.\/src\/ai\/control-room\/ControlRoomService["']\)/
+        /import\(["']\.\.\/src\/ai\/control-room\/ControlRoomService["']\)/
       );
       assert.match(apiSource, /listControlRoomScenarios/);
       assert.match(apiSource, /ControlRoomService/);
       assert.equal(
-        /import\s*\(\s*["']\.\.\/src\/[^"']+["']\s*\)/.test(apiSource),
+        /require\(["']\.\.\/src\/ai\/control-room\//.test(apiSource),
         false
       );
       assert.equal(
@@ -1553,9 +1553,11 @@ describe("DEMAND_016 Control Room", () => {
       assert.equal(/maxDuration\s*:\s*60/.test(apiSource), false);
     });
 
-    it("3. Crypto import uses CommonJS broad compatibility form", () => {
-      assert.match(apiSource, /require\("crypto"\)/);
-      assert.equal(/node:crypto/.test(apiSource), false);
+    it("3. Crypto import uses ESM crypto named imports", () => {
+      assert.match(apiSource, /from\s+["']crypto["']/);
+      assert.match(apiSource, /createHash/);
+      assert.match(apiSource, /timingSafeEqual/);
+      assert.equal(/require\(["']crypto["']\)/.test(apiSource), false);
     });
 
     it("4. Response meta identity remains 1.1", async () => {
@@ -2168,11 +2170,11 @@ describe("DEMAND_016 Control Room", () => {
     it("17. Loader uses bundled ControlRoomService import and normalizes accepted shapes only", () => {
       assert.match(
         apiSource,
-        /require\(["']\.\.\/src\/ai\/control-room\/ControlRoomService["']\)/
+        /import\(["']\.\.\/src\/ai\/control-room\/ControlRoomService["']\)/
       );
       assert.match(apiSource, /ControlRoomService/);
       assert.equal(
-        /import\s*\(\s*["']\.\.\/src\/ai\/control-room\/ControlRoomService["']\s*\)/.test(
+        /require\(["']\.\.\/src\/ai\/control-room\/ControlRoomService["']\)/.test(
           apiSource
         ),
         false
@@ -2299,16 +2301,16 @@ describe("DEMAND_016 Control Room", () => {
       assert.equal(existsSync(runtimeBridgePath), false);
       assert.match(
         apiSource,
-        /require\(["']\.\.\/src\/ai\/control-room\/ControlRoomServerEntry["']\)/
+        /from\s+["']\.\.\/src\/ai\/control-room\/ControlRoomServerEntry["']/
       );
       assert.match(
         apiSource,
-        /require\(["']\.\.\/src\/ai\/control-room\/ControlRoomService["']\)/
+        /import\(["']\.\.\/src\/ai\/control-room\/ControlRoomService["']\)/
       );
       assert.match(apiSource, /listControlRoomScenarios/);
       assert.match(apiSource, /ControlRoomService/);
       assert.equal(
-        /import\s*\(\s*["']\.\.\/src\/[^"']+["']\s*\)/.test(apiSource),
+        /require\(["']\.\.\/src\/ai\/control-room\//.test(apiSource),
         false
       );
       assert.equal(docs.includes("_control-room-runtime"), false);
@@ -2550,30 +2552,27 @@ describe("DEMAND_016 Control Room", () => {
     it("5. GET uses bundled static Control Room module imports", () => {
       assert.match(
         apiSource,
-        /require\(["']\.\.\/src\/ai\/control-room\/ControlRoomServerEntry["']\)/
+        /from\s+["']\.\.\/src\/ai\/control-room\/ControlRoomServerEntry["']/
       );
       assert.match(apiSource, /listControlRoomScenarios/);
-      assert.equal(
-        /import\s*\(\s*["']\.\.\/src\/[^"']+["']\s*\)/.test(apiSource),
-        false
-      );
+      assert.equal(/export\s+default\s+handler/.test(apiSource), true);
+      assert.equal(/module\.exports\s*=/.test(apiSource), false);
       assert.equal(
         /import\s*\(\s*["']\.\.\/src\/ai\/control-room\/ControlRoomFixtures["']\s*\)/.test(
           apiSource
         ),
         false
       );
+      // Service stays on deferred literal dynamic import (POST only).
+      assert.match(
+        apiSource,
+        /import\(["']\.\.\/src\/ai\/control-room\/ControlRoomService["']\)/
+      );
       assert.equal(
-        /import\s*\(\s*["']\.\.\/src\/ai\/control-room\/ControlRoomService["']\s*\)/.test(
+        /from\s+["']\.\.\/src\/ai\/control-room\/ControlRoomService["']/.test(
           apiSource
         ),
         false
-      );
-      // Service require stays inside the deferred helper (cold-start safety).
-      assert.match(apiSource, /function requireControlRoomServiceModule/);
-      assert.match(
-        apiSource,
-        /function requireControlRoomServiceModule[\s\S]*require\(["']\.\.\/src\/ai\/control-room\/ControlRoomService["']\)/
       );
       assert.match(docs, /ControlRoomServerEntry|ControlRoomFixtures/);
       assert.equal(existsSync(join(controlRoomDir, "ControlRoomServerEntry.ts")), true);
@@ -2750,10 +2749,10 @@ describe("DEMAND_016 Control Room", () => {
       assert.match(apiSource, /ControlRoomService/);
       assert.match(
         apiSource,
-        /require\(["']\.\.\/src\/ai\/control-room\/ControlRoomService["']\)/
+        /import\(["']\.\.\/src\/ai\/control-room\/ControlRoomService["']\)/
       );
       assert.equal(
-        /import\s*\(\s*["']\.\.\/src\/ai\/control-room\/ControlRoomService["']\s*\)/.test(
+        /from\s+["']\.\.\/src\/ai\/control-room\/ControlRoomService["']/.test(
           apiSource
         ),
         false
