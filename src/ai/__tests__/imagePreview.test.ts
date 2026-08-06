@@ -7,6 +7,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
@@ -1669,8 +1670,15 @@ describe("imagePreview — DEMAND_017", () => {
       assert.match(js, /consentConfirmed:\s*true/);
     });
 
-    it("20-24. Lock clears confirmations; no persistent browser storage", () => {
+    it("20-25. Generate requires all three; Lock clears; no persistent storage", () => {
       const js = read(uiJsPath);
+      assert.match(js, /previewAdultCheckbox\.checked/);
+      assert.match(js, /previewConsentCheckbox\.checked/);
+      assert.match(js, /previewBillingCheckbox\.checked/);
+      assert.match(
+        js,
+        /previewGenerateButton\.disabled\s*=\s*!ready/
+      );
       assert.match(js, /previewAdultCheckbox\.checked = false/);
       assert.match(js, /previewConsentCheckbox\.checked = false/);
       assert.match(js, /previewBillingCheckbox\.checked = false/);
@@ -1678,11 +1686,65 @@ describe("imagePreview — DEMAND_017", () => {
       assert.equal(/localStorage\.(setItem|getItem)/.test(js), false);
       assert.equal(/sessionStorage\.(setItem|getItem)/.test(js), false);
       assert.equal(/document\.cookie\s*=/.test(js), false);
+      assert.equal(/indexedDB/i.test(js), false);
       const html = read(uiHtmlPath);
       assert.match(html, /No image is stored in browser persistent storage/);
     });
 
-    it("25-26. MIME and 5 MB limits remain", () => {
+    it("26. Source removal clears adult and consent confirmations", () => {
+      const js = read(uiJsPath);
+      assert.match(js, /clearAdultAndConsentOnSourceRemoval/);
+      assert.match(js, /function onPreviewFileSelected/);
+      const fnStart = js.indexOf("function onPreviewFileSelected");
+      assert.ok(fnStart >= 0);
+      const fnSlice = js.slice(fnStart, fnStart + 1800);
+      assert.match(fnSlice, /clearAdultAndConsentOnSourceRemoval\(\)/);
+      assert.match(
+        js,
+        /function clearAdultAndConsentOnSourceRemoval\(\)[\s\S]*?previewAdultCheckbox\.checked = false[\s\S]*?previewConsentCheckbox\.checked = false/
+      );
+    });
+
+    it("billing-first validation order before provider", async () => {
+      const calls = { count: 0, inputs: [] as ReplicateTransportInput[] };
+      const service = new ImagePreviewService({
+        transportAdapter: createFakeTransport(successTransportResult(), calls),
+      });
+      await assert.rejects(
+        () =>
+          service.runPreview({
+            scenarioId: "balanced_recomposition_12w",
+            adultConfirmed: false,
+            consentConfirmed: false,
+            billingConfirmed: false,
+            sourceImageDataUri: JPEG_DATA_URI,
+          }),
+        (err: unknown) =>
+          err instanceof ImagePreviewServiceError &&
+          err.code === "billing_confirmation_required"
+      );
+      assert.equal(calls.count, 0);
+      const apiSrc = read(apiPath);
+      const billingIdx = apiSrc.indexOf(
+        'code: "billing_confirmation_required"'
+      );
+      const adultIdx = apiSrc.indexOf('code: "adult_confirmation_required"');
+      const consentIdx = apiSrc.indexOf(
+        'code: "consent_confirmation_required"'
+      );
+      // Request-handler checks (not mapServiceErrorCode) appear after allowedKeys.
+      const handlerBilling = apiSrc.indexOf(
+        "body.billingConfirmed !== true"
+      );
+      const handlerAdult = apiSrc.indexOf("body.adultConfirmed !== true");
+      const handlerConsent = apiSrc.indexOf("body.consentConfirmed !== true");
+      assert.ok(handlerBilling >= 0 && handlerAdult >= 0 && handlerConsent >= 0);
+      assert.ok(handlerBilling < handlerAdult);
+      assert.ok(handlerAdult < handlerConsent);
+      assert.ok(billingIdx >= 0 && adultIdx >= 0 && consentIdx >= 0);
+    });
+
+    it("34. MIME and 5 MB limits remain", () => {
       assert.deepEqual(
         ["image/jpeg", "image/png", "image/webp"],
         ["image/jpeg", "image/png", "image/webp"]
@@ -1861,7 +1923,7 @@ describe("imagePreview — DEMAND_017", () => {
       });
     });
 
-    it("42-47. Legacy routes/UI unlock/dry-run unchanged; no provider in unit tests", () => {
+    it("35-37,40. Legacy routes/UI unlock/dry-run unchanged; no provider in unit tests", () => {
       assert.equal(existsSync(imageRoutePath), true);
       assert.equal(read(imageRoutePath).includes("adultConfirmed"), false);
       assert.equal(read(replicatePath).includes("adultConfirmed"), false);
@@ -1870,6 +1932,37 @@ describe("imagePreview — DEMAND_017", () => {
       assert.match(html, /Unlock Control Room/);
       assert.match(html, /Run AI OS dry run/);
       assert.equal(read(uiJsPath).includes("api.replicate.com"), false);
+    });
+
+    it("38-39. This foundation patch does not modify formatter or transport files", () => {
+      const dirty = execSync(
+        'git status --porcelain -- "src/ai/formatters" "src/ai/transport" "src/ai/provider" "src/ai/runtime"',
+        { encoding: "utf8", cwd: repoRoot }
+      ).trim();
+      assert.equal(dirty, "");
+      const unstaged = execSync(
+        'git diff --name-only HEAD -- "src/ai/formatters" "src/ai/transport" "src/ai/provider" "src/ai/runtime"',
+        { encoding: "utf8", cwd: repoRoot }
+      ).trim();
+      assert.equal(unstaged, "");
+      const msg = execSync("git log -1 --pretty=%s", {
+        encoding: "utf8",
+        cwd: repoRoot,
+      }).trim();
+      if (msg === "Add adult consent safeguards to image preview") {
+        const files = execSync("git show --name-only --pretty=format: HEAD", {
+          encoding: "utf8",
+          cwd: repoRoot,
+        });
+        assert.equal(/src\/ai\/formatters\//.test(files), false);
+        assert.equal(/src\/ai\/transport\//.test(files), false);
+        assert.equal(/src\/ai\/provider\//.test(files), false);
+        assert.equal(/src\/ai\/runtime\//.test(files), false);
+      }
+      const docs = read(docsPath);
+      assert.match(docs, /Patch 017C/);
+      assert.match(docs, /Demand 018/);
+      assert.match(docs, /Provider limitations/);
     });
   });
 });

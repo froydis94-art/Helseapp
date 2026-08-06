@@ -466,9 +466,10 @@ export class ImagePreviewService {
   }
 
   async runPreview(input: ImagePreviewRunInput): Promise<ImagePreviewResult> {
+    // Confirmations before scenario/image/transport/runtime/provider.
+    assertBillingConfirmed(input.billingConfirmed);
     assertAdultConfirmed(input.adultConfirmed);
     assertConsentConfirmed(input.consentConfirmed);
-    assertBillingConfirmed(input.billingConfirmed);
 
     const scenarioId = input.scenarioId;
     if (typeof scenarioId !== "string") {

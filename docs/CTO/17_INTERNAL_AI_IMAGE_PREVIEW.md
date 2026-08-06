@@ -139,14 +139,19 @@ Not accepted for preview:
 - image submitted without subject consent
 - third-party image without authorization
 
-## Provider safety false positives
+## Provider limitations
 
 External providers may still reject legitimate adult underwear or fitness
-images. HelseApp currently relies on explicit adult/consent confirmations,
-structured non-sexual fitness safety context in the AI OS formatter, and
-provider moderation. Dedicated image-based age/content moderation is not yet
-implemented. Demand 018 must evaluate provider/model compatibility using
-approved adult, consented test images.
+images. This foundation patch does not alter provider moderation, does not
+change the provider model, and does not rewrite formatter/provider prompt
+behavior. Formatter/provider compatibility work belongs in Patch 017C.
+Provider/model evaluation with approved adult, consented test images belongs
+in Demand 018.
+
+HelseApp currently relies on explicit adult/consent/billing confirmations and
+provider moderation (plus any formatter safety context already present from
+prior work). Dedicated image-based age/content moderation is not yet
+implemented.
 
 ## Provider safety cannot be bypassed
 
@@ -370,7 +375,11 @@ Preview provider wiring (PATCH 017B/C):
 - Demand 018 must evaluate provider/model compatibility using approved adult,
   consented test images
 
-## Next milestone
+## Next milestones
+
+Patch 017C — Formatter/provider compatibility for adult non-sexual fitness
+previews (prompt/safety context and provider-model fit). This foundation patch
+does not own that work.
 
 Demand 018 — Preview Evaluation and Prompt Calibration
 
@@ -381,6 +390,7 @@ Demand 018 will focus on:
 - anatomy review
 - realism review
 - prompt and formatter calibration
+- provider/model evaluation with approved adult, consented test images
 - no public cutover
 
 Permanent rules:

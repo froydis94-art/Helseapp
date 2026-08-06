@@ -578,6 +578,16 @@ async function handlePost(
   }
 
   // Confirmations before heavy runtime / rate-limit / provider.
+  // Order: billing → adult → consent → scenario → image.
+  if (body.billingConfirmed !== true) {
+    send(res, 400, {
+      ok: false,
+      enabled: true,
+      code: "billing_confirmation_required",
+      message: "Billing confirmation is required.",
+    });
+    return;
+  }
   if (body.adultConfirmed !== true) {
     send(res, 400, {
       ok: false,
@@ -593,15 +603,6 @@ async function handlePost(
       enabled: true,
       code: "consent_confirmation_required",
       message: "Consent confirmation is required.",
-    });
-    return;
-  }
-  if (body.billingConfirmed !== true) {
-    send(res, 400, {
-      ok: false,
-      enabled: true,
-      code: "billing_confirmation_required",
-      message: "Billing confirmation is required.",
     });
     return;
   }

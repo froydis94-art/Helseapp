@@ -861,11 +861,18 @@
     });
   }
 
+  function clearAdultAndConsentOnSourceRemoval() {
+    if (previewAdultCheckbox) previewAdultCheckbox.checked = false;
+    if (previewConsentCheckbox) previewConsentCheckbox.checked = false;
+  }
+
   function onPreviewFileSelected() {
     var file =
       previewFileInput && previewFileInput.files && previewFileInput.files[0];
     previewSourceDataUri = null;
     previewSourceMeta = null;
+    // Source removal/replacement clears adult + consent (not persisted).
+    clearAdultAndConsentOnSourceRemoval();
     if (previewGeneratedImg) {
       previewGeneratedImg.hidden = true;
       previewGeneratedImg.removeAttribute("src");
@@ -893,6 +900,7 @@
         "error"
       );
       previewFileInput.value = "";
+      clearAdultAndConsentOnSourceRemoval();
       updatePreviewGenerateEnabled();
       return;
     }
