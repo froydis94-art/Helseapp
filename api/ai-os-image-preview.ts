@@ -45,6 +45,57 @@ const ALLOWED_SCENARIO_IDS = new Set([
   "athletic_strength_24w",
 ]);
 
+const ALLOWED_PROMPT_ISOLATION_VARIANTS = new Set([
+  "minimal",
+  "current_ai_os",
+  "current_without_preview_context",
+  "pre_017c_baseline",
+]);
+
+const DEFAULT_PROMPT_ISOLATION_VARIANT = "current_ai_os";
+
+function promptIsolationRadioLabel(variant: string): string {
+  switch (variant) {
+    case "minimal":
+      return "A";
+    case "current_ai_os":
+      return "B";
+    case "current_without_preview_context":
+      return "C";
+    case "pre_017c_baseline":
+      return "D";
+    default:
+      return "B";
+  }
+}
+
+function promptIsolationPromptSource(variant: string): string {
+  switch (variant) {
+    case "minimal":
+      return "minimal_diagnostic_formatter_bypass";
+    case "current_ai_os":
+      return "flux_formatter_current_preview_context";
+    case "current_without_preview_context":
+      return "flux_formatter_without_preview_context";
+    case "pre_017c_baseline":
+      return "flux_formatter_pre_017c_baseline";
+    default:
+      return "flux_formatter_current_preview_context";
+  }
+}
+
+function buildFailurePromptIsolation(variant: string): {
+  variant: string;
+  radioLabel: string;
+  promptSource: string;
+} {
+  return {
+    variant,
+    radioLabel: promptIsolationRadioLabel(variant),
+    promptSource: promptIsolationPromptSource(variant),
+  };
+}
+
 type ImagePreviewServiceModuleShape = {
   ImagePreviewService: new (deps?: unknown) => {
     runPreview(input: {
@@ -53,6 +104,7 @@ type ImagePreviewServiceModuleShape = {
       consentConfirmed: unknown;
       billingConfirmed: unknown;
       sourceImageDataUri: unknown;
+      promptIsolationVariant?: unknown;
     }): Promise<unknown>;
   };
   ImagePreviewServiceError: new (
@@ -564,6 +616,7 @@ async function handlePost(
     "consentConfirmed",
     "billingConfirmed",
     "sourceImageDataUri",
+    "promptIsolationVariant",
   ]);
   for (const key of Object.keys(body)) {
     if (!allowedKeys.has(key)) {
@@ -575,6 +628,28 @@ async function handlePost(
       });
       return;
     }
+  }
+
+  let promptIsolationVariant = DEFAULT_PROMPT_ISOLATION_VARIANT;
+  if (
+    Object.prototype.hasOwnProperty.call(body, "promptIsolationVariant") &&
+    body.promptIsolationVariant !== undefined &&
+    body.promptIsolationVariant !== null &&
+    body.promptIsolationVariant !== ""
+  ) {
+    if (
+      typeof body.promptIsolationVariant !== "string" ||
+      !ALLOWED_PROMPT_ISOLATION_VARIANTS.has(body.promptIsolationVariant)
+    ) {
+      send(res, 400, {
+        ok: false,
+        enabled: true,
+        code: "invalid_request",
+        message: "Invalid prompt isolation variant.",
+      });
+      return;
+    }
+    promptIsolationVariant = body.promptIsolationVariant;
   }
 
   // Confirmations before heavy runtime / rate-limit / provider.
@@ -706,6 +781,7 @@ async function handlePost(
       consentConfirmed: unknown;
       billingConfirmed: unknown;
       sourceImageDataUri: unknown;
+      promptIsolationVariant?: unknown;
     }): Promise<unknown>;
   };
   try {
@@ -717,6 +793,7 @@ async function handlePost(
       code: "runtime_failure",
       message: "Runtime failure.",
       diagnostic: "service_construct_failed",
+      promptIsolation: buildFailurePromptIsolation(promptIsolationVariant),
     });
     return;
   }
@@ -728,6 +805,7 @@ async function handlePost(
       consentConfirmed: body.consentConfirmed,
       billingConfirmed: body.billingConfirmed,
       sourceImageDataUri: body.sourceImageDataUri,
+      promptIsolationVariant,
     });
     send(res, 200, {
       ok: true,
@@ -748,6 +826,7 @@ async function handlePost(
         code: mapped.code,
         message: mapped.message,
         ...(mapped.diagnostic ? { diagnostic: mapped.diagnostic } : {}),
+        promptIsolation: buildFailurePromptIsolation(promptIsolationVariant),
       });
       return;
     }
@@ -758,6 +837,7 @@ async function handlePost(
       code: "runtime_failure",
       message: "Runtime failure.",
       diagnostic: "runtime_execute_failed",
+      promptIsolation: buildFailurePromptIsolation(promptIsolationVariant),
     });
   }
 }

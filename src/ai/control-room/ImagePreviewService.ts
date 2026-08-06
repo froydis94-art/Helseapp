@@ -51,6 +51,12 @@ import {
   type ImagePreviewResult,
   type ImagePreviewScenarioId,
 } from "./ImagePreviewTypes";
+import {
+  applyPromptIsolationToFormatterOptions,
+  buildMinimalDiagnosticPrompt,
+  buildPromptIsolationSummary,
+  resolvePromptIsolationVariant,
+} from "./PromptIsolationVariants";
 
 export class ImagePreviewServiceError extends Error {
   readonly code:
@@ -97,6 +103,8 @@ export interface ImagePreviewRunInput {
   billingConfirmed: unknown;
   sourceImageDataUri: unknown;
   requestId?: string;
+  /** Prompt Isolation Lab variant — browser allowlist only. */
+  promptIsolationVariant?: unknown;
 }
 
 export interface ImagePreviewServiceDependencies {
@@ -489,6 +497,16 @@ export class ImagePreviewService {
       );
     }
 
+    const isolationVariant = resolvePromptIsolationVariant(
+      input.promptIsolationVariant
+    );
+    if (isolationVariant == null) {
+      throw new ImagePreviewServiceError(
+        "invalid_request",
+        "Invalid prompt isolation variant."
+      );
+    }
+
     const source = validatePreviewSourceImage(input.sourceImageDataUri);
     const env = this.deps.env ?? process.env;
     const model = resolvePreviewModel(env);
@@ -520,10 +538,21 @@ export class ImagePreviewService {
       })
     );
 
-    const formatterOptions = {
-      ...(resolved.runtimeInput.formatterOptions ?? {}),
-      previewSafetyContext: "non_sexual_fitness_visualization" as const,
-    };
+    // Same provider / model / transport / dims / seed for all variants —
+    // only prompt construction differs (Demand 018A).
+    const baseFormatterOptions = resolved.runtimeInput.formatterOptions ?? {};
+    const minimalPrompt = buildMinimalDiagnosticPrompt({
+      timelineWeeks: resolved.summary.timelineWeeks,
+      direction: resolved.summary.direction,
+    });
+    const formatterOptions = applyPromptIsolationToFormatterOptions(
+      isolationVariant,
+      baseFormatterOptions,
+      minimalPrompt
+    );
+
+    const seed =
+      typeof formatterOptions.seed === "number" ? formatterOptions.seed : null;
 
     const runtimeInput = {
       mode: "transport_mock" as const,
@@ -616,6 +645,16 @@ export class ImagePreviewService {
       );
     }
 
+    const formatted = runtimeResult.artifacts.formattedRequest;
+    const promptIsolation = buildPromptIsolationSummary({
+      variant: isolationVariant,
+      formatterName: formatted?.metadata?.formatterName ?? null,
+      formatterVersion: formatted?.metadata?.formatterVersion ?? null,
+      model,
+      requestId,
+      seed,
+    });
+
     let projected: ImagePreviewResult;
     try {
       projected = projectImagePreviewResult({
@@ -627,9 +666,11 @@ export class ImagePreviewService {
         validationDecision,
         model,
         inputAssurances: { ...IMAGE_PREVIEW_INPUT_ASSURANCES },
+        promptIsolation,
         extraWarnings: [
           "Preview laboratory: ResultValidator used provisional evidence; real vision analysis is deferred to Demand 018.",
           "No automatic retry was performed.",
+          "Prompt Isolation Lab: only prompt construction differs across variants; provider, model, and transport stay fixed.",
         ],
       });
     } catch (error) {

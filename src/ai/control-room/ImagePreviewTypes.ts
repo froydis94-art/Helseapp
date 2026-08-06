@@ -5,6 +5,21 @@
  * provider tokens never appear in results.
  */
 
+import type { PromptIsolationSummary } from "./PromptIsolationVariants";
+
+export type {
+  PromptIsolationVariant,
+  PromptIsolationSummary,
+  PromptIsolationPromptSource,
+} from "./PromptIsolationVariants";
+export {
+  DEFAULT_PROMPT_ISOLATION_VARIANT,
+  PRE_017C_BASELINE_SOURCE_COMMIT,
+  PROMPT_ISOLATION_VARIANTS,
+  isPromptIsolationVariant,
+  resolvePromptIsolationVariant,
+} from "./PromptIsolationVariants";
+
 export const IMAGE_PREVIEW_SCHEMA_VERSION = 1 as const;
 export const IMAGE_PREVIEW_RULES_VERSION = "1.0" as const;
 
@@ -118,6 +133,9 @@ export interface ImagePreviewResult {
   safety: ImagePreviewSafetyStatus;
   inputAssurances: ImagePreviewInputAssurances;
 
+  /** Prompt Isolation Lab summary (Demand 018A). Present on every lab run. */
+  promptIsolation: PromptIsolationSummary;
+
   warnings: string[];
   errors: string[];
 }
@@ -165,6 +183,8 @@ export interface ImagePreviewApiFailure {
     | "token_missing"
     | "validation_failed"
     | "projection_failed";
+  /** Selected Prompt Isolation Lab variant when relevant (never secrets). */
+  promptIsolation?: Pick<PromptIsolationSummary, "variant" | "radioLabel" | "promptSource">;
 }
 
 export type ImagePreviewApiResponse =

@@ -390,11 +390,52 @@ Preview provider wiring (PATCH 017B/C):
   classification of age, consent, nudity, or sexualization
 - Demand 018 must evaluate provider/model compatibility using approved adult,
   consented test images
+- Demand 018A Prompt Isolation Lab diagnoses prompt-vs-image safety blocks;
+  it does not change moderation, model, transport, or production ownership
+
+## Prompt Isolation Lab
+
+Demand 018A adds a **manual** Prompt Isolation Lab inside the Control Room
+internal preview panel. It diagnoses whether `provider_safety_blocked` outcomes
+are driven by formatted prompt wording rather than image, model, transport, or
+moderation settings.
+
+Four browser-allowlisted variants only (no arbitrary prompt text):
+
+| Radio | Variant | Prompt construction |
+| --- | --- | --- |
+| A | `minimal` | Concise server-built diagnostic prompt adapted from scenario timeline/goal. Narrow **non-production** exception (`minimal_bypasses_structured_formatter`): bypasses structured AI OS formatter sections via `promptIsolationDiagnostic: "minimal"` + `degraded_structure`. No pornography/sexual/underwear/adult/consent/moderation/safety-filter wording. |
+| B | `current_ai_os` | Control — full current AI OS formatter path including PATCH 017C `previewSafetyContext`. Default. |
+| C | `current_without_preview_context` | Same plan/direction/render/formatter/version as B, but omits only `previewSafetyContext`. |
+| D | `pre_017c_baseline` | Same formatter contract with typed diagnostic context `previewSafetyContext: "pre_017c_baseline"`. SAFETY positive/negative wording is the versioned constant captured from `FluxFormatter.ts` at commit `10f07b4d12a9e40ed5b878830dbf0f9639fd1d2e` (immediate parent of PATCH 017C commit `a66ad34`). No full formatter fork; no runtime git reads. |
+
+Same conditions for every variant: source image, scenario, provider,
+`ReplicateTransportAdapter`, model, dimensions, one output, transport timeouts,
+billing/auth/rate-limit gates. Only prompt construction differs. Scenario seeds
+remain applied when present (`FormatterOptions.seed` → transport); provider
+nondeterminism can still occur.
+
+UI: section **Prompt Isolation Lab**, radios A–D (default B), button
+**Generate one diagnostic preview**, paid-request notice, billing confirmation
+each time, disable while in flight, hourly rate limit applies. No Run All, no
+auto cycle/retry. Displays variant, prompt source, formatter name/version,
+model, request ID, outcome, diagnostic, prediction ID, generated image, and
+positive/negative prompts via `textContent` only. Never tokens, keys, raw
+provider payloads, headers, source data URIs, stacks, or env values.
+
+Safety block mapping stays: HTTP `502` / `provider_failure` + diagnostic
+`provider_safety_blocked` + selected `promptIsolation` variant summary. No raw
+moderation text. No moderation bypass.
+
+Legal/onboarding policy text stays out of provider prompts (confirmations remain
+API gates only).
 
 ## Next milestones
 
 Patch 017C — Formatter preserves original presentation and transforms body only
 (complete in formatter/docs; provider-model evaluation remains Demand 018).
+
+Demand 018A — Prompt Isolation Lab (this section; diagnostic only).
 
 Demand 018 — Preview Evaluation and Prompt Calibration
 
@@ -407,6 +448,12 @@ Demand 018 will focus on:
 - prompt and formatter calibration
 - provider/model evaluation with approved adult, consented test images
 - no public cutover
+
+Demand 019 — future milestone (do **not** implement here): keep legal and
+onboarding policy language out of provider prompt construction as a permanent
+product rule, and evaluate any follow-on prompt/policy packaging after Prompt
+Isolation Lab results are interpreted. Demand 019 must not introduce moderation
+bypass or production cutover.
 
 Permanent rules:
 

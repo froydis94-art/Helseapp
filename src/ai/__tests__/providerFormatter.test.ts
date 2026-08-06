@@ -567,8 +567,9 @@ describe("providerFormatter — PATCH 017C preserve original presentation", () =
       "api/generate-future-you.js",
       "lib/replicate.js",
       "lib/visuellPrompt.js",
-      "src/ai/control-room/imagePreviewRuntime.bundle.cjs",
     ];
+    // imagePreviewRuntime.bundle.cjs may be regenerated when ImagePreviewService
+    // / formatter diagnostic options change (Demand 018A companion artifact).
     const status = execSync("git status --porcelain -- " + guarded.join(" "), {
       cwd: repoRoot,
       encoding: "utf8",

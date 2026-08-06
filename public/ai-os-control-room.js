@@ -80,6 +80,21 @@
   var previewNegativePrompt = document.getElementById("previewNegativePrompt");
   var previewRawProjection = document.getElementById("previewRawProjection");
   var previewPromptDetails = document.getElementById("previewPromptDetails");
+  var promptIsolationGenerateButton = document.getElementById(
+    "promptIsolationGenerateButton"
+  );
+  var promptIsolationMessage = document.getElementById(
+    "promptIsolationMessage"
+  );
+  var promptIsolationResultSummary = document.getElementById(
+    "promptIsolationResultSummary"
+  );
+  var ALLOWED_PROMPT_ISOLATION_VARIANTS = {
+    minimal: true,
+    current_ai_os: true,
+    current_without_preview_context: true,
+    pre_017c_baseline: true,
+  };
 
   function setText(el, value) {
     if (!el) return;
@@ -159,11 +174,28 @@
     setText(previewNegativePrompt, "");
     setText(previewRawProjection, "");
     if (previewPromptDetails) previewPromptDetails.open = false;
+    if (promptIsolationMessage) setMessage(promptIsolationMessage, "", null);
+    if (promptIsolationResultSummary) {
+      clearChildren(promptIsolationResultSummary);
+      promptIsolationResultSummary.hidden = true;
+    }
+    var defaultVariant = document.getElementById("promptIsolationVariantB");
+    if (defaultVariant) defaultVariant.checked = true;
     updatePreviewGenerateEnabled();
   }
 
+  function getSelectedPromptIsolationVariant() {
+    var selected = document.querySelector(
+      'input[name="promptIsolationVariant"]:checked'
+    );
+    var value = selected && selected.value ? String(selected.value) : "current_ai_os";
+    if (ALLOWED_PROMPT_ISOLATION_VARIANTS[value] !== true) {
+      return "current_ai_os";
+    }
+    return value;
+  }
+
   function updatePreviewGenerateEnabled() {
-    if (!previewGenerateButton) return;
     var ready =
       !!accessKey &&
       !!selectedScenarioId &&
@@ -173,7 +205,10 @@
       !!(previewBillingCheckbox && previewBillingCheckbox.checked) &&
       !previewInFlight &&
       !requestInFlight;
-    previewGenerateButton.disabled = !ready;
+    if (previewGenerateButton) previewGenerateButton.disabled = !ready;
+    if (promptIsolationGenerateButton) {
+      promptIsolationGenerateButton.disabled = !ready;
+    }
   }
 
   function lockRoom(message, kind) {
@@ -987,6 +1022,52 @@
     });
   }
 
+  function renderPromptIsolationSummary(isolation, outcome, diagnostic, predictionId) {
+    if (!promptIsolationResultSummary) return;
+    clearChildren(promptIsolationResultSummary);
+    promptIsolationResultSummary.hidden = false;
+    appendKv(
+      promptIsolationResultSummary,
+      "Variant",
+      isolation && isolation.variant
+    );
+    appendKv(
+      promptIsolationResultSummary,
+      "Radio",
+      isolation && isolation.radioLabel
+    );
+    appendKv(
+      promptIsolationResultSummary,
+      "Prompt source",
+      isolation && isolation.promptSource
+    );
+    appendKv(
+      promptIsolationResultSummary,
+      "Formatter",
+      isolation && isolation.formatterName
+        ? String(isolation.formatterName) +
+            " " +
+            String(isolation.formatterVersion || "")
+        : null
+    );
+    appendKv(promptIsolationResultSummary, "Model", isolation && isolation.model);
+    appendKv(
+      promptIsolationResultSummary,
+      "Request ID",
+      isolation && isolation.requestId
+    );
+    appendKv(promptIsolationResultSummary, "Outcome", outcome);
+    appendKv(promptIsolationResultSummary, "Diagnostic", diagnostic);
+    appendKv(promptIsolationResultSummary, "Prediction ID", predictionId);
+    appendKv(
+      promptIsolationResultSummary,
+      "Seed applied",
+      isolation && isolation.seedApplied === true
+        ? String(isolation.seed)
+        : "no (provider nondeterminism possible)"
+    );
+  }
+
   function renderPreviewResult(result) {
     if (previewResultPanel) previewResultPanel.hidden = false;
     clearChildren(previewProviderSummary);
@@ -1036,6 +1117,13 @@
       summary && summary.negativePrompt ? summary.negativePrompt : ""
     );
     setText(previewRawProjection, pretty(result));
+
+    renderPromptIsolationSummary(
+      result && result.promptIsolation,
+      result && result.success === true ? "success" : "failure",
+      null,
+      provider && provider.predictionId
+    );
 
     var url =
       result.generatedImage && typeof result.generatedImage.url === "string"
@@ -1094,7 +1182,10 @@
     return lines.join("\n");
   }
 
-  function generatePreview() {
+  function generatePreview(options) {
+    var fromIsolationLab =
+      options && options.fromIsolationLab === true;
+    var messageEl = fromIsolationLab ? promptIsolationMessage : previewMessage;
     if (
       previewInFlight ||
       requestInFlight ||
@@ -1107,15 +1198,24 @@
     ) {
       return;
     }
+    var variant = fromIsolationLab
+      ? getSelectedPromptIsolationVariant()
+      : "current_ai_os";
     previewInFlight = true;
     updatePreviewGenerateEnabled();
     runButton.disabled = true;
     unlockButton.disabled = true;
     setMessage(
-      previewMessage,
-      "Running AI OS v2 and generating one paid internal preview…",
+      messageEl,
+      fromIsolationLab
+        ? "Running one paid Prompt Isolation Lab diagnostic preview…"
+        : "Running AI OS v2 and generating one paid internal preview…",
       null
     );
+    if (fromIsolationLab && promptIsolationResultSummary) {
+      clearChildren(promptIsolationResultSummary);
+      promptIsolationResultSummary.hidden = true;
+    }
 
     previewRequest({
       scenarioId: selectedScenarioId,
@@ -1123,12 +1223,13 @@
       consentConfirmed: true,
       billingConfirmed: true,
       sourceImageDataUri: previewSourceDataUri,
+      promptIsolationVariant: variant,
     })
       .then(function (outcome) {
         var status = outcome.response.status;
         if (outcome.nonJson || outcome.payload == null) {
           setMessage(
-            previewMessage,
+            messageEl,
             formatPreviewFailure("non_json_response", status, {
               message: null,
             }),
@@ -1139,7 +1240,7 @@
         var payload = outcome.payload;
         if (!previewMetaMatches(payload) && status !== 404) {
           setMessage(
-            previewMessage,
+            messageEl,
             formatPreviewFailure("unexpected_api_response", status, {
               message: null,
             }),
@@ -1153,7 +1254,7 @@
         }
         if (payload.code === "preview_disabled" || status === 404) {
           setMessage(
-            previewMessage,
+            messageEl,
             formatPreviewFailure("preview_disabled", status, {
               message: apiMessage(payload, "Image preview is disabled."),
             }),
@@ -1162,8 +1263,16 @@
           return;
         }
         if (!outcome.response.ok || payload.ok !== true || !payload.result) {
+          if (payload && payload.promptIsolation) {
+            renderPromptIsolationSummary(
+              payload.promptIsolation,
+              payload.code || "failure",
+              safeDiagnostic(payload),
+              null
+            );
+          }
           setMessage(
-            previewMessage,
+            messageEl,
             formatPreviewFailure(safeCode(payload, "runtime_failure"), status, {
               diagnostic: safeDiagnostic(payload),
               message: apiMessage(
@@ -1178,11 +1287,17 @@
         unauthorizedStreak = 0;
         if (previewCompare) previewCompare.hidden = false;
         renderPreviewResult(payload.result);
-        setMessage(previewMessage, "Internal preview complete.", "ok");
+        setMessage(
+          messageEl,
+          fromIsolationLab
+            ? "Prompt Isolation Lab diagnostic complete."
+            : "Internal preview complete.",
+          "ok"
+        );
       })
       .catch(function () {
         setMessage(
-          previewMessage,
+          messageEl,
           formatPreviewFailure("network_failure", "unavailable", {
             message: null,
           }),
@@ -1229,7 +1344,14 @@
     previewBillingCheckbox.addEventListener("change", updatePreviewGenerateEnabled);
   }
   if (previewGenerateButton) {
-    previewGenerateButton.addEventListener("click", generatePreview);
+    previewGenerateButton.addEventListener("click", function () {
+      generatePreview({ fromIsolationLab: false });
+    });
+  }
+  if (promptIsolationGenerateButton) {
+    promptIsolationGenerateButton.addEventListener("click", function () {
+      generatePreview({ fromIsolationLab: true });
+    });
   }
   updatePreviewGenerateEnabled();
 })();

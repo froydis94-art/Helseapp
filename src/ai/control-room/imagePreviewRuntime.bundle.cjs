@@ -153,9 +153,14 @@ function validateFormattedImageRequest(request) {
     }
   }
   const prompt = request.prompt ?? "";
-  for (const section of PROMPT_SECTIONS) {
-    if (!prompt.includes(section)) {
-      errors.push(`prompt missing section ${section}`);
+  const allowDegradedStructure = (request.warnings ?? []).some(
+    (warning) => warning?.code === "degraded_structure"
+  );
+  if (!allowDegradedStructure) {
+    for (const section of PROMPT_SECTIONS) {
+      if (!prompt.includes(section)) {
+        errors.push(`prompt missing section ${section}`);
+      }
     }
   }
   const scanTargets = [
@@ -359,7 +364,7 @@ function buildRealismSection(plan, presentationStyle) {
   }
   return ["REALISM", ...uniqueStable(lines)].join("\n");
 }
-function buildSafetySection() {
+function buildCurrentPreviewSafetySection() {
   const lines = [
     "Preserve the subject's original presentation, including pose, expression, camera framing, clothing, styling and visual character.",
     "Only modify the body characteristics required by the approved health and body-progress transformation plan.",
@@ -372,15 +377,57 @@ function buildSafetySection() {
   ];
   return ["SAFETY", ...lines].join("\n");
 }
-var PREVIEW_SAFETY_NEGATIVE = [
+function buildPre017cBaselineSafetySection() {
+  const lines = [
+    "Clearly adult subject only.",
+    "Non-sexual fitness progress visualization in a health and training context.",
+    "Neutral documentary presentation.",
+    "Ordinary underwear or athletic clothing may be present and must remain non-sexual.",
+    "Preserve existing clothing coverage.",
+    "Do not remove clothing.",
+    "Do not make clothing more revealing.",
+    "No nudity.",
+    "No genital exposure.",
+    "No sexualization.",
+    "No erotic pose.",
+    "No age reduction.",
+    "No age ambiguity.",
+    "Preserve identity.",
+    "Preserve pose unless the approved transformation requires only a minor natural adjustment."
+  ];
+  return ["SAFETY", ...lines].join("\n");
+}
+var CURRENT_PREVIEW_SAFETY_NEGATIVE = [
   "explicit pornographic content absent from source"
 ];
-function buildNegativePrompt(plan, includePreviewSafety) {
+var PRE_017C_PREVIEW_SAFETY_NEGATIVE = [
+  "nudity",
+  "genital exposure",
+  "sexualized pose",
+  "erotic framing",
+  "age reduction",
+  "minor appearance",
+  "childlike features",
+  "removed clothing",
+  "more revealing clothing"
+];
+function buildNegativePrompt(plan, previewSafety) {
   const parts = [...plan.exclusions];
-  if (includePreviewSafety) {
-    parts.push(...PREVIEW_SAFETY_NEGATIVE);
+  if (previewSafety === "current") {
+    parts.push(...CURRENT_PREVIEW_SAFETY_NEGATIVE);
+  } else if (previewSafety === "pre_017c_baseline") {
+    parts.push(...PRE_017C_PREVIEW_SAFETY_NEGATIVE);
   }
   return uniqueStable(parts).join(", ");
+}
+function resolvePreviewSafetyMode(options) {
+  if (options?.previewSafetyContext === "pre_017c_baseline") {
+    return "pre_017c_baseline";
+  }
+  if (options?.previewSafetyContext === "non_sexual_fitness_visualization") {
+    return "current";
+  }
+  return "none";
 }
 function resolvePresentationStyle(plan, options, warnings) {
   if (options?.styleOverride !== void 0) {
@@ -455,7 +502,41 @@ var FluxFormatter = class {
     const optionFields = applyOptions(options, warnings);
     const approvedChanges = renderPlan.transformation.approvedChanges;
     void approvedChanges;
-    const includePreviewSafety = options?.previewSafetyContext === "non_sexual_fitness_visualization";
+    if (options?.promptIsolationDiagnostic === "minimal") {
+      const minimal = typeof options.promptIsolationMinimalPrompt === "string" ? options.promptIsolationMinimalPrompt.trim() : "";
+      const prompt2 = minimal || "Generate a realistic body recomposition while preserving the same person, pose, clothing, framing and photographic identity.";
+      warnings.push({
+        code: "degraded_structure",
+        message: "Prompt Isolation Lab minimal diagnostic bypassed structured formatter sections."
+      });
+      const result2 = {
+        providerFamily: this.providerFamily,
+        prompt: prompt2,
+        sourceOperation: "edit_source_image",
+        warnings: [...warnings],
+        style: presentationStyle,
+        metadata: {
+          formatterName: this.name,
+          formatterVersion: this.version,
+          renderPlanSchemaVersion: renderPlan.schemaVersion,
+          renderPlanRulesVersion: renderPlan.rulesVersion,
+          transformationRulesVersion: renderPlan.trace.transformationRulesVersion,
+          visualDirectionRulesVersion: renderPlan.trace.visualDirectionRulesVersion,
+          estimateReliability: renderPlan.trace.estimateReliability
+        }
+      };
+      if (optionFields.aspectRatio !== void 0) {
+        result2.aspectRatio = optionFields.aspectRatio;
+      }
+      if (optionFields.seed !== void 0) {
+        result2.seed = optionFields.seed;
+      }
+      if (optionFields.quality !== void 0) {
+        result2.quality = optionFields.quality;
+      }
+      return result2;
+    }
+    const previewSafety = resolvePreviewSafetyMode(options);
     const promptSections = [
       buildSourceSection(renderPlan),
       buildIdentitySection(renderPlan),
@@ -464,11 +545,13 @@ var FluxFormatter = class {
       buildAnatomySection(renderPlan),
       buildRealismSection(renderPlan, presentationStyle)
     ];
-    if (includePreviewSafety) {
-      promptSections.push(buildSafetySection());
+    if (previewSafety === "current") {
+      promptSections.push(buildCurrentPreviewSafetySection());
+    } else if (previewSafety === "pre_017c_baseline") {
+      promptSections.push(buildPre017cBaselineSafetySection());
     }
     const prompt = promptSections.join("\n\n");
-    const negativePrompt = buildNegativePrompt(renderPlan, includePreviewSafety);
+    const negativePrompt = buildNegativePrompt(renderPlan, previewSafety);
     const result = {
       providerFamily: this.providerFamily,
       prompt,
@@ -5012,6 +5095,114 @@ function getControlRoomScenario(id) {
   return cloneScenario(record);
 }
 
+// src/ai/control-room/PromptIsolationVariants.ts
+var PROMPT_ISOLATION_VARIANTS = [
+  "minimal",
+  "current_ai_os",
+  "current_without_preview_context",
+  "pre_017c_baseline"
+];
+var DEFAULT_PROMPT_ISOLATION_VARIANT = "current_ai_os";
+var PRE_017C_BASELINE_SOURCE_COMMIT = "10f07b4d12a9e40ed5b878830dbf0f9639fd1d2e";
+var VARIANT_SET = new Set(PROMPT_ISOLATION_VARIANTS);
+function isPromptIsolationVariant(value) {
+  return typeof value === "string" && VARIANT_SET.has(value);
+}
+function resolvePromptIsolationVariant(value) {
+  if (value === void 0 || value === null || value === "") {
+    return DEFAULT_PROMPT_ISOLATION_VARIANT;
+  }
+  if (!isPromptIsolationVariant(value)) return null;
+  return value;
+}
+function promptIsolationRadioLabel(variant) {
+  switch (variant) {
+    case "minimal":
+      return "A";
+    case "current_ai_os":
+      return "B";
+    case "current_without_preview_context":
+      return "C";
+    case "pre_017c_baseline":
+      return "D";
+  }
+}
+function promptIsolationPromptSource(variant) {
+  switch (variant) {
+    case "minimal":
+      return "minimal_diagnostic_formatter_bypass";
+    case "current_ai_os":
+      return "flux_formatter_current_preview_context";
+    case "current_without_preview_context":
+      return "flux_formatter_without_preview_context";
+    case "pre_017c_baseline":
+      return "flux_formatter_pre_017c_baseline";
+  }
+}
+function buildMinimalDiagnosticPrompt(input) {
+  const weeks = typeof input.timelineWeeks === "number" && Number.isFinite(input.timelineWeeks) && input.timelineWeeks > 0 ? Math.round(input.timelineWeeks) : 12;
+  const goalPhrase = mapScenarioDirectionToGoalPhrase(input.direction);
+  return `Generate a realistic ${weeks}-week ${goalPhrase} while preserving the same person, pose, clothing, framing and photographic identity.`;
+}
+function mapScenarioDirectionToGoalPhrase(direction) {
+  switch (direction) {
+    case "recomposition":
+      return "body recomposition";
+    case "upper_body_definition":
+      return "upper-body definition progress";
+    case "fat_loss":
+      return "fat-loss progress";
+    case "strength":
+    case "athletic_strength":
+      return "athletic strength progress";
+    default:
+      return "body recomposition";
+  }
+}
+function applyPromptIsolationToFormatterOptions(variant, baseOptions, minimalPrompt) {
+  const next = { ...baseOptions ?? {} };
+  delete next.previewSafetyContext;
+  delete next.promptIsolationDiagnostic;
+  delete next.promptIsolationMinimalPrompt;
+  switch (variant) {
+    case "minimal":
+      next.promptIsolationDiagnostic = "minimal";
+      next.promptIsolationMinimalPrompt = minimalPrompt;
+      break;
+    case "current_ai_os":
+      next.previewSafetyContext = "non_sexual_fitness_visualization";
+      break;
+    case "current_without_preview_context":
+      break;
+    case "pre_017c_baseline":
+      next.previewSafetyContext = "pre_017c_baseline";
+      break;
+  }
+  return next;
+}
+function buildPromptIsolationSummary(input) {
+  const seed = typeof input.seed === "number" && Number.isFinite(input.seed) && Number.isInteger(input.seed) && input.seed >= 0 ? input.seed : null;
+  const summary = {
+    variant: input.variant,
+    radioLabel: promptIsolationRadioLabel(input.variant),
+    promptSource: promptIsolationPromptSource(input.variant),
+    formatterName: input.formatterName,
+    formatterVersion: input.formatterVersion,
+    model: input.model,
+    requestId: input.requestId,
+    sameProviderModelTransport: true,
+    seedApplied: seed != null,
+    seed
+  };
+  if (input.variant === "pre_017c_baseline") {
+    summary.pre017cSourceCommit = PRE_017C_BASELINE_SOURCE_COMMIT;
+  }
+  if (input.variant === "minimal") {
+    summary.diagnosticException = "minimal_bypasses_structured_formatter";
+  }
+  return summary;
+}
+
 // src/ai/control-room/ImagePreviewTypes.ts
 var IMAGE_PREVIEW_SCHEMA_VERSION = 1;
 var IMAGE_PREVIEW_INTENDED_CONTEXT = "non_sexual_fitness_visualization";
@@ -5232,6 +5423,7 @@ function projectImagePreviewResult(input) {
     validation,
     safety: { ...IMAGE_PREVIEW_SAFETY_STATUS },
     inputAssurances: assurancesOk ? { ...IMAGE_PREVIEW_INPUT_ASSURANCES } : { ...input.inputAssurances },
+    promptIsolation: structuredClone(input.promptIsolation),
     warnings,
     errors: [...runtimeResult.errors].slice(0, 20)
   };
@@ -5289,6 +5481,9 @@ function validateImagePreviewProjection(result) {
   if (result.success === true && !isExactInputAssurances(result.inputAssurances)) {
     errors.push("Successful projection requires exact input assurances.");
   }
+  if (result.promptIsolation == null || typeof result.promptIsolation !== "object" || typeof result.promptIsolation.variant !== "string" || result.promptIsolation.sameProviderModelTransport !== true) {
+    errors.push("Prompt isolation summary is missing or invalid.");
+  }
   if (result.generatedImage != null) {
     if (result.generatedImage.expiresOrIsTemporary !== true) {
       errors.push("Generated image must be marked temporary.");
@@ -5314,6 +5509,14 @@ function sanitizeImagePreviewProjection(result) {
   if (check.valid) {
     return clone;
   }
+  const fallbackIsolation = clone.promptIsolation ?? buildPromptIsolationSummary({
+    variant: DEFAULT_PROMPT_ISOLATION_VARIANT,
+    formatterName: null,
+    formatterVersion: null,
+    model: "",
+    requestId: clone.requestId,
+    seed: null
+  });
   return {
     schemaVersion: IMAGE_PREVIEW_SCHEMA_VERSION,
     success: false,
@@ -5336,6 +5539,7 @@ function sanitizeImagePreviewProjection(result) {
     validation: null,
     safety: { ...IMAGE_PREVIEW_SAFETY_STATUS },
     inputAssurances: { ...IMAGE_PREVIEW_INPUT_ASSURANCES },
+    promptIsolation: fallbackIsolation,
     warnings: [],
     errors: [IMAGE_PREVIEW_FORBIDDEN_CONTENT_ERROR]
   };
@@ -5641,6 +5845,15 @@ var ImagePreviewService = class {
         "Scenario was not found."
       );
     }
+    const isolationVariant = resolvePromptIsolationVariant(
+      input.promptIsolationVariant
+    );
+    if (isolationVariant == null) {
+      throw new ImagePreviewServiceError(
+        "invalid_request",
+        "Invalid prompt isolation variant."
+      );
+    }
     const source = validatePreviewSourceImage(input.sourceImageDataUri);
     const env = this.deps.env ?? process.env;
     const model = resolvePreviewModel(env);
@@ -5666,10 +5879,17 @@ var ImagePreviewService = class {
         now
       })
     );
-    const formatterOptions = {
-      ...resolved.runtimeInput.formatterOptions ?? {},
-      previewSafetyContext: "non_sexual_fitness_visualization"
-    };
+    const baseFormatterOptions = resolved.runtimeInput.formatterOptions ?? {};
+    const minimalPrompt = buildMinimalDiagnosticPrompt({
+      timelineWeeks: resolved.summary.timelineWeeks,
+      direction: resolved.summary.direction
+    });
+    const formatterOptions = applyPromptIsolationToFormatterOptions(
+      isolationVariant,
+      baseFormatterOptions,
+      minimalPrompt
+    );
+    const seed = typeof formatterOptions.seed === "number" ? formatterOptions.seed : null;
     const runtimeInput = {
       mode: "transport_mock",
       profile: resolved.runtimeInput.profile,
@@ -5747,6 +5967,15 @@ var ImagePreviewService = class {
         "Validation rejected the candidate."
       );
     }
+    const formatted = runtimeResult.artifacts.formattedRequest;
+    const promptIsolation = buildPromptIsolationSummary({
+      variant: isolationVariant,
+      formatterName: formatted?.metadata?.formatterName ?? null,
+      formatterVersion: formatted?.metadata?.formatterVersion ?? null,
+      model,
+      requestId,
+      seed
+    });
     let projected;
     try {
       projected = projectImagePreviewResult({
@@ -5758,9 +5987,11 @@ var ImagePreviewService = class {
         validationDecision,
         model,
         inputAssurances: { ...IMAGE_PREVIEW_INPUT_ASSURANCES },
+        promptIsolation,
         extraWarnings: [
           "Preview laboratory: ResultValidator used provisional evidence; real vision analysis is deferred to Demand 018.",
-          "No automatic retry was performed."
+          "No automatic retry was performed.",
+          "Prompt Isolation Lab: only prompt construction differs across variants; provider, model, and transport stay fixed."
         ]
       });
     } catch (error) {

@@ -21,7 +21,12 @@ import {
   type ImagePreviewScenarioId,
   type ImagePreviewStageView,
   type ImagePreviewValidationSummary,
+  type PromptIsolationSummary,
 } from "./ImagePreviewTypes";
+import {
+  DEFAULT_PROMPT_ISOLATION_VARIANT,
+  buildPromptIsolationSummary,
+} from "./PromptIsolationVariants";
 
 const STAGE_LABELS: Record<string, string> = {
   input_validation: "Input validation",
@@ -206,6 +211,7 @@ export interface ImagePreviewProjectionInput {
   validationDecision?: ValidationDecision | null;
   model: string;
   inputAssurances: ImagePreviewInputAssurances;
+  promptIsolation: PromptIsolationSummary;
   extraWarnings?: string[];
 }
 
@@ -301,6 +307,7 @@ export function projectImagePreviewResult(
     inputAssurances: assurancesOk
       ? { ...IMAGE_PREVIEW_INPUT_ASSURANCES }
       : { ...input.inputAssurances },
+    promptIsolation: structuredClone(input.promptIsolation),
     warnings,
     errors: [...runtimeResult.errors].slice(0, 20),
   };
@@ -394,6 +401,15 @@ export function validateImagePreviewProjection(
     errors.push("Successful projection requires exact input assurances.");
   }
 
+  if (
+    result.promptIsolation == null ||
+    typeof result.promptIsolation !== "object" ||
+    typeof result.promptIsolation.variant !== "string" ||
+    result.promptIsolation.sameProviderModelTransport !== true
+  ) {
+    errors.push("Prompt isolation summary is missing or invalid.");
+  }
+
   if (result.generatedImage != null) {
     if (result.generatedImage.expiresOrIsTemporary !== true) {
       errors.push("Generated image must be marked temporary.");
@@ -429,6 +445,17 @@ export function sanitizeImagePreviewProjection(
     return clone;
   }
 
+  const fallbackIsolation =
+    clone.promptIsolation ??
+    buildPromptIsolationSummary({
+      variant: DEFAULT_PROMPT_ISOLATION_VARIANT,
+      formatterName: null,
+      formatterVersion: null,
+      model: "",
+      requestId: clone.requestId,
+      seed: null,
+    });
+
   return {
     schemaVersion: IMAGE_PREVIEW_SCHEMA_VERSION,
     success: false,
@@ -451,6 +478,7 @@ export function sanitizeImagePreviewProjection(
     validation: null,
     safety: { ...IMAGE_PREVIEW_SAFETY_STATUS },
     inputAssurances: { ...IMAGE_PREVIEW_INPUT_ASSURANCES },
+    promptIsolation: fallbackIsolation,
     warnings: [],
     errors: [IMAGE_PREVIEW_FORBIDDEN_CONTENT_ERROR],
   };

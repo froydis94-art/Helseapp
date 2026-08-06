@@ -69,7 +69,15 @@ export interface FormattedImageRequest {
   };
 }
 
-export type PreviewSafetyContext = "non_sexual_fitness_visualization";
+/**
+ * Internal preview / Prompt Isolation Lab contexts only.
+ * - non_sexual_fitness_visualization: current PATCH 017C presentation wording
+ * - pre_017c_baseline: versioned diagnostic replay of pre-017C SAFETY wording
+ *   (source commit documented in PromptIsolationVariants; never production)
+ */
+export type PreviewSafetyContext =
+  | "non_sexual_fitness_visualization"
+  | "pre_017c_baseline";
 
 export interface FormatterOptions {
   aspectRatio?: string;
@@ -84,6 +92,17 @@ export interface FormatterOptions {
    * and body-transform-only wording. Not a browser-supplied free-text prompt.
    */
   previewSafetyContext?: PreviewSafetyContext;
+  /**
+   * Prompt Isolation Lab (Demand 018A) only. When "minimal", FluxFormatter
+   * bypasses structured AI OS sections and emits the server-built
+   * `promptIsolationMinimalPrompt`. Never production. Never browser free text.
+   */
+  promptIsolationDiagnostic?: "minimal";
+  /**
+   * Server-built allowlisted minimal diagnostic prompt (Demand 018A).
+   * Populated only by ImagePreviewService from PromptIsolationVariants.
+   */
+  promptIsolationMinimalPrompt?: string;
 }
 
 export interface ProviderFormatter {
@@ -332,9 +351,16 @@ export function validateFormattedImageRequest(
   }
 
   const prompt = request.prompt ?? "";
-  for (const section of PROMPT_SECTIONS) {
-    if (!prompt.includes(section)) {
-      errors.push(`prompt missing section ${section}`);
+  // Demand 018A minimal diagnostic may bypass structured sections when the
+  // formatter emits degraded_structure (Prompt Isolation Lab only).
+  const allowDegradedStructure = (request.warnings ?? []).some(
+    (warning) => warning?.code === "degraded_structure"
+  );
+  if (!allowDegradedStructure) {
+    for (const section of PROMPT_SECTIONS) {
+      if (!prompt.includes(section)) {
+        errors.push(`prompt missing section ${section}`);
+      }
     }
   }
 

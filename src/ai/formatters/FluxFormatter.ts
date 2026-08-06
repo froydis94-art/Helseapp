@@ -196,7 +196,7 @@ function buildRealismSection(
   return ["REALISM", ...uniqueStable(lines)].join("\n");
 }
 
-function buildSafetySection(): string {
+function buildCurrentPreviewSafetySection(): string {
   // Internal preview laboratory (previewSafetyContext). Preserve presentation;
   // transform body only. Do not judge pose, clothing style, attractiveness, or age.
   const lines = [
@@ -212,19 +212,74 @@ function buildSafetySection(): string {
   return ["SAFETY", ...lines].join("\n");
 }
 
-const PREVIEW_SAFETY_NEGATIVE = [
+/**
+ * Pre-017C SAFETY wording captured from FluxFormatter.ts at commit
+ * 10f07b4d12a9e40ed5b878830dbf0f9639fd1d2e (parent of a66ad34). Versioned
+ * internal diagnostic constant for Prompt Isolation Lab only — not production.
+ */
+function buildPre017cBaselineSafetySection(): string {
+  const lines = [
+    "Clearly adult subject only.",
+    "Non-sexual fitness progress visualization in a health and training context.",
+    "Neutral documentary presentation.",
+    "Ordinary underwear or athletic clothing may be present and must remain non-sexual.",
+    "Preserve existing clothing coverage.",
+    "Do not remove clothing.",
+    "Do not make clothing more revealing.",
+    "No nudity.",
+    "No genital exposure.",
+    "No sexualization.",
+    "No erotic pose.",
+    "No age reduction.",
+    "No age ambiguity.",
+    "Preserve identity.",
+    "Preserve pose unless the approved transformation requires only a minor natural adjustment.",
+  ];
+  return ["SAFETY", ...lines].join("\n");
+}
+
+const CURRENT_PREVIEW_SAFETY_NEGATIVE = [
   "explicit pornographic content absent from source",
+] as const;
+
+/** Pre-017C negative extras from commit 10f07b4 (Prompt Isolation Lab only). */
+const PRE_017C_PREVIEW_SAFETY_NEGATIVE = [
+  "nudity",
+  "genital exposure",
+  "sexualized pose",
+  "erotic framing",
+  "age reduction",
+  "minor appearance",
+  "childlike features",
+  "removed clothing",
+  "more revealing clothing",
 ] as const;
 
 function buildNegativePrompt(
   plan: RenderPlan,
-  includePreviewSafety: boolean
+  previewSafety: PreviewSafetyMode
 ): string {
   const parts = [...plan.exclusions];
-  if (includePreviewSafety) {
-    parts.push(...PREVIEW_SAFETY_NEGATIVE);
+  if (previewSafety === "current") {
+    parts.push(...CURRENT_PREVIEW_SAFETY_NEGATIVE);
+  } else if (previewSafety === "pre_017c_baseline") {
+    parts.push(...PRE_017C_PREVIEW_SAFETY_NEGATIVE);
   }
   return uniqueStable(parts).join(", ");
+}
+
+type PreviewSafetyMode = "none" | "current" | "pre_017c_baseline";
+
+function resolvePreviewSafetyMode(
+  options: FormatterOptions | undefined
+): PreviewSafetyMode {
+  if (options?.previewSafetyContext === "pre_017c_baseline") {
+    return "pre_017c_baseline";
+  }
+  if (options?.previewSafetyContext === "non_sexual_fitness_visualization") {
+    return "current";
+  }
+  return "none";
 }
 
 function resolvePresentationStyle(
@@ -332,8 +387,56 @@ export class FluxFormatter implements ProviderFormatter {
       renderPlan.transformation.approvedChanges;
     void approvedChanges;
 
-    const includePreviewSafety =
-      options?.previewSafetyContext === "non_sexual_fitness_visualization";
+    // Demand 018A — narrow diagnostic exception: named "minimal" variant may
+    // bypass structured AI OS sections. Never production. Never browser free text.
+    if (options?.promptIsolationDiagnostic === "minimal") {
+      const minimal =
+        typeof options.promptIsolationMinimalPrompt === "string"
+          ? options.promptIsolationMinimalPrompt.trim()
+          : "";
+      const prompt =
+        minimal ||
+        "Generate a realistic body recomposition while preserving the same person, pose, clothing, framing and photographic identity.";
+
+      warnings.push({
+        code: "degraded_structure",
+        message:
+          "Prompt Isolation Lab minimal diagnostic bypassed structured formatter sections.",
+      });
+
+      const result: FormattedImageRequest = {
+        providerFamily: this.providerFamily,
+        prompt,
+        sourceOperation: "edit_source_image",
+        warnings: [...warnings],
+        style: presentationStyle,
+        metadata: {
+          formatterName: this.name,
+          formatterVersion: this.version,
+          renderPlanSchemaVersion: renderPlan.schemaVersion,
+          renderPlanRulesVersion: renderPlan.rulesVersion,
+          transformationRulesVersion:
+            renderPlan.trace.transformationRulesVersion,
+          visualDirectionRulesVersion:
+            renderPlan.trace.visualDirectionRulesVersion,
+          estimateReliability: renderPlan.trace.estimateReliability,
+        },
+      };
+
+      if (optionFields.aspectRatio !== undefined) {
+        result.aspectRatio = optionFields.aspectRatio;
+      }
+      if (optionFields.seed !== undefined) {
+        result.seed = optionFields.seed;
+      }
+      if (optionFields.quality !== undefined) {
+        result.quality = optionFields.quality;
+      }
+
+      return result;
+    }
+
+    const previewSafety = resolvePreviewSafetyMode(options);
 
     const promptSections = [
       buildSourceSection(renderPlan),
@@ -343,12 +446,14 @@ export class FluxFormatter implements ProviderFormatter {
       buildAnatomySection(renderPlan),
       buildRealismSection(renderPlan, presentationStyle),
     ];
-    if (includePreviewSafety) {
-      promptSections.push(buildSafetySection());
+    if (previewSafety === "current") {
+      promptSections.push(buildCurrentPreviewSafetySection());
+    } else if (previewSafety === "pre_017c_baseline") {
+      promptSections.push(buildPre017cBaselineSafetySection());
     }
     const prompt = promptSections.join("\n\n");
 
-    const negativePrompt = buildNegativePrompt(renderPlan, includePreviewSafety);
+    const negativePrompt = buildNegativePrompt(renderPlan, previewSafety);
 
     const result: FormattedImageRequest = {
       providerFamily: this.providerFamily,

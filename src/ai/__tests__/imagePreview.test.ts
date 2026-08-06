@@ -38,6 +38,24 @@ import {
 } from "../control-room/ImagePreviewTypes";
 import { mapTransportFailureToPreviewError } from "../control-room/ImagePreviewService";
 import {
+  DEFAULT_PROMPT_ISOLATION_VARIANT,
+  PRE_017C_BASELINE_SOURCE_COMMIT,
+  PROMPT_ISOLATION_VARIANTS,
+  applyPromptIsolationToFormatterOptions,
+  buildMinimalDiagnosticPrompt,
+  isPromptIsolationVariant,
+  minimalPromptPassesIsolationGuards,
+  resolvePromptIsolationVariant,
+  type PromptIsolationVariant,
+} from "../control-room/PromptIsolationVariants";
+import { FluxFormatter } from "../formatters";
+import { buildRenderPlan } from "../render";
+import { TransformationEngine } from "../TransformationEngine";
+import type { BodyProfile } from "../BodyProfile";
+import type { TransformationGoal } from "../TransformationGoal";
+import { directVisual } from "../visual";
+import { getControlRoomScenario } from "../control-room/ControlRoomFixtures";
+import {
   RUNTIME_FIXTURE_PREDICTION_ID,
   runtimeTransportSuccessResult,
 } from "../runtime";
@@ -694,6 +712,18 @@ describe("imagePreview — DEMAND_017", () => {
                   validation: null,
                   safety: { ...IMAGE_PREVIEW_SAFETY_STATUS },
                   inputAssurances: { ...IMAGE_PREVIEW_INPUT_ASSURANCES },
+                  promptIsolation: {
+                    variant: "current_ai_os",
+                    radioLabel: "B",
+                    promptSource: "flux_formatter_current_preview_context",
+                    formatterName: "FluxFormatter",
+                    formatterVersion: "1.0",
+                    model: "black-forest-labs/flux-kontext-pro",
+                    requestId: "test",
+                    sameProviderModelTransport: true,
+                    seedApplied: true,
+                    seed: 101,
+                  },
                   warnings: [],
                   errors: [],
                 } satisfies ImagePreviewResult;
@@ -1132,6 +1162,18 @@ describe("imagePreview — DEMAND_017", () => {
         validation: null,
         safety: { ...IMAGE_PREVIEW_SAFETY_STATUS },
         inputAssurances: { ...IMAGE_PREVIEW_INPUT_ASSURANCES },
+        promptIsolation: {
+          variant: "current_ai_os",
+          radioLabel: "B",
+          promptSource: "flux_formatter_current_preview_context",
+          formatterName: "FluxFormatter",
+          formatterVersion: "1.0",
+          model: "m",
+          requestId: "r1",
+          sameProviderModelTransport: true,
+          seedApplied: false,
+          seed: null,
+        },
         warnings: [],
         errors: [],
       };
@@ -1985,6 +2027,533 @@ describe("imagePreview — DEMAND_017", () => {
       assert.match(
         docs,
         /preserves the user's original presentation|Preserve original presentation/i
+      );
+    });
+  });
+
+  describe("DEMAND 018A — Prompt Isolation Lab", () => {
+    function samplePlanFromScenario() {
+      const scenario = getControlRoomScenario("balanced_recomposition_12w");
+      assert.ok(scenario);
+      const profile = scenario.runtimeInput.profile as BodyProfile;
+      const goal = scenario.runtimeInput.goal as TransformationGoal;
+      const engine = new TransformationEngine();
+      const plan = engine.compute(profile, goal);
+      const direction = directVisual(profile, goal, plan);
+      return buildRenderPlan(plan, direction);
+    }
+
+    async function runVariant(variant: PromptIsolationVariant) {
+      const calls = { count: 0, inputs: [] as ReplicateTransportInput[] };
+      const service = new ImagePreviewService({
+        transportAdapter: createFakeTransport(successTransportResult(), calls),
+      });
+      const result = await service.runPreview({
+        scenarioId: "balanced_recomposition_12w",
+        adultConfirmed: true,
+        consentConfirmed: true,
+        billingConfirmed: true,
+        sourceImageDataUri: JPEG_DATA_URI,
+        promptIsolationVariant: variant,
+      });
+      return { result, calls };
+    }
+
+    it("1. Four allowlisted variants exist", () => {
+      assert.deepEqual([...PROMPT_ISOLATION_VARIANTS], [
+        "minimal",
+        "current_ai_os",
+        "current_without_preview_context",
+        "pre_017c_baseline",
+      ]);
+    });
+
+    it("2. Default variant is current_ai_os (B)", () => {
+      assert.equal(DEFAULT_PROMPT_ISOLATION_VARIANT, "current_ai_os");
+      assert.equal(resolvePromptIsolationVariant(undefined), "current_ai_os");
+      assert.equal(resolvePromptIsolationVariant(""), "current_ai_os");
+    });
+
+    it("3. Unknown variants are rejected", () => {
+      assert.equal(isPromptIsolationVariant("custom"), false);
+      assert.equal(resolvePromptIsolationVariant("custom"), null);
+      assert.equal(resolvePromptIsolationVariant({}), null);
+    });
+
+    it("4. Service rejects unknown variant", async () => {
+      const service = new ImagePreviewService({
+        transportAdapter: createFakeTransport(successTransportResult(), {
+          count: 0,
+          inputs: [],
+        }),
+      });
+      await assert.rejects(
+        () =>
+          service.runPreview({
+            scenarioId: "balanced_recomposition_12w",
+            adultConfirmed: true,
+            consentConfirmed: true,
+            billingConfirmed: true,
+            sourceImageDataUri: JPEG_DATA_URI,
+            promptIsolationVariant: "not_a_variant",
+          }),
+        (err: unknown) =>
+          err instanceof ImagePreviewServiceError && err.code === "invalid_request"
+      );
+    });
+
+    it("5. API rejects unknown variant before provider", async () => {
+      const api = await loadPreviewApi();
+      await withPreviewEnv({ enabled: "1", accessKey: TEST_KEY }, async () => {
+        let loaded = false;
+        api.loadImagePreviewServiceModule = async () => {
+          loaded = true;
+          throw new Error("should not load");
+        };
+        const { res, state } = createMockResponse();
+        await api.default(
+          {
+            method: "POST",
+            headers: { "x-ai-os-control-room-key": TEST_KEY },
+            body: {
+              scenarioId: "balanced_recomposition_12w",
+              adultConfirmed: true,
+              consentConfirmed: true,
+              billingConfirmed: true,
+              sourceImageDataUri: JPEG_DATA_URI,
+              promptIsolationVariant: "arbitrary_text",
+            },
+          },
+          res
+        );
+        assert.equal(state.statusCode, 400);
+        assert.equal((state.body as { code?: string }).code, "invalid_request");
+        assert.equal(loaded, false);
+      });
+    });
+
+    it("6. Minimal prompt adapts timeline/goal and passes isolation guards", () => {
+      const prompt = buildMinimalDiagnosticPrompt({
+        timelineWeeks: 12,
+        direction: "recomposition",
+      });
+      assert.match(prompt, /12-week/);
+      assert.match(prompt, /body recomposition/);
+      assert.match(prompt, /same person, pose, clothing, framing/);
+      assert.equal(minimalPromptPassesIsolationGuards(prompt), true);
+    });
+
+    it("7. Minimal prompt forbids policy/safety filter wording", () => {
+      assert.equal(
+        minimalPromptPassesIsolationGuards(
+          "adult consent moderation safety filter underwear sexual"
+        ),
+        false
+      );
+    });
+
+    it("8. Variant A minimal bypasses structured SAFETY section", async () => {
+      const { result, calls } = await runVariant("minimal");
+      const prompt =
+        result.artifacts?.formattedRequestSummary.positivePrompt ?? "";
+      assert.equal(/\bSAFETY\b/.test(prompt), false);
+      assert.equal(/\bSOURCE\b/.test(prompt), false);
+      assert.match(prompt, /12-week body recomposition/);
+      assert.equal(minimalPromptPassesIsolationGuards(prompt), true);
+      assert.equal(result.promptIsolation.variant, "minimal");
+      assert.equal(
+        result.promptIsolation.diagnosticException,
+        "minimal_bypasses_structured_formatter"
+      );
+      assert.equal(calls.count, 1);
+      assert.equal(
+        calls.inputs[0]?.formattedRequest.prompt,
+        prompt
+      );
+    });
+
+    it("9. Variant B current_ai_os keeps 017C preview context", async () => {
+      const { result, calls } = await runVariant("current_ai_os");
+      const prompt =
+        result.artifacts?.formattedRequestSummary.positivePrompt ?? "";
+      assert.match(prompt, /\bSAFETY\b/);
+      assert.match(prompt, /Preserve the subject's original presentation/);
+      assert.match(
+        prompt,
+        /explicit pornographic content that is absent from the source image/i
+      );
+      assert.equal(result.promptIsolation.variant, "current_ai_os");
+      assert.equal(result.promptIsolation.radioLabel, "B");
+      assert.equal(calls.count, 1);
+    });
+
+    it("10. Variant C omits only previewSafetyContext", async () => {
+      const { result } = await runVariant("current_without_preview_context");
+      const prompt =
+        result.artifacts?.formattedRequestSummary.positivePrompt ?? "";
+      assert.match(prompt, /\bSOURCE\b/);
+      assert.match(prompt, /\bTRANSFORM\b/);
+      assert.equal(/\bSAFETY\b/.test(prompt), false);
+      assert.equal(
+        /Preserve the subject's original presentation/.test(prompt),
+        false
+      );
+      assert.equal(/Clearly adult subject only/.test(prompt), false);
+      assert.equal(
+        result.promptIsolation.promptSource,
+        "flux_formatter_without_preview_context"
+      );
+    });
+
+    it("11. Variant D uses pre-017C baseline wording from inspected commit", async () => {
+      const { result } = await runVariant("pre_017c_baseline");
+      const prompt =
+        result.artifacts?.formattedRequestSummary.positivePrompt ?? "";
+      const negative =
+        result.artifacts?.formattedRequestSummary.negativePrompt ?? "";
+      assert.match(prompt, /Clearly adult subject only/);
+      assert.match(prompt, /No sexualization/);
+      assert.match(prompt, /Ordinary underwear or athletic clothing/);
+      assert.equal(
+        /Preserve the subject's original presentation/.test(prompt),
+        false
+      );
+      assert.match(negative, /nudity/);
+      assert.match(negative, /sexualized pose/);
+      assert.equal(
+        result.promptIsolation.pre017cSourceCommit,
+        PRE_017C_BASELINE_SOURCE_COMMIT
+      );
+      assert.equal(
+        PRE_017C_BASELINE_SOURCE_COMMIT,
+        "10f07b4d12a9e40ed5b878830dbf0f9639fd1d2e"
+      );
+    });
+
+    it("12. Pre-017C source commit is parent of a66ad34", () => {
+      const parent = execSync(
+        "git rev-parse a66ad34f9bdd98770468b2d9d91fa4936b2f481c~1",
+        { encoding: "utf8", cwd: repoRoot }
+      ).trim();
+      assert.equal(parent, PRE_017C_BASELINE_SOURCE_COMMIT);
+    });
+
+    it("13. Formatter options map correctly per variant", () => {
+      const base = { aspectRatio: "3:4", seed: 101, quality: "standard" as const };
+      const a = applyPromptIsolationToFormatterOptions(
+        "minimal",
+        base,
+        "Generate a realistic 12-week body recomposition while preserving the same person, pose, clothing, framing and photographic identity."
+      );
+      assert.equal(a.promptIsolationDiagnostic, "minimal");
+      assert.equal(a.previewSafetyContext, undefined);
+      assert.equal(a.seed, 101);
+      const b = applyPromptIsolationToFormatterOptions("current_ai_os", base, "");
+      assert.equal(b.previewSafetyContext, "non_sexual_fitness_visualization");
+      const c = applyPromptIsolationToFormatterOptions(
+        "current_without_preview_context",
+        base,
+        ""
+      );
+      assert.equal(c.previewSafetyContext, undefined);
+      const d = applyPromptIsolationToFormatterOptions(
+        "pre_017c_baseline",
+        base,
+        ""
+      );
+      assert.equal(d.previewSafetyContext, "pre_017c_baseline");
+    });
+
+    it("14. Same seed/model/transport across variants", async () => {
+      const variants: PromptIsolationVariant[] = [
+        "minimal",
+        "current_ai_os",
+        "current_without_preview_context",
+        "pre_017c_baseline",
+      ];
+      const models = new Set<string>();
+      const seeds = new Set<number | undefined>();
+      for (const variant of variants) {
+        const { result, calls } = await runVariant(variant);
+        models.add(result.promptIsolation.model);
+        seeds.add(calls.inputs[0]?.formattedRequest.seed);
+        assert.equal(result.promptIsolation.sameProviderModelTransport, true);
+        assert.equal(calls.count, 1);
+        assert.equal(result.promptIsolation.seedApplied, true);
+        assert.equal(result.promptIsolation.seed, 101);
+      }
+      assert.equal(models.size, 1);
+      assert.equal(seeds.size, 1);
+      assert.equal([...seeds][0], 101);
+    });
+
+    it("15. Safety block returns provider_failure + provider_safety_blocked + variant", async () => {
+      const api = await loadPreviewApi();
+      await withPreviewEnv({ enabled: "1", accessKey: TEST_KEY }, async () => {
+        api.rateBuckets.clear();
+        api.loadImagePreviewServiceModule = async () => ({
+          ImagePreviewService: class {
+            async runPreview() {
+              throw new ImagePreviewServiceError(
+                "provider_safety_blocked",
+                IMAGE_PREVIEW_PROVIDER_SAFETY_BLOCKED_MESSAGE
+              );
+            }
+          },
+          ImagePreviewServiceError,
+          validatePreviewSourceImage,
+        });
+        const { res, state } = createMockResponse();
+        await api.default(
+          {
+            method: "POST",
+            headers: { "x-ai-os-control-room-key": TEST_KEY },
+            body: {
+              scenarioId: "balanced_recomposition_12w",
+              adultConfirmed: true,
+              consentConfirmed: true,
+              billingConfirmed: true,
+              sourceImageDataUri: JPEG_DATA_URI,
+              promptIsolationVariant: "pre_017c_baseline",
+            },
+          },
+          res
+        );
+        const body = state.body as {
+          code?: string;
+          diagnostic?: string;
+          promptIsolation?: { variant?: string; radioLabel?: string };
+          message?: string;
+        };
+        assert.equal(state.statusCode, 502);
+        assert.equal(body.code, "provider_failure");
+        assert.equal(body.diagnostic, "provider_safety_blocked");
+        assert.equal(body.promptIsolation?.variant, "pre_017c_baseline");
+        assert.equal(body.promptIsolation?.radioLabel, "D");
+        assert.equal(/E005|flagged as sensitive/i.test(body.message ?? ""), false);
+      });
+    });
+
+    it("16. Billing confirmation still required for isolation lab", async () => {
+      const api = await loadPreviewApi();
+      await withPreviewEnv({ enabled: "1", accessKey: TEST_KEY }, async () => {
+        const { res, state } = createMockResponse();
+        await api.default(
+          {
+            method: "POST",
+            headers: { "x-ai-os-control-room-key": TEST_KEY },
+            body: {
+              scenarioId: "balanced_recomposition_12w",
+              adultConfirmed: true,
+              consentConfirmed: true,
+              billingConfirmed: false,
+              sourceImageDataUri: JPEG_DATA_URI,
+              promptIsolationVariant: "minimal",
+            },
+          },
+          res
+        );
+        assert.equal(state.statusCode, 400);
+        assert.equal(
+          (state.body as { code?: string }).code,
+          "billing_confirmation_required"
+        );
+      });
+    });
+
+    it("17. UI has Prompt Isolation Lab radios A–D default B", () => {
+      const html = read(uiHtmlPath);
+      assert.match(html, /Prompt Isolation Lab/);
+      assert.match(html, /promptIsolationVariantA/);
+      assert.match(html, /promptIsolationVariantB[\s\S]*checked/);
+      assert.match(html, /value="minimal"/);
+      assert.match(html, /value="current_ai_os"/);
+      assert.match(html, /value="current_without_preview_context"/);
+      assert.match(html, /value="pre_017c_baseline"/);
+      assert.match(html, /Generate one diagnostic preview/);
+      assert.match(html, /Interpretation guide/);
+      assert.match(html, /paid AI provider request/);
+    });
+
+    it("18. UI is manual-only (no Run All / auto cycle)", () => {
+      const html = read(uiHtmlPath);
+      const js = read(uiJsPath);
+      assert.match(html, /no Run All/i);
+      assert.equal(/id=["']runAll|Run All variants/i.test(html), false);
+      assert.equal(/autoCycle|runAllVariants/i.test(js), false);
+      assert.equal(/setInterval\([^)]*generatePreview/i.test(js), false);
+      assert.match(js, /fromIsolationLab:\s*true/);
+      assert.match(js, /getSelectedPromptIsolationVariant/);
+      assert.match(js, /textContent/);
+      assert.equal(js.includes("innerHTML"), false);
+    });
+
+    it("19. UI disables generate while in flight", () => {
+      const js = read(uiJsPath);
+      assert.match(js, /promptIsolationGenerateButton\.disabled/);
+      assert.match(js, /previewInFlight/);
+    });
+
+    it("20. FluxFormatter minimal diagnostic short-circuits structured sections", () => {
+      const formatter = new FluxFormatter();
+      const plan = samplePlanFromScenario();
+      const formatted = formatter.format(plan, {
+        promptIsolationDiagnostic: "minimal",
+        promptIsolationMinimalPrompt:
+          "Generate a realistic 12-week body recomposition while preserving the same person, pose, clothing, framing and photographic identity.",
+        seed: 101,
+      });
+      assert.equal(/\bSAFETY\b/.test(formatted.prompt), false);
+      assert.equal(/\bSOURCE\b/.test(formatted.prompt), false);
+      assert.equal(formatted.seed, 101);
+      assert.equal(formatted.negativePrompt, undefined);
+    });
+
+    it("21. FluxFormatter pre_017c_baseline does not alter current 017C path", () => {
+      const formatter = new FluxFormatter();
+      const plan = samplePlanFromScenario();
+      const current = formatter.format(plan, {
+        previewSafetyContext: "non_sexual_fitness_visualization",
+      });
+      const baseline = formatter.format(plan, {
+        previewSafetyContext: "pre_017c_baseline",
+      });
+      assert.match(current.prompt, /Preserve the subject's original presentation/);
+      assert.match(baseline.prompt, /Clearly adult subject only/);
+      assert.notEqual(current.prompt, baseline.prompt);
+    });
+
+    it("22. Docs cover Prompt Isolation Lab and Demand 019", () => {
+      const docs = read(docsPath);
+      assert.match(docs, /## Prompt Isolation Lab/);
+      assert.match(docs, /Demand 019/);
+      assert.match(docs, /pre_017c_baseline/);
+      assert.match(docs, /10f07b4/);
+      assert.match(docs, /minimal_bypasses_structured_formatter|narrow exception/i);
+      assert.match(docs, /legal\/onboarding|Demand 019/i);
+    });
+
+    it("23. Forbidden production files untouched by this demand", () => {
+      const dirty = execSync(
+        'git status --porcelain -- "api/generate-future-you.js" "lib/replicate.js" "public/index.html" "vercel.json"',
+        { encoding: "utf8", cwd: repoRoot }
+      ).trim();
+      assert.equal(dirty, "");
+    });
+
+    it("24. No moderation bypass fields introduced", () => {
+      const serviceSrc = read(
+        join(repoRoot, "src/ai/control-room/ImagePreviewService.ts")
+      );
+      const apiSrc = read(apiPath);
+      assert.equal(serviceSrc.includes("disable_safety_checker"), false);
+      assert.equal(apiSrc.includes("disable_safety_checker"), false);
+      assert.equal(/safety_tolerance\s*[:=]\s*[3-9]/.test(serviceSrc), false);
+    });
+
+    it("25. Default preview path still uses current_ai_os semantics", async () => {
+      const current = await runVariant("current_ai_os");
+      const omitted = await runVariant("current_without_preview_context");
+      assert.match(
+        current.result.artifacts?.formattedRequestSummary.positivePrompt ?? "",
+        /Preserve the subject's original presentation/
+      );
+      assert.equal(
+        /\bSAFETY\b/.test(
+          omitted.result.artifacts?.formattedRequestSummary.positivePrompt ?? ""
+        ),
+        false
+      );
+    });
+
+    it("26. Success projection always includes promptIsolation summary", async () => {
+      const { result } = await runVariant("current_ai_os");
+      assert.equal(result.promptIsolation.variant, "current_ai_os");
+      assert.equal(result.promptIsolation.formatterName, "FluxFormatter");
+      assert.ok(result.promptIsolation.formatterVersion);
+      assert.ok(result.promptIsolation.requestId);
+      const check = validateImagePreviewProjection(result);
+      assert.equal(check.valid, true);
+    });
+
+    it("27. Legal/onboarding policy stays out of minimal provider prompt", async () => {
+      const { result } = await runVariant("minimal");
+      const prompt =
+        result.artifacts?.formattedRequestSummary.positivePrompt ?? "";
+      assert.equal(/I confirm that every person shown/i.test(prompt), false);
+      assert.equal(/billing confirmation/i.test(prompt), false);
+      assert.equal(/at least 18 years old/i.test(prompt), false);
+    });
+
+    it("28. One transport call and no automatic retry for isolation variants", async () => {
+      const failing: ReplicateTransportFailure = {
+        success: false,
+        provider: "replicate",
+        imageUrl: null,
+        generationTimeMs: 10,
+        error: {
+          code: "provider_failed",
+          message: "The input or output was flagged as sensitive. (E005)",
+          retryable: true,
+        },
+        warnings: [],
+        metadata: { traceId: "t", pollingAttempts: 1 },
+      };
+      const calls = { count: 0, inputs: [] as ReplicateTransportInput[] };
+      const service = new ImagePreviewService({
+        transportAdapter: createFakeTransport(failing, calls),
+      });
+      await assert.rejects(
+        () =>
+          service.runPreview({
+            scenarioId: "balanced_recomposition_12w",
+            adultConfirmed: true,
+            consentConfirmed: true,
+            billingConfirmed: true,
+            sourceImageDataUri: JPEG_DATA_URI,
+            promptIsolationVariant: "minimal",
+          }),
+        (err: unknown) =>
+          err instanceof ImagePreviewServiceError &&
+          err.code === "provider_safety_blocked"
+      );
+      assert.equal(calls.count, 1);
+    });
+
+    it("29. Bundle rebuild path still required for Production", () => {
+      const pkg = JSON.parse(read(packageJsonPath)) as {
+        scripts: Record<string, string>;
+      };
+      assert.match(
+        pkg.scripts["build:ai-image-preview-runtime"],
+        /ImagePreviewService\.ts/
+      );
+      assert.equal(
+        existsSync(
+          join(
+            repoRoot,
+            "src/ai/control-room/imagePreviewRuntime.bundle.cjs"
+          )
+        ),
+        true
+      );
+      assert.equal(
+        existsSync(
+          join(repoRoot, "src/ai/control-room/PromptIsolationVariants.ts")
+        ),
+        true
+      );
+    });
+
+    it("30. Constitution production ownership remains fail-open legacy", () => {
+      assert.equal(existsSync(imageRoutePath), true);
+      assert.equal(existsSync(replicatePath), true);
+      const docs = read(docsPath);
+      assert.match(docs, /api\/generate-future-you\.js/);
+      assert.match(docs, /lib\/replicate\.js/);
+      assert.match(
+        docs,
+        /production generation path stays untouched|Production ownership remains/i
       );
     });
   });

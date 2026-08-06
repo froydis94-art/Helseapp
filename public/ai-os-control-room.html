@@ -184,6 +184,90 @@
           >
         </label>
 
+        <article class="subpanel" id="promptIsolationLab">
+          <h3>Prompt Isolation Lab</h3>
+          <p class="panel-copy">
+            Diagnose whether provider safety blocks come from prompt wording.
+            Same image, scenario, provider, model, dimensions, output count,
+            transport, timeouts, billing, auth, and rate limit for every run —
+            only prompt construction differs. Manual one-shot only; no Run All
+            and no automatic retry.
+          </p>
+          <p class="panel-copy warn-copy" id="promptIsolationPaidNotice">
+            Each click creates one paid AI provider request. Confirm billing
+            above before generating.
+          </p>
+          <fieldset class="field" id="promptIsolationVariantField">
+            <legend>Prompt variant</legend>
+            <label class="checkbox-field">
+              <input
+                type="radio"
+                name="promptIsolationVariant"
+                value="minimal"
+                id="promptIsolationVariantA"
+              />
+              <span
+                >A — minimal (concise diagnostic; no policy/safety filter
+                wording)</span
+              >
+            </label>
+            <label class="checkbox-field">
+              <input
+                type="radio"
+                name="promptIsolationVariant"
+                value="current_ai_os"
+                id="promptIsolationVariantB"
+                checked
+              />
+              <span>B — current_ai_os (control; full formatter + preview context)</span>
+            </label>
+            <label class="checkbox-field">
+              <input
+                type="radio"
+                name="promptIsolationVariant"
+                value="current_without_preview_context"
+                id="promptIsolationVariantC"
+              />
+              <span
+                >C — current_without_preview_context (omit previewSafetyContext
+                only)</span
+              >
+            </label>
+            <label class="checkbox-field">
+              <input
+                type="radio"
+                name="promptIsolationVariant"
+                value="pre_017c_baseline"
+                id="promptIsolationVariantD"
+              />
+              <span
+                >D — pre_017c_baseline (pre-017C SAFETY wording via typed
+                diagnostic context)</span
+              >
+            </label>
+          </fieldset>
+          <p class="panel-copy" id="promptIsolationInterpretationGuide">
+            Interpretation guide: If A succeeds while B/C/D fail, dense
+            policy/safety wording is the likely trigger. If A and C succeed but
+            B/D fail, preview-context wording is implicated. If only D fails,
+            pre-017C wording is implicated. If all fail, the source image or
+            model/provider path is more likely than prompt isolation. Provider
+            outcomes can still vary run-to-run even with a fixed seed.
+          </p>
+          <div class="actions">
+            <button
+              type="button"
+              id="promptIsolationGenerateButton"
+              class="btn primary"
+              disabled
+            >
+              Generate one diagnostic preview
+            </button>
+          </div>
+          <p id="promptIsolationMessage" class="message" role="status"></p>
+          <div id="promptIsolationResultSummary" class="kv-grid" hidden></div>
+        </article>
+
         <div class="actions">
           <button type="button" id="previewGenerateButton" class="btn primary" disabled>
             Generate internal preview
