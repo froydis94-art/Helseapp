@@ -361,34 +361,19 @@ function buildRealismSection(plan, presentationStyle) {
 }
 function buildSafetySection() {
   const lines = [
-    "Clearly adult subject only.",
-    "Non-sexual fitness progress visualization in a health and training context.",
-    "Neutral documentary presentation.",
-    "Ordinary underwear or athletic clothing may be present and must remain non-sexual.",
-    "Preserve existing clothing coverage.",
-    "Do not remove clothing.",
-    "Do not make clothing more revealing.",
-    "No nudity.",
-    "No genital exposure.",
-    "No sexualization.",
-    "No erotic pose.",
-    "No age reduction.",
-    "No age ambiguity.",
-    "Preserve identity.",
-    "Preserve pose unless the approved transformation requires only a minor natural adjustment."
+    "Preserve the subject's original presentation, including pose, expression, camera framing, clothing, styling and visual character.",
+    "Only modify the body characteristics required by the approved health and body-progress transformation plan.",
+    "Preserve the existing clothing and clothing coverage.",
+    "Do not redesign, remove, replace, enlarge, shrink or reinterpret the clothing unless a minor natural adjustment is necessary to fit the transformed body.",
+    "Do not change the subject's identity, confidence, attractiveness, femininity, masculinity or personal style.",
+    "Focus on identity preservation, realistic fat loss, weight change, muscle development, body recomposition, proportions, anatomy, skin realism, photographic realism, and plan adherence.",
+    "Do not introduce unrelated styling changes.",
+    "The transformation must not introduce explicit pornographic content that is absent from the source image."
   ];
   return ["SAFETY", ...lines].join("\n");
 }
 var PREVIEW_SAFETY_NEGATIVE = [
-  "nudity",
-  "genital exposure",
-  "sexualized pose",
-  "erotic framing",
-  "age reduction",
-  "minor appearance",
-  "childlike features",
-  "removed clothing",
-  "more revealing clothing"
+  "explicit pornographic content absent from source"
 ];
 function buildNegativePrompt(plan, includePreviewSafety) {
   const parts = [...plan.exclusions];
@@ -5637,9 +5622,9 @@ var ImagePreviewService = class {
     this.deps = deps;
   }
   async runPreview(input) {
+    assertBillingConfirmed(input.billingConfirmed);
     assertAdultConfirmed(input.adultConfirmed);
     assertConsentConfirmed(input.consentConfirmed);
-    assertBillingConfirmed(input.billingConfirmed);
     const scenarioId = input.scenarioId;
     if (typeof scenarioId !== "string") {
       throw new ImagePreviewServiceError(
