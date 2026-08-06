@@ -1,7 +1,8 @@
 /**
- * Prompt Isolation Lab — comparison, interpretation, safe export (Demand 018D).
+ * Prompt Isolation Lab — comparison, interpretation, safe export (Demand 018D/018E).
  *
  * Deterministic only. No AI calls. No provider contact. No causal certainty claims.
+ * Demand 018E: compare Transformation Rules FIRST, then prompts.
  */
 
 import type { PromptIsolationVariant } from "./PromptIsolationVariants";
@@ -13,6 +14,10 @@ import {
   type PromptExperimentExportReport,
   type PromptExperimentRecord,
 } from "./PromptExperimentTypes";
+import {
+  compareTransformationRules,
+  type TransformationRuleComparison,
+} from "./TransformationRuleInspector";
 
 export interface PromptLineDiff {
   onlyInA: string[];
@@ -299,6 +304,17 @@ export interface ComparisonFieldRow {
   valueB: string;
 }
 
+export interface ExperimentComparisonBundle {
+  /** Transformation Rules comparison — always first. */
+  ruleComparison: TransformationRuleComparison;
+  /** Metadata / formatter / prompt-metric rows (after rules). */
+  fieldRows: ComparisonFieldRow[];
+  promptLineDiff: {
+    positive: PromptLineDiff;
+    negative: PromptLineDiff;
+  };
+}
+
 /** Side-by-side field rows for exactly two records. */
 export function buildComparisonRows(
   a: PromptExperimentRecord,
@@ -321,6 +337,11 @@ export function buildComparisonRows(
       field: "formatter version",
       valueA: a.formatter.version ?? "—",
       valueB: b.formatter.version ?? "—",
+    },
+    {
+      field: "formatter mode",
+      valueA: a.formatter.mode ?? "—",
+      valueB: b.formatter.mode ?? "—",
     },
     { field: "outcome", valueA: a.outcome, valueB: b.outcome },
     {
@@ -366,4 +387,31 @@ export function buildComparisonRows(
       valueB: String(b.promptMetrics.totalCharacters),
     },
   ];
+}
+
+/**
+ * Full experiment comparison: Transformation Rules FIRST, then prompts.
+ * Exact-value rule diffs only — no semantic interpretation.
+ */
+export function buildExperimentComparison(
+  a: PromptExperimentRecord,
+  b: PromptExperimentRecord
+): ExperimentComparisonBundle {
+  return {
+    ruleComparison: compareTransformationRules(
+      a.transformationRules,
+      b.transformationRules
+    ),
+    fieldRows: buildComparisonRows(a, b),
+    promptLineDiff: {
+      positive: comparePromptLines(
+        a.prompts.positivePrompt,
+        b.prompts.positivePrompt
+      ),
+      negative: comparePromptLines(
+        a.prompts.negativePrompt,
+        b.prompts.negativePrompt
+      ),
+    },
+  };
 }

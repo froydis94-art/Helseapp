@@ -139,14 +139,71 @@
   var promptExperimentViewPromptsDetails = document.getElementById(
     "promptExperimentViewPromptsDetails"
   );
+  var transformationRuleFields = document.getElementById(
+    "transformationRuleFields"
+  );
+  var transformationRuleJsonView = document.getElementById(
+    "transformationRuleJsonView"
+  );
+  var transformationFormatterMeta = document.getElementById(
+    "transformationFormatterMeta"
+  );
+  var transformationRuleDiffSummary = document.getElementById(
+    "transformationRuleDiffSummary"
+  );
+  var transformationRuleDiffList = document.getElementById(
+    "transformationRuleDiffList"
+  );
   var ALLOWED_PROMPT_ISOLATION_VARIANTS = {
     minimal: true,
     current_ai_os: true,
     current_without_preview_context: true,
     pre_017c_baseline: true,
   };
-  /** Session-only Prompt Isolation Lab history (Demand 018D). Max 20 FIFO. */
+  /** Session-only Prompt Isolation Lab history (Demand 018D/018E). Max 20 FIFO. */
   var PROMPT_EXPERIMENT_HISTORY_MAX = 20;
+  var TRANSFORM_RULE_FIELD_KEYS = [
+    "identity",
+    "pose",
+    "camera",
+    "background",
+    "lighting",
+    "clothing",
+    "bodyFatChange",
+    "muscleChange",
+    "weightGoal",
+    "timeline",
+    "photographicRealism",
+    "priorityOrder",
+    "scenario",
+    "bodyRegionEmphasis",
+  ];
+  var TRANSFORM_RULE_FIELD_LABELS = {
+    identity: "Identity",
+    pose: "Pose",
+    camera: "Camera",
+    background: "Background",
+    lighting: "Lighting",
+    clothing: "Clothing",
+    bodyFatChange: "Body Fat Change",
+    muscleChange: "Muscle Change",
+    weightGoal: "Weight Goal",
+    timeline: "Timeline",
+    photographicRealism: "Photographic Realism",
+    priorityOrder: "Priority Order",
+    scenario: "Scenario",
+    bodyRegionEmphasis: "Body Region Emphasis",
+  };
+  var TRANSFORM_RULE_PIPELINE_STAGES = [
+    "User Goal",
+    "Transformation Plan",
+    "Transformation Rules",
+    "Formatter",
+    "Positive Prompt",
+    "Negative Prompt",
+    "Provider",
+    "Generated Result",
+  ];
   var PROMPT_EXPERIMENT_NONDETERMINISM_DISCLAIMER =
     "This is diagnostic evidence, not proof. Provider generation and moderation may be nondeterministic.";
   var promptExperimentHistory = [];
@@ -220,6 +277,296 @@
       totalCharacters: positiveCharacters + negativeCharacters,
       totalWords: positiveWords + negativeWords,
     };
+  }
+
+  function asRuleRecord(value) {
+    if (value == null || typeof value !== "object" || Array.isArray(value)) {
+      return null;
+    }
+    return value;
+  }
+
+  function canonicalizeRuleValue(value) {
+    if (value == null) return null;
+    if (typeof value !== "object") return value;
+    if (Array.isArray(value)) {
+      return value.map(canonicalizeRuleValue);
+    }
+    var keys = Object.keys(value).sort();
+    var out = {};
+    for (var i = 0; i < keys.length; i++) {
+      out[keys[i]] = canonicalizeRuleValue(value[keys[i]]);
+    }
+    return out;
+  }
+
+  function stableStringifyRuleValue(value) {
+    try {
+      return JSON.stringify(canonicalizeRuleValue(value));
+    } catch (_err) {
+      return "null";
+    }
+  }
+
+  function projectTransformationRules(input) {
+    input = input || {};
+    var plan = asRuleRecord(input.transformationPlan);
+    var visual = asRuleRecord(input.visualDirection);
+    var render = asRuleRecord(input.renderPlan);
+    var visualPreserve = asRuleRecord(visual && visual.preserve);
+    var renderIdentity = asRuleRecord(render && render.identity);
+    var renderScene = asRuleRecord(render && render.scene);
+    var renderAnatomy = asRuleRecord(render && render.anatomy);
+    var renderRealism = asRuleRecord(render && render.realism);
+    var renderTransform = asRuleRecord(render && render.transformation);
+    var visualMeta = asRuleRecord(visual && visual.metadata);
+    var renderTrace = asRuleRecord(render && render.trace);
+
+    function sceneFlag(sceneKey, preserveKey) {
+      return {
+        preserve:
+          (renderScene && renderScene[sceneKey] === true) ||
+          (visualPreserve && visualPreserve[preserveKey] === true),
+      };
+    }
+
+    var approved = renderTransform && Array.isArray(renderTransform.approvedChanges)
+      ? renderTransform.approvedChanges
+      : [];
+    var regionalTargets = plan && Array.isArray(plan.regionalTargets)
+      ? plan.regionalTargets
+      : [];
+
+    var rules = {
+      identity: {
+        preservePerson: !!(renderIdentity && renderIdentity.preservePerson),
+        preserveFace: !!(renderIdentity && renderIdentity.preserveFace),
+        preserveApparentAge: !!(
+          (renderIdentity && renderIdentity.preserveApparentAge) ||
+          (visualPreserve && visualPreserve.apparentAge)
+        ),
+        preserveHair: !!(
+          (renderIdentity && renderIdentity.preserveHair) ||
+          (visualPreserve && visualPreserve.hair)
+        ),
+        preserveSkinTone: !!(
+          (renderIdentity && renderIdentity.preserveSkinTone) ||
+          (visualPreserve && visualPreserve.skinTone)
+        ),
+        preserveDistinctiveFeatures: !!(
+          renderIdentity && renderIdentity.preserveDistinctiveFeatures
+        ),
+        preserveSkeletalFrame: !!(
+          (renderAnatomy && renderAnatomy.preserveSkeletalFrame) ||
+          (visualPreserve && visualPreserve.skeletalFrame)
+        ),
+        identityFlag: !!(visualPreserve && visualPreserve.identity),
+      },
+      pose: sceneFlag("preservePose", "pose"),
+      camera: sceneFlag("preserveCameraPerspective", "cameraPerspective"),
+      background: sceneFlag("preserveBackground", "background"),
+      lighting: sceneFlag("preserveLighting", "lighting"),
+      clothing: sceneFlag("preserveClothing", "clothing"),
+      bodyFatChange: plan
+        ? {
+            estimatedFatLossKg: plan.estimatedFatLossKg || null,
+            estimatedFatChangeKg:
+              plan.estimatedFatChangeKg != null
+                ? plan.estimatedFatChangeKg
+                : null,
+            currentBodyFatPct:
+              plan.currentBodyFatPct != null ? plan.currentBodyFatPct : null,
+            targetBodyFatPct:
+              plan.targetBodyFatPct != null ? plan.targetBodyFatPct : null,
+            interimBodyFatPct:
+              plan.interimBodyFatPct != null ? plan.interimBodyFatPct : null,
+            expectedBodyFatPct:
+              plan.expectedBodyFatPct != null ? plan.expectedBodyFatPct : null,
+          }
+        : null,
+      muscleChange: plan
+        ? {
+            estimatedMuscleGainKg: plan.estimatedMuscleGainKg || null,
+            estimatedLeanMassChangeKg:
+              plan.estimatedLeanMassChangeKg != null
+                ? plan.estimatedLeanMassChangeKg
+                : null,
+          }
+        : null,
+      weightGoal: plan
+        ? {
+            expectedWeightKg:
+              plan.expectedWeightKg != null ? plan.expectedWeightKg : null,
+            waistChangeCm:
+              plan.waistChangeCm != null ? plan.waistChangeCm : null,
+          }
+        : null,
+      timeline: plan
+        ? {
+            effectiveTimelineWeeks:
+              plan.effectiveTimelineWeeks != null
+                ? plan.effectiveTimelineWeeks
+                : null,
+            progress: plan.progress != null ? plan.progress : null,
+            visualIntensity: plan.visualIntensity || null,
+            checkpoints: Array.isArray(plan.timelineCheckpoints)
+              ? plan.timelineCheckpoints
+              : [],
+          }
+        : null,
+      photographicRealism: {
+        presentationStyle:
+          (renderRealism && renderRealism.presentationStyle) ||
+          (visual && visual.presentationStyle) ||
+          null,
+        textureStyle:
+          (renderRealism && renderRealism.textureStyle) ||
+          (visual && visual.textureStyle) ||
+          null,
+        changeVisibility:
+          (renderTransform && renderTransform.changeVisibility) ||
+          (visual && visual.changeVisibility) ||
+          null,
+        postureTreatment: (visual && visual.postureTreatment) || null,
+        realismConstraints:
+          (renderRealism && Array.isArray(renderRealism.constraints)
+            ? renderRealism.constraints
+            : null) ||
+          (visual && Array.isArray(visual.realismConstraints)
+            ? visual.realismConstraints
+            : []) ||
+          [],
+        photographicInstructions:
+          visual && Array.isArray(visual.photographicInstructions)
+            ? visual.photographicInstructions
+            : [],
+      },
+      priorityOrder:
+        approved.length > 0
+          ? approved.map(function (change, index) {
+              var rec = asRuleRecord(change) || {};
+              return {
+                order: index + 1,
+                id: rec.id || null,
+                kind: rec.kind || null,
+                direction: rec.direction || null,
+                region: rec.region || null,
+                visibility: rec.visibility || null,
+                sourcePlanField: rec.sourcePlanField || null,
+              };
+            })
+          : regionalTargets.map(function (target, index) {
+              var rec = asRuleRecord(target) || {};
+              return {
+                order: index + 1,
+                region: rec.region || null,
+                magnitude: rec.magnitude != null ? rec.magnitude : null,
+              };
+            }),
+      scenario:
+        typeof input.scenarioId === "string" && input.scenarioId
+          ? input.scenarioId
+          : null,
+      bodyRegionEmphasis: {
+        regionalTargets: regionalTargets.map(function (target) {
+          var rec = asRuleRecord(target) || {};
+          return {
+            region: rec.region || null,
+            magnitude: rec.magnitude != null ? rec.magnitude : null,
+            note: rec.note || null,
+          };
+        }),
+        emphasisInstructions:
+          visual && Array.isArray(visual.emphasisInstructions)
+            ? visual.emphasisInstructions
+            : [],
+        regionalRenderChanges: approved
+          .map(function (change) {
+            return asRuleRecord(change);
+          })
+          .filter(function (rec) {
+            return (
+              rec &&
+              (rec.kind === "regional_change" || typeof rec.region === "string")
+            );
+          })
+          .map(function (rec) {
+            return {
+              id: rec.id || null,
+              kind: rec.kind || null,
+              region: rec.region || null,
+              direction: rec.direction || null,
+              visibility: rec.visibility || null,
+            };
+          }),
+      },
+    };
+
+    var fields = TRANSFORM_RULE_FIELD_KEYS.map(function (key) {
+      return {
+        key: key,
+        label: TRANSFORM_RULE_FIELD_LABELS[key] || key,
+        value: rules[key],
+      };
+    });
+
+    return {
+      schemaVersion: 1,
+      projectionId: "transformation-rule-projection",
+      fields: fields,
+      rules: rules,
+      source: {
+        transformationPlanPresent: !!plan,
+        visualDirectionPresent: !!visual,
+        renderPlanPresent: !!render,
+        transformationRulesVersion:
+          (plan && plan.rulesVersion) ||
+          (renderTrace && renderTrace.transformationRulesVersion) ||
+          null,
+        visualDirectionRulesVersion:
+          (visualMeta && visualMeta.rulesVersion) ||
+          (renderTrace && renderTrace.visualDirectionRulesVersion) ||
+          null,
+        renderPlanRulesVersion: (render && render.rulesVersion) || null,
+      },
+    };
+  }
+
+  function compareTransformationRules(rulesA, rulesB) {
+    var mapA = (rulesA && rulesA.rules) || {};
+    var mapB = (rulesB && rulesB.rules) || {};
+    var entries = [];
+    var summary = { added: 0, removed: 0, modified: 0, unchanged: 0 };
+    TRANSFORM_RULE_FIELD_KEYS.forEach(function (key) {
+      var valueA = mapA[key] != null ? mapA[key] : null;
+      var valueB = mapB[key] != null ? mapB[key] : null;
+      var strA = stableStringifyRuleValue(valueA);
+      var strB = stableStringifyRuleValue(valueB);
+      var emptyA = strA === "null";
+      var emptyB = strB === "null";
+      var status;
+      if (emptyA && !emptyB) {
+        status = "added";
+        summary.added += 1;
+      } else if (!emptyA && emptyB) {
+        status = "removed";
+        summary.removed += 1;
+      } else if (strA === strB) {
+        status = "unchanged";
+        summary.unchanged += 1;
+      } else {
+        status = "modified";
+        summary.modified += 1;
+      }
+      entries.push({
+        key: key,
+        label: TRANSFORM_RULE_FIELD_LABELS[key] || key,
+        status: status,
+        valueA: valueA,
+        valueB: valueB,
+      });
+    });
+    return { rules: entries, summary: summary };
   }
 
   function createExperimentId() {
@@ -313,6 +660,9 @@
     revokePromptExperimentExportUrl();
     setText(promptExperimentViewPositive, "");
     setText(promptExperimentViewNegative, "");
+    setText(transformationRuleJsonView, "");
+    if (transformationRuleFields) clearChildren(transformationRuleFields);
+    if (transformationFormatterMeta) clearChildren(transformationFormatterMeta);
     if (promptExperimentViewPromptsDetails) {
       promptExperimentViewPromptsDetails.open = false;
     }
@@ -491,42 +841,149 @@
       typeof input.positivePrompt === "string" ? input.positivePrompt : "";
     var negative =
       typeof input.negativePrompt === "string" ? input.negativePrompt : "";
+    var metrics = computePromptMetrics(positive, negative);
+    var family = input.providerFamily || "flux";
+    var model = typeof input.model === "string" ? input.model : "";
+    var outcome = input.outcome || "runtime_failed";
+    var generatedImageAvailable = input.generatedImageAvailable === true;
+    var transformationRules =
+      input.transformationRules ||
+      projectTransformationRules({
+        scenarioId: input.scenarioId || "",
+        transformationPlan: input.transformationPlan,
+        visualDirection: input.visualDirection,
+        renderPlan: input.renderPlan,
+      });
     var record = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       experimentId: createExperimentId(),
       createdAt: new Date().toISOString(),
       variant: variant,
       scenarioId: input.scenarioId || "",
       provider: {
-        family: input.providerFamily || "flux",
-        model: typeof input.model === "string" ? input.model : "",
+        family: family,
+        model: model,
       },
-      promptMetrics: computePromptMetrics(positive, negative),
-      outcome: input.outcome || "runtime_failed",
-      generatedImageAvailable: input.generatedImageAvailable === true,
+      transformationRules: transformationRules,
+      promptMetrics: metrics,
+      outcome: outcome,
+      generatedImageAvailable: generatedImageAvailable,
       formatter: {
         name: input.formatterName != null ? input.formatterName : null,
         version:
           input.formatterVersion != null ? input.formatterVersion : null,
+        mode: typeof input.formatterMode === "string" ? input.formatterMode : null,
+        output: {
+          positivePromptLength: metrics.positiveCharacters,
+          negativePromptLength: metrics.negativeCharacters,
+          positiveWords: metrics.positiveWords,
+          negativeWords: metrics.negativeWords,
+          totalCharacters: metrics.totalCharacters,
+          totalWords: metrics.totalWords,
+        },
       },
       prompts: {
         positivePrompt: positive,
         negativePrompt: negative,
       },
+      providerResult: {
+        outcome: outcome,
+        family: family,
+        model: model,
+        generatedImageAvailable: generatedImageAvailable,
+      },
     };
     if (typeof input.predictionId === "string" && input.predictionId) {
       record.provider.predictionId = input.predictionId;
+      record.providerResult.predictionId = input.predictionId;
     }
     if (typeof input.diagnostic === "string" && input.diagnostic) {
       record.diagnostic = input.diagnostic;
+      record.providerResult.diagnostic = input.diagnostic;
     }
     if (
       typeof input.durationMs === "number" &&
       isFinite(input.durationMs)
     ) {
       record.durationMs = Math.max(0, input.durationMs);
+      record.providerResult.durationMs = record.durationMs;
     }
     return record;
+  }
+
+  function renderTransformationRuleInspector(record) {
+    if (transformationRuleFields) clearChildren(transformationRuleFields);
+    if (transformationFormatterMeta) clearChildren(transformationFormatterMeta);
+    setText(transformationRuleJsonView, "");
+    if (!record) {
+      if (transformationRuleFields) {
+        appendKv(transformationRuleFields, "Rules", "Select a history record");
+      }
+      return;
+    }
+    var rulesView = record.transformationRules;
+    if (rulesView && Array.isArray(rulesView.fields)) {
+      rulesView.fields.forEach(function (field) {
+        var display;
+        try {
+          display =
+            typeof field.value === "string" ||
+            typeof field.value === "number" ||
+            typeof field.value === "boolean" ||
+            field.value == null
+              ? field.value
+              : JSON.stringify(field.value);
+        } catch (_err) {
+          display = "—";
+        }
+        appendKv(
+          transformationRuleFields,
+          field.label || field.key,
+          display
+        );
+      });
+      setText(transformationRuleJsonView, pretty(rulesView));
+    } else if (transformationRuleFields) {
+      appendKv(transformationRuleFields, "Rules", "Unavailable");
+    }
+    if (transformationFormatterMeta) {
+      appendKv(
+        transformationFormatterMeta,
+        "name",
+        record.formatter && record.formatter.name
+      );
+      appendKv(
+        transformationFormatterMeta,
+        "version",
+        record.formatter && record.formatter.version
+      );
+      appendKv(
+        transformationFormatterMeta,
+        "mode",
+        record.formatter && record.formatter.mode
+      );
+      var output = record.formatter && record.formatter.output;
+      appendKv(
+        transformationFormatterMeta,
+        "positive length",
+        output ? String(output.positivePromptLength) : "—"
+      );
+      appendKv(
+        transformationFormatterMeta,
+        "negative length",
+        output ? String(output.negativePromptLength) : "—"
+      );
+      appendKv(
+        transformationFormatterMeta,
+        "total words",
+        output ? String(output.totalWords) : "—"
+      );
+      appendKv(
+        transformationFormatterMeta,
+        "total characters",
+        output ? String(output.totalCharacters) : "—"
+      );
+    }
   }
 
   function addPromptExperimentRecord(record) {
@@ -564,6 +1021,7 @@
       promptExperimentViewId = null;
       setText(promptExperimentViewPositive, "");
       setText(promptExperimentViewNegative, "");
+      renderTransformationRuleInspector(null);
     }
     renderPromptExperimentHistory();
   }
@@ -595,6 +1053,12 @@
     if (promptExperimentCompareFields) {
       clearChildren(promptExperimentCompareFields);
     }
+    if (transformationRuleDiffSummary) {
+      clearChildren(transformationRuleDiffSummary);
+    }
+    if (transformationRuleDiffList) {
+      clearChildren(transformationRuleDiffList);
+    }
     setText(promptExperimentPositiveA, "");
     setText(promptExperimentPositiveB, "");
     setText(promptExperimentNegativeA, "");
@@ -602,70 +1066,119 @@
     setText(promptExperimentOnlyA, "");
     setText(promptExperimentOnlyB, "");
     setText(promptExperimentCommonLines, "");
-    if (recordA && recordB && promptExperimentCompareFields) {
-      var rows = [
-        ["variant", recordA.variant, recordB.variant],
-        ["scenario", recordA.scenarioId, recordB.scenarioId],
-        ["provider model", recordA.provider.model, recordB.provider.model],
-        [
-          "formatter name",
-          recordA.formatter.name || "—",
-          recordB.formatter.name || "—",
-        ],
-        [
-          "formatter version",
-          recordA.formatter.version || "—",
-          recordB.formatter.version || "—",
-        ],
-        ["outcome", recordA.outcome, recordB.outcome],
-        [
-          "diagnostic",
-          recordA.diagnostic || "—",
-          recordB.diagnostic || "—",
-        ],
-        [
-          "duration",
-          recordA.durationMs != null ? String(recordA.durationMs) : "—",
-          recordB.durationMs != null ? String(recordB.durationMs) : "—",
-        ],
-        [
-          "positive words",
-          String(recordA.promptMetrics.positiveWords),
-          String(recordB.promptMetrics.positiveWords),
-        ],
-        [
-          "negative words",
-          String(recordA.promptMetrics.negativeWords),
-          String(recordB.promptMetrics.negativeWords),
-        ],
-        [
-          "total words",
-          String(recordA.promptMetrics.totalWords),
-          String(recordB.promptMetrics.totalWords),
-        ],
-        [
-          "positive characters",
-          String(recordA.promptMetrics.positiveCharacters),
-          String(recordB.promptMetrics.positiveCharacters),
-        ],
-        [
-          "negative characters",
-          String(recordA.promptMetrics.negativeCharacters),
-          String(recordB.promptMetrics.negativeCharacters),
-        ],
-        [
-          "total characters",
-          String(recordA.promptMetrics.totalCharacters),
-          String(recordB.promptMetrics.totalCharacters),
-        ],
-      ];
-      rows.forEach(function (row) {
+    if (recordA && recordB) {
+      /* Rules FIRST, then prompts (Demand 018E). */
+      var ruleDiff = compareTransformationRules(
+        recordA.transformationRules,
+        recordB.transformationRules
+      );
+      if (transformationRuleDiffSummary) {
         appendKv(
-          promptExperimentCompareFields,
-          row[0],
-          "A: " + row[1] + " | B: " + row[2]
+          transformationRuleDiffSummary,
+          "added",
+          String(ruleDiff.summary.added)
         );
-      });
+        appendKv(
+          transformationRuleDiffSummary,
+          "removed",
+          String(ruleDiff.summary.removed)
+        );
+        appendKv(
+          transformationRuleDiffSummary,
+          "modified",
+          String(ruleDiff.summary.modified)
+        );
+        appendKv(
+          transformationRuleDiffSummary,
+          "unchanged",
+          String(ruleDiff.summary.unchanged)
+        );
+      }
+      if (transformationRuleDiffList) {
+        ruleDiff.rules.forEach(function (entry) {
+          var item = document.createElement("div");
+          item.className = "kv-item rule-diff-" + entry.status;
+          var k = document.createElement("div");
+          k.className = "k";
+          k.textContent = entry.label;
+          var v = document.createElement("div");
+          v.className = "v";
+          v.textContent = entry.status;
+          item.appendChild(k);
+          item.appendChild(v);
+          transformationRuleDiffList.appendChild(item);
+        });
+      }
+      if (promptExperimentCompareFields) {
+        var rows = [
+          ["variant", recordA.variant, recordB.variant],
+          ["scenario", recordA.scenarioId, recordB.scenarioId],
+          ["provider model", recordA.provider.model, recordB.provider.model],
+          [
+            "formatter name",
+            recordA.formatter.name || "—",
+            recordB.formatter.name || "—",
+          ],
+          [
+            "formatter version",
+            recordA.formatter.version || "—",
+            recordB.formatter.version || "—",
+          ],
+          [
+            "formatter mode",
+            recordA.formatter.mode || "—",
+            recordB.formatter.mode || "—",
+          ],
+          ["outcome", recordA.outcome, recordB.outcome],
+          [
+            "diagnostic",
+            recordA.diagnostic || "—",
+            recordB.diagnostic || "—",
+          ],
+          [
+            "duration",
+            recordA.durationMs != null ? String(recordA.durationMs) : "—",
+            recordB.durationMs != null ? String(recordB.durationMs) : "—",
+          ],
+          [
+            "positive words",
+            String(recordA.promptMetrics.positiveWords),
+            String(recordB.promptMetrics.positiveWords),
+          ],
+          [
+            "negative words",
+            String(recordA.promptMetrics.negativeWords),
+            String(recordB.promptMetrics.negativeWords),
+          ],
+          [
+            "total words",
+            String(recordA.promptMetrics.totalWords),
+            String(recordB.promptMetrics.totalWords),
+          ],
+          [
+            "positive characters",
+            String(recordA.promptMetrics.positiveCharacters),
+            String(recordB.promptMetrics.positiveCharacters),
+          ],
+          [
+            "negative characters",
+            String(recordA.promptMetrics.negativeCharacters),
+            String(recordB.promptMetrics.negativeCharacters),
+          ],
+          [
+            "total characters",
+            String(recordA.promptMetrics.totalCharacters),
+            String(recordB.promptMetrics.totalCharacters),
+          ],
+        ];
+        rows.forEach(function (row) {
+          appendKv(
+            promptExperimentCompareFields,
+            row[0],
+            "A: " + row[1] + " | B: " + row[2]
+          );
+        });
+      }
       setText(
         promptExperimentPositiveA,
         recordA.prompts.positivePrompt || ""
@@ -746,6 +1259,7 @@
           " " +
           (record.formatter.version || "")
       );
+      appendKv(meta, "Formatter mode", record.formatter.mode || "—");
       appendKv(meta, "Outcome", record.outcome);
       appendKv(meta, "Diagnostic", record.diagnostic || "—");
       appendKv(
@@ -762,6 +1276,11 @@
         meta,
         "Prompt characters",
         String(record.promptMetrics.totalCharacters)
+      );
+      appendKv(
+        meta,
+        "Transformation Rules",
+        record.transformationRules ? "projected" : "missing"
       );
       appendKv(
         meta,
@@ -798,8 +1317,13 @@
         promptExperimentSelectedB = record.experimentId;
         renderPromptExperimentHistory();
       });
+      makeBtn("Inspect rules", function () {
+        promptExperimentViewId = record.experimentId;
+        renderTransformationRuleInspector(record);
+      });
       makeBtn("View prompts", function () {
         promptExperimentViewId = record.experimentId;
+        renderTransformationRuleInspector(record);
         setText(
           promptExperimentViewPositive,
           record.prompts.positivePrompt || ""
@@ -824,11 +1348,32 @@
   function exportPromptExperimentReport() {
     var interpretation = interpretPromptExperiments(promptExperimentHistory);
     var report = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       exportedAt: new Date().toISOString(),
       service: "ai-os-prompt-isolation-lab",
       environment: "internal_control_room",
       records: promptExperimentHistory.map(function (r) {
+        var providerResult = {
+          outcome: r.providerResult
+            ? r.providerResult.outcome
+            : r.outcome,
+          family: r.providerResult
+            ? r.providerResult.family
+            : r.provider.family,
+          model: r.providerResult ? r.providerResult.model : r.provider.model,
+          generatedImageAvailable: r.providerResult
+            ? r.providerResult.generatedImageAvailable
+            : r.generatedImageAvailable,
+        };
+        if (r.providerResult && r.providerResult.diagnostic) {
+          providerResult.diagnostic = r.providerResult.diagnostic;
+        }
+        if (
+          r.providerResult &&
+          typeof r.providerResult.durationMs === "number"
+        ) {
+          providerResult.durationMs = r.providerResult.durationMs;
+        }
         return {
           schemaVersion: r.schemaVersion,
           experimentId: r.experimentId,
@@ -839,6 +1384,7 @@
             family: r.provider.family,
             model: r.provider.model,
           },
+          transformationRules: r.transformationRules,
           promptMetrics: r.promptMetrics,
           outcome: r.outcome,
           diagnostic: r.diagnostic,
@@ -846,6 +1392,7 @@
           generatedImageAvailable: r.generatedImageAvailable,
           formatter: r.formatter,
           prompts: r.prompts,
+          providerResult: providerResult,
         };
       }),
       comparisons: {
@@ -864,6 +1411,9 @@
     report.records.forEach(function (rec) {
       if (rec.provider && rec.provider.predictionId) {
         delete rec.provider.predictionId;
+      }
+      if (rec.providerResult && rec.providerResult.predictionId) {
+        delete rec.providerResult.predictionId;
       }
     });
     var unsafe = scanExportForUnsafeContent(report);
@@ -935,13 +1485,15 @@
       validationAccepted:
         result && result.validation ? result.validation.accepted : null,
     });
+    var artifacts = result && result.artifacts ? result.artifacts : null;
+    var scenarioId =
+      (result && result.scenarioId) ||
+      options.scenarioId ||
+      selectedScenarioId ||
+      "";
     var record = buildPromptExperimentRecordFromLab({
       variant: variant,
-      scenarioId:
-        (result && result.scenarioId) ||
-        options.scenarioId ||
-        selectedScenarioId ||
-        "",
+      scenarioId: scenarioId,
       providerFamily:
         (result && result.provider && result.provider.providerFamily) ||
         (summary && summary.providerFamily) ||
@@ -977,14 +1529,24 @@
         (isolation && isolation.formatterVersion) ||
         (summary && summary.formatterVersion) ||
         null,
+      formatterMode:
+        (isolation && isolation.promptSource) ||
+        variant ||
+        null,
       positivePrompt: summary && summary.positivePrompt
         ? summary.positivePrompt
         : "",
       negativePrompt: summary && summary.negativePrompt
         ? summary.negativePrompt
         : "",
+      transformationPlan: artifacts && artifacts.transformationPlan,
+      visualDirection: artifacts && artifacts.visualDirection,
+      renderPlan: artifacts && artifacts.renderPlan,
     });
     addPromptExperimentRecord(record);
+    if (!promptExperimentViewId) {
+      renderTransformationRuleInspector(record);
+    }
   }
 
   function clearPreviewState() {

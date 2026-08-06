@@ -268,13 +268,33 @@
           <div id="promptIsolationResultSummary" class="kv-grid" hidden></div>
 
           <article class="subpanel nested" id="promptExperimentHistoryPanel">
-            <h3>Prompt experiment history</h3>
+            <h3>AI Experiment Lab</h3>
+            <h4>Prompt experiment history</h4>
             <p class="panel-copy">
-              Session memory only (max 20). Cleared on Lock and page refresh.
-              Never written to localStorage, sessionStorage, IndexedDB, or
-              cookies. No source images, access keys, tokens, or raw provider
-              payloads.
+              Transformation Rules are the source of truth. Prompts are
+              generated artifacts. Session memory only (max 20). Cleared on Lock
+              and page refresh. Never written to localStorage, sessionStorage,
+              IndexedDB, or cookies. No source images, access keys, tokens, or
+              raw provider payloads.
             </p>
+
+            <div id="transformationRulePipelinePanel" class="rule-pipeline">
+              <h4>Transformation Rule Inspector — pipeline</h4>
+              <p class="panel-copy">
+                Read-only path (rules before prompts; provider-independent):
+              </p>
+              <ol id="transformationRulePipelineList" class="rule-pipeline-list">
+                <li>User Goal</li>
+                <li>Transformation Plan</li>
+                <li class="rule-pipeline-canonical">Transformation Rules</li>
+                <li>Formatter</li>
+                <li>Positive Prompt</li>
+                <li>Negative Prompt</li>
+                <li>Provider</li>
+                <li>Generated Result</li>
+              </ol>
+            </div>
+
             <div id="promptExperimentHistoryList" class="experiment-history-list"></div>
             <div class="actions">
               <button
@@ -294,11 +314,28 @@
             </div>
             <p id="promptExperimentHistoryMessage" class="message" role="status"></p>
 
+            <div id="transformationRuleInspectorPanel" class="rule-inspector">
+              <h4>Transformation Rules (selected record)</h4>
+              <p class="panel-copy">
+                Structured, read-only projection from TransformationPlan /
+                VisualDirection / RenderPlan. Not prompt text.
+              </p>
+              <div id="transformationRuleFields" class="kv-grid"></div>
+              <details id="transformationRuleJsonDetails">
+                <summary>Show Transformation Rules JSON</summary>
+                <pre id="transformationRuleJsonView" class="code-block"></pre>
+              </details>
+              <h4>Formatter metadata</h4>
+              <div id="transformationFormatterMeta" class="kv-grid"></div>
+            </div>
+
             <div id="promptExperimentComparisonPanel" class="experiment-comparison">
               <h4>Side-by-side comparison</h4>
               <p class="panel-copy">
-                Select exactly two completed records (A and B). Line differences
-                are exact matches after trim; they do not prove causation.
+                Select exactly two completed records (A and B). Transformation
+                Rules are compared first (exact value: added / removed /
+                modified / unchanged), then prompts. Differences do not prove
+                causation.
               </p>
               <div class="experiment-compare-grid">
                 <div>
@@ -310,6 +347,9 @@
                   <div id="promptExperimentComparisonB" class="kv-grid"></div>
                 </div>
               </div>
+              <h5>Transformation Rules difference</h5>
+              <div id="transformationRuleDiffSummary" class="kv-grid"></div>
+              <div id="transformationRuleDiffList" class="kv-grid"></div>
               <div id="promptExperimentCompareFields" class="kv-grid"></div>
               <details id="promptExperimentPromptCompareDetails">
                 <summary>Prompt texts and line difference</summary>
@@ -336,7 +376,7 @@
             </div>
 
             <details id="promptExperimentViewPromptsDetails">
-              <summary>View prompts</summary>
+              <summary>View prompts (derived artifacts)</summary>
               <h5>Positive prompt</h5>
               <pre id="promptExperimentViewPositive" class="code-block"></pre>
               <h5>Negative prompt</h5>

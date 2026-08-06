@@ -1,13 +1,20 @@
 /**
- * Prompt Isolation Lab — session experiment history contracts (Demand 018D).
+ * Prompt Isolation Lab — session experiment history contracts (Demand 018D/018E).
  *
  * Browser memory only. Never localStorage / sessionStorage / IndexedDB / cookies.
  * Never source images, access keys, tokens, raw provider payloads, or env values.
+ *
+ * Demand 018E: Transformation Rules are canonical; prompts are derived artifacts.
  */
 
 import type { PromptIsolationVariant } from "./PromptIsolationVariants";
+import type { TransformationRulesView } from "./TransformationRuleProjection";
+import {
+  projectTransformationRules,
+  type ProjectTransformationRulesInput,
+} from "./TransformationRuleProjection";
 
-export const PROMPT_EXPERIMENT_SCHEMA_VERSION = 1 as const;
+export const PROMPT_EXPERIMENT_SCHEMA_VERSION = 2 as const;
 export const PROMPT_EXPERIMENT_HISTORY_MAX = 20 as const;
 export const PROMPT_EXPERIMENT_SERVICE = "ai-os-prompt-isolation-lab" as const;
 export const PROMPT_EXPERIMENT_ENVIRONMENT = "internal_control_room" as const;
@@ -31,6 +38,32 @@ export interface PromptExperimentMetrics {
   totalWords: number;
 }
 
+export interface PromptExperimentFormatterOutputMeta {
+  positivePromptLength: number;
+  negativePromptLength: number;
+  positiveWords: number;
+  negativeWords: number;
+  totalCharacters: number;
+  totalWords: number;
+}
+
+export interface PromptExperimentFormatterMeta {
+  name: string | null;
+  version: string | null;
+  mode: string | null;
+  output: PromptExperimentFormatterOutputMeta;
+}
+
+export interface PromptExperimentProviderResult {
+  outcome: PromptExperimentOutcome;
+  diagnostic?: string;
+  family: string;
+  model: string;
+  predictionId?: string;
+  durationMs?: number;
+  generatedImageAvailable: boolean;
+}
+
 export interface PromptExperimentRecord {
   schemaVersion: typeof PROMPT_EXPERIMENT_SCHEMA_VERSION;
   experimentId: string;
@@ -42,19 +75,20 @@ export interface PromptExperimentRecord {
     model: string;
     predictionId?: string;
   };
+  /** Canonical Transformation Rules projection (provider-independent). */
+  transformationRules: TransformationRulesView;
   promptMetrics: PromptExperimentMetrics;
   outcome: PromptExperimentOutcome;
   diagnostic?: string;
   durationMs?: number;
   generatedImageAvailable: boolean;
-  formatter: {
-    name: string | null;
-    version: string | null;
-  };
+  formatter: PromptExperimentFormatterMeta;
   prompts: {
     positivePrompt: string;
     negativePrompt: string;
   };
+  /** Provider outcome summary — no image bytes, tokens, or raw payloads. */
+  providerResult: PromptExperimentProviderResult;
 }
 
 export interface PromptExperimentExportSafety {
@@ -137,8 +171,15 @@ export interface BuildPromptExperimentRecordInput {
   generatedImageAvailable?: boolean;
   formatterName?: string | null;
   formatterVersion?: string | null;
+  /** Formatter mode (e.g. promptIsolation promptSource). */
+  formatterMode?: string | null;
   positivePrompt?: string;
   negativePrompt?: string;
+  /** Optional pre-projected rules; otherwise projected from artifacts below. */
+  transformationRules?: TransformationRulesView;
+  transformationPlan?: unknown;
+  visualDirection?: unknown;
+  renderPlan?: unknown;
 }
 
 export function buildPromptExperimentRecord(
@@ -152,6 +193,28 @@ export function buildPromptExperimentRecord(
     typeof input.createdAt === "string" && input.createdAt.length > 0
       ? input.createdAt
       : new Date().toISOString();
+  const family =
+    typeof input.providerFamily === "string" && input.providerFamily
+      ? input.providerFamily
+      : "flux";
+  const model = typeof input.model === "string" ? input.model : "";
+  const generatedImageAvailable = input.generatedImageAvailable === true;
+
+  const projectionInput: ProjectTransformationRulesInput = {
+    scenarioId: input.scenarioId,
+    transformationPlan: input.transformationPlan,
+    visualDirection: input.visualDirection,
+    renderPlan: input.renderPlan,
+  };
+  const transformationRules =
+    input.transformationRules ?? projectTransformationRules(projectionInput);
+
+  const promptMetrics = computePromptMetrics(positivePrompt, negativePrompt);
+  const formatterMode =
+    typeof input.formatterMode === "string" && input.formatterMode
+      ? input.formatterMode
+      : null;
+
   const record: PromptExperimentRecord = {
     schemaVersion: PROMPT_EXPERIMENT_SCHEMA_VERSION,
     experimentId: input.experimentId ?? createExperimentId(),
@@ -159,35 +222,52 @@ export function buildPromptExperimentRecord(
     variant: input.variant,
     scenarioId: input.scenarioId,
     provider: {
-      family:
-        typeof input.providerFamily === "string" && input.providerFamily
-          ? input.providerFamily
-          : "flux",
-      model: typeof input.model === "string" ? input.model : "",
+      family,
+      model,
     },
-    promptMetrics: computePromptMetrics(positivePrompt, negativePrompt),
+    transformationRules,
+    promptMetrics,
     outcome: input.outcome,
-    generatedImageAvailable: input.generatedImageAvailable === true,
+    generatedImageAvailable,
     formatter: {
       name: input.formatterName ?? null,
       version: input.formatterVersion ?? null,
+      mode: formatterMode,
+      output: {
+        positivePromptLength: promptMetrics.positiveCharacters,
+        negativePromptLength: promptMetrics.negativeCharacters,
+        positiveWords: promptMetrics.positiveWords,
+        negativeWords: promptMetrics.negativeWords,
+        totalCharacters: promptMetrics.totalCharacters,
+        totalWords: promptMetrics.totalWords,
+      },
     },
     prompts: {
       positivePrompt,
       negativePrompt,
     },
+    providerResult: {
+      outcome: input.outcome,
+      family,
+      model,
+      generatedImageAvailable,
+    },
   };
   if (typeof input.predictionId === "string" && input.predictionId) {
     record.provider.predictionId = input.predictionId;
+    record.providerResult.predictionId = input.predictionId;
   }
   if (typeof input.diagnostic === "string" && input.diagnostic) {
     record.diagnostic = input.diagnostic;
+    record.providerResult.diagnostic = input.diagnostic;
   }
   if (
     typeof input.durationMs === "number" &&
     Number.isFinite(input.durationMs)
   ) {
-    record.durationMs = Math.max(0, input.durationMs);
+    const durationMs = Math.max(0, input.durationMs);
+    record.durationMs = durationMs;
+    record.providerResult.durationMs = durationMs;
   }
   return record;
 }

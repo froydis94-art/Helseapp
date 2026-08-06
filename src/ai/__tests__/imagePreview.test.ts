@@ -50,6 +50,7 @@ import {
 } from "../control-room/PromptIsolationVariants";
 import {
   buildComparisonRows,
+  buildExperimentComparison,
   buildSafeExportReport,
   comparePromptLines,
   exportFileName,
@@ -61,6 +62,7 @@ import {
 import {
   PROMPT_EXPERIMENT_HISTORY_MAX,
   PROMPT_EXPERIMENT_NONDETERMINISM_DISCLAIMER,
+  PROMPT_EXPERIMENT_SCHEMA_VERSION,
   PromptExperimentHistoryStore,
   buildPromptExperimentRecord,
   classifyPromptExperimentOutcome,
@@ -68,6 +70,17 @@ import {
   countPromptCharacters,
   countPromptWords,
 } from "../control-room/PromptExperimentTypes";
+import {
+  TRANSFORM_RULE_FIELD_KEYS,
+  projectTransformationRules,
+} from "../control-room/TransformationRuleProjection";
+import {
+  TRANSFORM_RULE_PIPELINE_STAGES,
+  buildFormatterInspectorView,
+  compareTransformationRules,
+  rulesAppearBeforePromptsInPipeline,
+  transformationRulesViewComplete,
+} from "../control-room/TransformationRuleInspector";
 import { FluxFormatter } from "../formatters";
 import { buildRenderPlan } from "../render";
 import { TransformationEngine } from "../TransformationEngine";
@@ -3095,6 +3108,252 @@ describe("imagePreview — DEMAND_017", () => {
         interpretation.summary,
         /preview-specific formatter context may be contributing/i
       );
+    });
+  });
+
+  describe("DEMAND 018E — Transformation Rule Inspector", () => {
+    const constitutionPath = join(repoRoot, "docs/CTO/00_AI_CONSTITUTION.md");
+
+    function sampleArtifacts() {
+      const scenario = getControlRoomScenario("balanced_recomposition_12w");
+      assert.ok(scenario);
+      const profile = scenario.runtimeInput.profile as BodyProfile;
+      const goal = scenario.runtimeInput.goal as TransformationGoal;
+      const plan = new TransformationEngine().compute(profile, goal);
+      const visual = directVisual(profile, goal, plan);
+      const render = buildRenderPlan(plan, visual);
+      return { plan, visual, render, scenarioId: scenario.summary.id };
+    }
+
+    function sampleRecordWithRules(
+      overrides: Partial<Parameters<typeof buildPromptExperimentRecord>[0]> = {}
+    ) {
+      const { plan, visual, render, scenarioId } = sampleArtifacts();
+      return buildPromptExperimentRecord({
+        variant: "current_ai_os",
+        scenarioId,
+        model: "black-forest-labs/flux-kontext-pro",
+        outcome: "succeeded",
+        positivePrompt: "preserve identity\nbody recomposition",
+        negativePrompt: "distorted anatomy",
+        formatterName: "FluxFormatter",
+        formatterVersion: "1.0.0",
+        formatterMode: "flux_formatter_current_preview_context",
+        transformationPlan: plan,
+        visualDirection: visual,
+        renderPlan: render,
+        ...overrides,
+      });
+    }
+
+    it("1. Transformation Rules are displayed from existing artifacts", () => {
+      const { plan, visual, render, scenarioId } = sampleArtifacts();
+      const rules = projectTransformationRules({
+        scenarioId,
+        transformationPlan: plan,
+        visualDirection: visual,
+        renderPlan: render,
+      });
+      assert.equal(transformationRulesViewComplete(rules), true);
+      assert.equal(rules.rules.scenario, scenarioId);
+      assert.ok(rules.rules.identity);
+      assert.ok(rules.rules.bodyFatChange);
+      const html = read(uiHtmlPath);
+      assert.match(html, /Transformation Rules/);
+      assert.match(html, /transformationRuleFields/);
+      assert.match(read(uiJsPath), /projectTransformationRules/);
+    });
+
+    it("2. Pipeline places Transformation Rules before prompts", () => {
+      assert.equal(rulesAppearBeforePromptsInPipeline(), true);
+      const rulesIdx = TRANSFORM_RULE_PIPELINE_STAGES.indexOf(
+        "Transformation Rules"
+      );
+      const positiveIdx = TRANSFORM_RULE_PIPELINE_STAGES.indexOf(
+        "Positive Prompt"
+      );
+      assert.ok(rulesIdx < positiveIdx);
+      assert.match(read(uiHtmlPath), /rule-pipeline-canonical/);
+      assert.match(
+        read(uiJsPath),
+        /Rules FIRST|Transformation Rules/
+      );
+    });
+
+    it("3. Export includes Transformation Rules", () => {
+      const record = sampleRecordWithRules();
+      const report = buildSafeExportReport({
+        records: [record],
+        selectedA: null,
+        selectedB: null,
+        interpretation: "test",
+      });
+      assert.ok(report.records[0]?.transformationRules);
+      assert.equal(
+        report.records[0]?.transformationRules.projectionId,
+        "transformation-rule-projection"
+      );
+      assert.match(read(uiJsPath), /transformationRules:\s*r\.transformationRules/);
+    });
+
+    it("4. History records include rules, formatter, prompts, provider result", () => {
+      const record = sampleRecordWithRules({ durationMs: 1234 });
+      assert.equal(record.schemaVersion, PROMPT_EXPERIMENT_SCHEMA_VERSION);
+      assert.equal(PROMPT_EXPERIMENT_SCHEMA_VERSION, 2);
+      assert.ok(record.transformationRules);
+      assert.equal(record.formatter.mode, "flux_formatter_current_preview_context");
+      assert.ok(record.formatter.output.totalWords > 0);
+      assert.ok(record.prompts.positivePrompt.length > 0);
+      assert.equal(record.providerResult.outcome, "succeeded");
+      assert.equal(record.providerResult.durationMs, 1234);
+      assert.ok(record.promptMetrics.totalCharacters > 0);
+      assert.match(read(uiJsPath), /Inspect rules/);
+    });
+
+    it("5. Rule comparison classifies added/removed/modified/unchanged", () => {
+      const a = sampleRecordWithRules({ experimentId: "a" });
+      const b = sampleRecordWithRules({
+        experimentId: "b",
+        scenarioId: "upper_body_definition_8w",
+      });
+      const diff = compareTransformationRules(
+        a.transformationRules,
+        b.transformationRules
+      );
+      assert.equal(
+        diff.summary.added +
+          diff.summary.removed +
+          diff.summary.modified +
+          diff.summary.unchanged,
+        TRANSFORM_RULE_FIELD_KEYS.length
+      );
+      const scenarioEntry = diff.rules.find((r) => r.key === "scenario");
+      assert.equal(scenarioEntry?.status, "modified");
+      assert.ok(diff.summary.unchanged >= 1);
+      assert.match(read(uiHtmlPath), /Transformation Rules difference/);
+    });
+
+    it("6. Formatter and prompt metadata/metrics are preserved", () => {
+      const record = sampleRecordWithRules({
+        positivePrompt: "one two three",
+        negativePrompt: "four five",
+        formatterMode: "minimal_diagnostic_formatter_bypass",
+      });
+      const formatter = buildFormatterInspectorView({
+        name: record.formatter.name,
+        version: record.formatter.version,
+        mode: record.formatter.mode,
+        positivePrompt: record.prompts.positivePrompt,
+        negativePrompt: record.prompts.negativePrompt,
+      });
+      assert.equal(formatter.output.positiveWords, 3);
+      assert.equal(formatter.output.negativeWords, 2);
+      assert.equal(formatter.mode, "minimal_diagnostic_formatter_bypass");
+      assert.equal(record.promptMetrics.totalWords, 5);
+      assert.match(read(uiHtmlPath), /Formatter metadata/);
+    });
+
+    it("7. Export contains no secrets, tokens, or source images", () => {
+      const report = buildSafeExportReport({
+        records: [sampleRecordWithRules()],
+        selectedA: null,
+        selectedB: null,
+        interpretation: "ok",
+      });
+      const json = JSON.stringify(report);
+      assert.equal(report.safety.containsSourceImage, false);
+      assert.equal(report.safety.containsAccessKey, false);
+      assert.equal(report.safety.containsProviderToken, false);
+      assert.equal(/data:image\//i.test(json), false);
+      assert.equal(/REPLICATE_API_TOKEN|AI_OS_CONTROL_ROOM_ACCESS_KEY/.test(json), false);
+      assert.equal(json.includes(TEST_KEY), false);
+    });
+
+    it("8. Prompt comparison still works after rule extension", () => {
+      const a = sampleRecordWithRules({
+        positivePrompt: "shared\nonlyA",
+        negativePrompt: "neg",
+      });
+      const b = sampleRecordWithRules({
+        variant: "minimal",
+        positivePrompt: "shared\nonlyB",
+        negativePrompt: "neg",
+      });
+      const bundle = buildExperimentComparison(a, b);
+      assert.ok(bundle.ruleComparison);
+      assert.deepEqual(bundle.promptLineDiff.positive.shared, ["shared"]);
+      assert.deepEqual(bundle.promptLineDiff.positive.onlyInA, ["onlyA"]);
+      assert.deepEqual(bundle.promptLineDiff.positive.onlyInB, ["onlyB"]);
+      const rows = buildComparisonRows(a, b);
+      assert.ok(rows.some((r) => r.field === "formatter mode"));
+    });
+
+    it("9. Rule comparison is deterministic and value-exact only", () => {
+      const base = sampleRecordWithRules();
+      const same = sampleRecordWithRules({ experimentId: "same-other-id" });
+      const diff = compareTransformationRules(
+        base.transformationRules,
+        same.transformationRules
+      );
+      assert.equal(diff.summary.modified, 0);
+      assert.equal(diff.summary.added, 0);
+      assert.equal(diff.summary.removed, 0);
+      assert.equal(diff.summary.unchanged, TRANSFORM_RULE_FIELD_KEYS.length);
+    });
+
+    it("10. Projection is provider-independent (no provider fields in rules)", () => {
+      const { plan, visual, render, scenarioId } = sampleArtifacts();
+      const rules = projectTransformationRules({
+        scenarioId,
+        transformationPlan: plan,
+        visualDirection: visual,
+        renderPlan: render,
+      });
+      const json = JSON.stringify(rules);
+      assert.equal(/replicate|openai|anthropic|flux-kontext/i.test(json), false);
+      assert.equal(rules.projectionId, "transformation-rule-projection");
+      for (const key of TRANSFORM_RULE_FIELD_KEYS) {
+        assert.ok(key in rules.rules);
+      }
+    });
+
+    it("11. Production generation path remains unchanged", () => {
+      const dirty = execSync(
+        'git status --porcelain -- "api/generate-future-you.js" "lib/replicate.js" "public/index.html" "src/ai/formatters" "src/ai/transport" "src/ai/provider" "src/ai/runtime"',
+        { encoding: "utf8", cwd: repoRoot }
+      ).trim();
+      assert.equal(dirty, "");
+    });
+
+    it("12. Constitution declares Transformation Rules as canonical", () => {
+      const constitution = read(constitutionPath);
+      assert.match(constitution, /## 22\. Transformation Rules are canonical/);
+      assert.match(
+        constitution,
+        /Transformation Rules are the canonical representation of HelseApp intent/
+      );
+      assert.match(
+        constitution,
+        /No business logic may depend directly on prompt wording/
+      );
+      const docs = read(docsPath);
+      assert.match(docs, /## Transformation Rule Inspector/);
+      assert.match(docs, /provider-independent/i);
+      assert.match(docs, /Replicate, OpenAI, Google, Anthropic, Stability, Fal/);
+      assert.match(docs, /User Goal/);
+      assert.match(docs, /Transformation Rules/);
+      assert.match(docs, /Formatter/);
+    });
+
+    it("13. Control Room exposes inspector pipeline and rule diff UI", () => {
+      const html = read(uiHtmlPath);
+      const js = read(uiJsPath);
+      assert.match(html, /AI Experiment Lab/);
+      assert.match(html, /transformationRulePipelineList/);
+      assert.match(html, /transformationRuleDiffList/);
+      assert.match(js, /compareTransformationRules/);
+      assert.match(js, /TRANSFORM_RULE_PIPELINE_STAGES/);
+      assert.match(js, /schemaVersion:\s*2/);
     });
   });
 });

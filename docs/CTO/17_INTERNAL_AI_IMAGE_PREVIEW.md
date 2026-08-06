@@ -433,7 +433,8 @@ API gates only).
 ## Prompt experiment history
 
 Demand 018D extends the Prompt Isolation Lab with **session-only** experiment
-history in the Control Room browser:
+history in the Control Room browser. Demand 018E extends each record with
+Transformation Rules, formatter metadata, and provider outcome summaries.
 
 - stored only in current page memory (JavaScript array)
 - maximum **20** records (FIFO — oldest dropped when exceeded)
@@ -444,25 +445,102 @@ history in the Control Room browser:
   raw provider responses, or environment values
 - may include formatted positive/negative prompts (authorized internal tool)
 
-Each record captures variant, scenario, provider model, formatter identity,
-safe outcome classification, optional diagnostic, duration, prompt size
-metrics, and whether a generated image URL was available (boolean only — the
-temporary URL itself is not stored in export).
+Each record captures:
+
+- Transformation Rules (provider-independent projection)
+- formatter metadata (name, version, mode, output lengths / word counts)
+- positive / negative prompts (derived artifacts)
+- provider result summary (outcome, diagnostic, model/family, duration flag)
+- prompt metrics and generation duration
+- whether a generated image URL was available (boolean only — the temporary
+  URL itself is not stored in export)
 
 History is appended only after the owner manually completes an existing
 Prompt Isolation Lab request. One manual click remains one provider request
 maximum. No Run All, queue, auto-retry, or scheduled experiments.
+
+## Transformation Rule Inspector (Demand 018E)
+
+The Experiment Lab exposes a **read-only Transformation Rule Inspector**.
+Prompts are **not** the source of truth. Transformation Rules are. Prompts are
+generated artifacts produced by a formatter from those rules.
+
+### Architecture
+
+```text
+User Goal
+  → Transformation Plan
+  → Transformation Rules   ← canonical intent (inspector focus)
+  → Formatter
+  → Positive Prompt        ← derived artifact
+  → Negative Prompt        ← derived artifact
+  → Provider
+  → Generated Result
+```
+
+```mermaid
+flowchart LR
+  UG[User Goal] --> TP[Transformation Plan]
+  TP --> TR[Transformation Rules]
+  TR --> FM[Formatter]
+  FM --> PP[Positive Prompt]
+  FM --> NP[Negative Prompt]
+  PP --> PV[Provider]
+  NP --> PV
+  PV --> GR[Generated Result]
+```
+
+Rules are projected deterministically from existing AI OS artifacts already
+returned by preview:
+
+- `TransformationPlan`
+- `VisualDirection`
+- `RenderPlan`
+
+No parallel rule engine is invented. No generation pipeline module is modified
+for inspection. The inspector never contacts a provider.
+
+### Structured rule fields
+
+Preferred fields (JSON, read-only):
+
+Identity, Pose, Camera, Background, Lighting, Clothing, Body Fat Change,
+Muscle Change, Weight Goal, Timeline, Photographic Realism, Priority Order,
+Scenario, Body Region Emphasis.
+
+### Formatter view
+
+Shows formatter `name`, `version`, `mode` (e.g. prompt-isolation prompt
+source), and output length / word / character metrics (reuses 018D helpers).
+
+### Provider independence
+
+The same Transformation Rules can be consumed by future provider formatters
+(Replicate, OpenAI, Google, Anthropic, Stability, Fal, local models). Each
+provider produces its own prompt text; the inspector and rule comparison remain
+provider-independent.
+
+### Developer workflow
+
+1. Unlock Control Room; select scenario; confirm adult / consent / billing.
+2. Run one Prompt Isolation Lab diagnostic (manual click).
+3. Inspect Transformation Rules for the recorded experiment (rules before
+   prompts).
+4. Optionally select two records — rule diff first, then prompt line diff.
+5. Export a safe local JSON report including rules + formatter metadata.
 
 ## Prompt comparison
 
 The owner may select exactly two completed history records as Comparison A and
 Comparison B. The UI shows:
 
-- variant, scenario, provider model, formatter name/version
-- outcome, diagnostic, duration
-- prompt word and character metrics (positive, negative, total)
-- exact positive/negative prompt text for each side
-- a line-based difference summary: Only in A / Only in B / Lines in both
+1. **Transformation Rules difference first** — added / removed / modified /
+   unchanged via deterministic exact-value compare (no semantic interpretation)
+2. variant, scenario, provider model, formatter name/version/mode
+3. outcome, diagnostic, duration
+4. prompt word and character metrics (positive, negative, total)
+5. exact positive/negative prompt text for each side
+6. a line-based prompt difference summary: Only in A / Only in B / Lines in both
 
 Line comparison normalizes by splitting on newlines, trimming each line, and
 ignoring empty lines, then comparing exact normalized lines. Original prompt
@@ -498,14 +576,16 @@ safety, or making legal conclusions.
 `ai-os-prompt-experiments-YYYY-MM-DD.json`
 
 Shape includes `schemaVersion`, `exportedAt`, service
-`ai-os-prompt-isolation-lab`, environment `internal_control_room`, records,
-selected comparison ids, interpretation text, and fixed safety flags
-(`containsSourceImage: false`, etc.). Before download the payload is
-recursively scanned and **rejected** if any string contains `data:image/`,
-`REPLICATE_API_TOKEN`, `AI_OS_CONTROL_ROOM_ACCESS_KEY`, `Authorization:`,
-Bearer token-like values, `sk_live_`, or raw provider-header patterns.
-Generated-image URLs/binaries are excluded. The file is not uploaded to a
-server. Browser object URLs created for export are revoked on Lock.
+`ai-os-prompt-isolation-lab`, environment `internal_control_room`, records
+(with Transformation Rules, formatter metadata, prompt metadata/metrics, and
+provider outcome summaries), selected comparison ids, interpretation text, and
+fixed safety flags (`containsSourceImage: false`, etc.). Before download the
+payload is recursively scanned and **rejected** if any string contains
+`data:image/`, `REPLICATE_API_TOKEN`, `AI_OS_CONTROL_ROOM_ACCESS_KEY`,
+`Authorization:`, Bearer token-like values, `sk_live_`, or raw provider-header
+patterns. Source/generated images, tokens, env values, and secrets are
+excluded. The file is not uploaded to a server. Browser object URLs created for
+export are revoked on Lock.
 
 ## Next milestones
 

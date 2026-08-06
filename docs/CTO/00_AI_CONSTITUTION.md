@@ -382,3 +382,21 @@ Permanent product rules:
 
 > HelseApp must not introduce explicit pornographic content that is absent from
 > the source image.
+
+## 22. Transformation Rules are canonical
+
+Transformation Rules are the canonical representation of HelseApp intent.
+
+Prompts are implementation artifacts produced by a provider-specific formatter
+from those rules. They are not the source of business truth.
+
+Permanent architectural rules:
+
+> Transformation Rules are the canonical representation of HelseApp intent.
+
+> Prompts are generated implementation artifacts, not the source of truth.
+
+> No business logic may depend directly on prompt wording.
+
+> Future providers must consume the same Transformation Rules via their own
+> formatter; the inspector and comparison layers remain provider-independent.
