@@ -249,6 +249,10 @@
     service_construct_failed: true,
     scenario_run_failed: true,
     projection_failed: true,
+    runtime_execute_failed: true,
+    provider_failure: true,
+    validation_failed: true,
+    preview_run_failed: true,
   };
 
   function safeDiagnostic(payload) {
@@ -1045,14 +1049,21 @@
     unexpected_api_response: true,
   };
 
-  function formatPreviewFailure(code, httpStatus, message) {
+  function formatPreviewFailure(code, httpStatus, options) {
     var safe =
       PREVIEW_SAFE_CODES[code] === true ? code : "unexpected_api_response";
+    var message =
+      options && typeof options === "object" ? options.message : options;
+    var diagnostic =
+      options && typeof options === "object" ? options.diagnostic : null;
     var lines = [
       "Unable to generate internal preview.",
       "Code: " + safe,
       "HTTP: " + String(httpStatus),
     ];
+    if (diagnostic) {
+      lines.push("Diagnostic: " + String(diagnostic));
+    }
     if (message) lines.push(String(message));
     return lines.join("\n");
   }
@@ -1088,7 +1099,9 @@
         if (outcome.nonJson || outcome.payload == null) {
           setMessage(
             previewMessage,
-            formatPreviewFailure("non_json_response", status),
+            formatPreviewFailure("non_json_response", status, {
+              message: null,
+            }),
             "error"
           );
           return;
@@ -1097,7 +1110,9 @@
         if (!previewMetaMatches(payload) && status !== 404) {
           setMessage(
             previewMessage,
-            formatPreviewFailure("unexpected_api_response", status),
+            formatPreviewFailure("unexpected_api_response", status, {
+              message: null,
+            }),
             "error"
           );
           return;
@@ -1109,11 +1124,9 @@
         if (payload.code === "preview_disabled" || status === 404) {
           setMessage(
             previewMessage,
-            formatPreviewFailure(
-              "preview_disabled",
-              status,
-              apiMessage(payload, "Image preview is disabled.")
-            ),
+            formatPreviewFailure("preview_disabled", status, {
+              message: apiMessage(payload, "Image preview is disabled."),
+            }),
             "error"
           );
           return;
@@ -1121,11 +1134,13 @@
         if (!outcome.response.ok || payload.ok !== true || !payload.result) {
           setMessage(
             previewMessage,
-            formatPreviewFailure(
-              safeCode(payload, "runtime_failure"),
-              status,
-              apiMessage(payload, "Unable to generate internal preview.")
-            ),
+            formatPreviewFailure(safeCode(payload, "runtime_failure"), status, {
+              diagnostic: safeDiagnostic(payload),
+              message: apiMessage(
+                payload,
+                "Unable to generate internal preview."
+              ),
+            }),
             "error"
           );
           return;
@@ -1138,7 +1153,9 @@
       .catch(function () {
         setMessage(
           previewMessage,
-          formatPreviewFailure("network_failure", "unavailable"),
+          formatPreviewFailure("network_failure", "unavailable", {
+            message: null,
+          }),
           "error"
         );
       })

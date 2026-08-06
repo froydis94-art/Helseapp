@@ -209,13 +209,43 @@ Do not automatically create or alter Vercel environment variables from agents.
 - No secrets visible in UI JSON
 - No automatic retry after provider/validation failure
 
+## Vercel runtime packaging (PATCH 017A)
+
+Vercel Node cannot execute the `../src/**` TypeScript AI OS graph via runtime
+`import()` / `require()` of `.ts` barrels (`ERR_UNSUPPORTED_DIR_IMPORT` on paths
+such as `../runtime`). Internal preview therefore ships a **prebundled CJS**
+artifact:
+
+`src/ai/control-room/imagePreviewRuntime.bundle.cjs`
+
+Built with:
+
+`npm run build:ai-image-preview-runtime`
+
+`api/ai-os-image-preview.ts` requires that artifact only after feature flag,
+auth, billing confirmation, and request validation. Auth/disabled paths return
+identified JSON without loading the heavy graph. Rebuild and commit the bundle
+whenever `ImagePreviewService` or its AI OS dependency graph changes.
+
+Safe authorized `diagnostic` values on failure responses:
+
+- `module_load_failed`
+- `module_shape_invalid`
+- `service_construct_failed`
+- `runtime_execute_failed`
+- `provider_failure`
+- `validation_failed`
+- `projection_failed`
+
+Missing / empty `REPLICATE_API_TOKEN` maps to HTTP `502` / `provider_failure`
+(not an opaque `runtime_failure`).
+
 ## Known limitations
 
 - provisional ResultValidator evidence (no vision adapter yet)
 - in-memory rate cap is per serverless instance
 - Vercel request body size may constrain large uploads (browser compresses first)
-- Control Room / preview TypeScript service load follows the same Vercel dynamic
-  import constraints as Control Room POST
+- preview runtime is prebundled CJS (rebuild after AI OS graph changes)
 - paid provider verification still requires owner browser confirmation
 
 ## Next milestone

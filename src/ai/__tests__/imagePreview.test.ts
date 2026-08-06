@@ -8,8 +8,11 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+
+const require = createRequire(import.meta.url);
 
 import {
   IMAGE_PREVIEW_SAFETY_STATUS,
@@ -1069,6 +1072,237 @@ describe("imagePreview — DEMAND_017", () => {
       assert.match(docs, /Internal AI OS v2 Image Preview/);
       assert.match(docs, /Demand 018/);
       assert.match(docs, /AI_OS_IMAGE_PREVIEW_ENABLED/);
+      assert.match(docs, /imagePreviewRuntime\.bundle\.cjs/);
+      assert.match(docs, /ERR_UNSUPPORTED_DIR_IMPORT|prebundled CJS/);
+    });
+  });
+
+  describe("PATCH 017A — bundled runtime load", () => {
+    const bundlePath = join(
+      repoRoot,
+      "src",
+      "ai",
+      "control-room",
+      "imagePreviewRuntime.bundle.cjs"
+    );
+
+    it("prebundled CJS runtime exists and exports service surface", () => {
+      assert.equal(existsSync(bundlePath), true);
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const bundled = require(bundlePath) as {
+        ImagePreviewService?: unknown;
+        ImagePreviewServiceError?: unknown;
+      };
+      assert.equal(typeof bundled.ImagePreviewService, "function");
+      assert.equal(typeof bundled.ImagePreviewServiceError, "function");
+    });
+
+    it("API does not dynamic-import TypeScript ImagePreviewService", () => {
+      const apiSrc = read(apiPath);
+      // Strip block comments so historical failure notes do not false-positive.
+      const codeOnly = apiSrc.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+      assert.equal(
+        /import\s*\(\s*["'][^"']*ImagePreviewService["']\s*\)/.test(codeOnly),
+        false
+      );
+      assert.match(
+        codeOnly,
+        /require\(["']\.\.\/src\/ai\/control-room\/imagePreviewRuntime\.bundle\.cjs["']\)/
+      );
+    });
+
+    it("missing REPLICATE_API_TOKEN maps to provider_failure (not opaque 500)", async () => {
+      await assert.rejects(
+        () =>
+          new ImagePreviewService({
+            env: { REPLICATE_API_TOKEN: "" },
+          }).runPreview({
+            scenarioId: "balanced_recomposition_12w",
+            billingConfirmed: true,
+            sourceImageDataUri: JPEG_DATA_URI,
+          }),
+        (err: unknown) =>
+          err instanceof ImagePreviewServiceError && err.code === "missing_token"
+      );
+
+      const api = await loadPreviewApi();
+      await withPreviewEnv({ enabled: "1", accessKey: TEST_KEY }, async () => {
+        const original = api.loadImagePreviewServiceModule;
+        api.loadImagePreviewServiceModule = async () => ({
+          ImagePreviewService: class {
+            async runPreview() {
+              return new ImagePreviewService({
+                env: { REPLICATE_API_TOKEN: undefined },
+              }).runPreview({
+                scenarioId: "balanced_recomposition_12w",
+                billingConfirmed: true,
+                sourceImageDataUri: JPEG_DATA_URI,
+              });
+            }
+          },
+          ImagePreviewServiceError,
+        });
+        const prevToken = process.env.REPLICATE_API_TOKEN;
+        try {
+          delete process.env.REPLICATE_API_TOKEN;
+          api.rateBuckets.clear();
+          const { res, state } = createMockResponse();
+          await api.default(
+            {
+              method: "POST",
+              headers: { "x-ai-os-control-room-key": TEST_KEY },
+              body: {
+                scenarioId: "balanced_recomposition_12w",
+                billingConfirmed: true,
+                sourceImageDataUri: JPEG_DATA_URI,
+              },
+            },
+            res
+          );
+          assert.equal(state.statusCode, 502);
+          const body = state.body as {
+            code?: string;
+            diagnostic?: string;
+            meta?: { service?: string };
+          };
+          assert.equal(body.code, "provider_failure");
+          assert.equal(body.diagnostic, "provider_failure");
+          assert.equal(body.meta?.service, "ai-os-image-preview");
+          assert.equal(containsSensitive(body), false);
+        } finally {
+          api.loadImagePreviewServiceModule = original;
+          if (prevToken === undefined) delete process.env.REPLICATE_API_TOKEN;
+          else process.env.REPLICATE_API_TOKEN = prevToken;
+        }
+      });
+    });
+
+    it("real bundle loader + mocked fetch returns HTTP 200 valid JSON", async () => {
+      const api = await loadPreviewApi();
+      const prevFetch = globalThis.fetch;
+      const prevToken = process.env.REPLICATE_API_TOKEN;
+      const fakeFetch = (async (
+        _input: string | URL | Request,
+        init?: RequestInit
+      ) => {
+        const method = String(init?.method ?? "GET").toUpperCase();
+        if (method === "POST") {
+          return new Response(
+            JSON.stringify({
+              id: "pred_preview_bundle_ok",
+              status: "succeeded",
+              output: GENERATED_HTTPS,
+              model: "black-forest-labs/flux-kontext-pro",
+              urls: {
+                get: "https://api.replicate.com/v1/predictions/pred_preview_bundle_ok",
+              },
+            }),
+            { status: 201, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            id: "pred_preview_bundle_ok",
+            status: "succeeded",
+            output: GENERATED_HTTPS,
+            model: "black-forest-labs/flux-kontext-pro",
+            urls: {
+              get: "https://api.replicate.com/v1/predictions/pred_preview_bundle_ok",
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }) as typeof fetch;
+
+      await withPreviewEnv({ enabled: "1", accessKey: TEST_KEY }, async () => {
+        process.env.REPLICATE_API_TOKEN = "test-token-not-a-real-secret";
+        globalThis.fetch = fakeFetch;
+        api.rateBuckets.clear();
+        try {
+          // Intentionally use the default loader (real CJS bundle) — no stub.
+          const { res, state } = createMockResponse();
+          await api.default(
+            {
+              method: "POST",
+              headers: { "x-ai-os-control-room-key": TEST_KEY },
+              body: {
+                scenarioId: "balanced_recomposition_12w",
+                billingConfirmed: true,
+                sourceImageDataUri: JPEG_DATA_URI,
+              },
+            },
+            res
+          );
+          assert.equal(state.statusCode, 200);
+          const body = state.body as {
+            ok?: boolean;
+            result?: ImagePreviewResult;
+            meta?: { service?: string };
+          };
+          assert.equal(body.ok, true);
+          assert.equal(body.meta?.service, "ai-os-image-preview");
+          assert.ok(body.result);
+          assert.equal(body.result?.success, true);
+          assert.equal(body.result?.generatedImage?.url, GENERATED_HTTPS);
+          assert.equal(containsSensitive(body), false);
+          assert.doesNotThrow(() => JSON.stringify(body));
+        } finally {
+          globalThis.fetch = prevFetch;
+          if (prevToken === undefined) delete process.env.REPLICATE_API_TOKEN;
+          else process.env.REPLICATE_API_TOKEN = prevToken;
+          api.rateBuckets.clear();
+        }
+      });
+    });
+
+    it("UI surfaces allowlisted preview diagnostics via textContent path", () => {
+      const js = read(uiJsPath);
+      assert.match(js, /runtime_execute_failed:\s*true/);
+      assert.match(js, /provider_failure:\s*true/);
+      assert.match(js, /validation_failed:\s*true/);
+      assert.match(js, /module_load_failed:\s*true/);
+      assert.match(js, /Diagnostic:\s*"\s*\+\s*String\(diagnostic\)/);
+      assert.match(js, /formatPreviewFailure/);
+      assert.match(js, /safeDiagnostic\(payload\)/);
+      assert.equal(js.includes("innerHTML"), false);
+    });
+
+    it("module_load_failed diagnostic is returned when loader throws", async () => {
+      const api = await loadPreviewApi();
+      await withPreviewEnv({ enabled: "1", accessKey: TEST_KEY }, async () => {
+        const original = api.loadImagePreviewServiceModule;
+        api.loadImagePreviewServiceModule = async () => {
+          const err = new Error("Directory import is not supported");
+          err.name = "Error";
+          (err as Error & { code?: string }).code = "ERR_UNSUPPORTED_DIR_IMPORT";
+          throw err;
+        };
+        try {
+          api.rateBuckets.clear();
+          const { res, state } = createMockResponse();
+          await api.default(
+            {
+              method: "POST",
+              headers: { "x-ai-os-control-room-key": TEST_KEY },
+              body: {
+                scenarioId: "balanced_recomposition_12w",
+                billingConfirmed: true,
+                sourceImageDataUri: JPEG_DATA_URI,
+              },
+            },
+            res
+          );
+          assert.equal(state.statusCode, 500);
+          const body = state.body as {
+            code?: string;
+            diagnostic?: string;
+          };
+          assert.equal(body.code, "runtime_failure");
+          assert.equal(body.diagnostic, "module_load_failed");
+        } finally {
+          api.loadImagePreviewServiceModule = original;
+        }
+      });
     });
   });
 });

@@ -8,8 +8,13 @@
  * Auth helpers are duplicated (not imported from Control Room route) so the
  * existing Control Room unlock path stays untouched.
  *
- * Service loads via literal dynamic import after auth (same Vercel pattern as
- * Control Room POST). No api sibling runtime bridge. No JS shim.
+ * Vercel Node cannot runtime-load the src TypeScript AI OS graph (dynamic
+ * import of the service module fails with ERR_UNSUPPORTED_DIR_IMPORT on
+ * barrel paths like ../runtime). The AI OS preview graph is therefore
+ * build-bundled to a single CJS artifact and required only after
+ * auth/flag/validation — never at cold-start module scope.
+ *
+ * No api sibling runtime bridge. No JS shim. No legacy Replicate helper bypass.
  */
 
 // CJS crypto require kept for broad Vercel Node compatibility.
@@ -62,8 +67,14 @@ type VercelLikeResponse = {
 };
 
 const apiHelpers = {
+  /**
+   * Load the prebundled ImagePreviewService graph (CJS).
+   * Stubbable in tests. Never dynamic-imports TypeScript under ../src.
+   */
   async loadImagePreviewServiceModule(): Promise<unknown> {
-    return import("../src/ai/control-room/ImagePreviewService");
+    // Literal path so Vercel NFT includes the prebundled CJS graph.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require("../src/ai/control-room/imagePreviewRuntime.bundle.cjs");
   },
 
   normalizeImagePreviewServiceModule(
@@ -347,9 +358,12 @@ function hasQueryAccessKey(req: { query?: Record<string, unknown> }): boolean {
   });
 }
 
-function mapServiceErrorCode(
-  code: string
-): { status: number; code: string; message: string } {
+function mapServiceErrorCode(code: string): {
+  status: number;
+  code: string;
+  message: string;
+  diagnostic?: string;
+} {
   switch (code) {
     case "billing_confirmation_required":
       return {
@@ -382,29 +396,46 @@ function mapServiceErrorCode(
         message: "Scenario was not found.",
       };
     case "provider_failure":
+      return {
+        status: 502,
+        code: "provider_failure",
+        message: "Provider request failed.",
+        diagnostic: "provider_failure",
+      };
     case "missing_token":
       return {
         status: 502,
         code: "provider_failure",
         message: "Provider request failed.",
+        diagnostic: "provider_failure",
       };
     case "validation_rejected":
       return {
         status: 422,
         code: "validation_rejected",
         message: "Validation rejected the candidate.",
+        diagnostic: "validation_failed",
       };
     case "unsafe_result":
       return {
         status: 500,
         code: "unsafe_result",
         message: "Unsafe result.",
+        diagnostic: "projection_failed",
+      };
+    case "runtime_failure":
+      return {
+        status: 500,
+        code: "runtime_failure",
+        message: "Runtime failure.",
+        diagnostic: "runtime_execute_failed",
       };
     default:
       return {
         status: 500,
         code: "runtime_failure",
         message: "Runtime failure.",
+        diagnostic: "runtime_execute_failed",
       };
   }
 }
@@ -578,6 +609,7 @@ async function handlePost(
         enabled: true,
         code: mapped.code,
         message: mapped.message,
+        ...(mapped.diagnostic ? { diagnostic: mapped.diagnostic } : {}),
       });
       return;
     }
@@ -586,7 +618,7 @@ async function handlePost(
       enabled: true,
       code: "runtime_failure",
       message: "Runtime failure.",
-      diagnostic: "preview_run_failed",
+      diagnostic: "runtime_execute_failed",
     });
   }
 }
@@ -642,7 +674,7 @@ async function handler(
       enabled: true,
       code: "runtime_failure",
       message: "Runtime failure.",
-      diagnostic: "preview_run_failed",
+      diagnostic: "runtime_execute_failed",
     });
   }
 }
