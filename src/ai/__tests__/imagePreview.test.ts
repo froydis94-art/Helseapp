@@ -48,6 +48,26 @@ import {
   resolvePromptIsolationVariant,
   type PromptIsolationVariant,
 } from "../control-room/PromptIsolationVariants";
+import {
+  buildComparisonRows,
+  buildSafeExportReport,
+  comparePromptLines,
+  exportFileName,
+  formatInterpretationText,
+  interpretPromptExperiments,
+  PromptExperimentExportError,
+  scanExportForUnsafeContent,
+} from "../control-room/PromptExperimentComparison";
+import {
+  PROMPT_EXPERIMENT_HISTORY_MAX,
+  PROMPT_EXPERIMENT_NONDETERMINISM_DISCLAIMER,
+  PromptExperimentHistoryStore,
+  buildPromptExperimentRecord,
+  classifyPromptExperimentOutcome,
+  computePromptMetrics,
+  countPromptCharacters,
+  countPromptWords,
+} from "../control-room/PromptExperimentTypes";
 import { FluxFormatter } from "../formatters";
 import { buildRenderPlan } from "../render";
 import { TransformationEngine } from "../TransformationEngine";
@@ -2554,6 +2574,526 @@ describe("imagePreview — DEMAND_017", () => {
       assert.match(
         docs,
         /production generation path stays untouched|Production ownership remains/i
+      );
+    });
+  });
+
+  describe("DEMAND 018D — Prompt experiment history and comparison", () => {
+    function sampleRecord(
+      overrides: Partial<Parameters<typeof buildPromptExperimentRecord>[0]> = {}
+    ) {
+      return buildPromptExperimentRecord({
+        variant: "minimal",
+        scenarioId: "balanced_recomposition_12w",
+        model: "black-forest-labs/flux-kontext-pro",
+        outcome: "succeeded",
+        positivePrompt: "line one\nline two",
+        negativePrompt: "bad thing",
+        formatterName: "FluxFormatter",
+        formatterVersion: "1.0.0",
+        ...overrides,
+      });
+    }
+
+    it("1. History is session-memory only (in-memory store)", () => {
+      const store = new PromptExperimentHistoryStore();
+      store.add(sampleRecord());
+      assert.equal(store.size(), 1);
+      assert.match(read(uiJsPath), /promptExperimentHistory\s*=\s*\[\]/);
+      assert.match(read(uiJsPath), /Session-only Prompt Isolation Lab history/);
+    });
+
+    it("2. History is not written to localStorage", () => {
+      const js = read(uiJsPath);
+      assert.equal(/localStorage\.(setItem|getItem)/.test(js), false);
+      assert.equal(
+        /localStorage/.test(js) &&
+          /promptExperimentHistory/.test(js) &&
+          /localStorage\[[^\]]*promptExperiment/.test(js),
+        false
+      );
+    });
+
+    it("3. History is not written to sessionStorage", () => {
+      assert.equal(/sessionStorage/.test(read(uiJsPath)), false);
+    });
+
+    it("4. History is not written to IndexedDB", () => {
+      const js = read(uiJsPath);
+      assert.equal(/indexedDB|IDBOpenDBRequest|openDatabase/i.test(js), false);
+    });
+
+    it("5. History is not written to cookies", () => {
+      assert.equal(/document\.cookie/.test(read(uiJsPath)), false);
+    });
+
+    it("6. History clears on lock", () => {
+      const js = read(uiJsPath);
+      assert.match(js, /clearPromptExperimentHistoryState/);
+      assert.match(
+        js,
+        /clearPreviewState[\s\S]*clearPromptExperimentHistoryState/
+      );
+      assert.match(js, /lockRoom[\s\S]*clearPreviewState/);
+    });
+
+    it("7. History maximum is 20 records", () => {
+      assert.equal(PROMPT_EXPERIMENT_HISTORY_MAX, 20);
+      assert.match(read(uiJsPath), /PROMPT_EXPERIMENT_HISTORY_MAX\s*=\s*20/);
+      const store = new PromptExperimentHistoryStore();
+      assert.equal(store.maxSize, 20);
+    });
+
+    it("8. Oldest record is removed when limit is exceeded", () => {
+      const store = new PromptExperimentHistoryStore(20);
+      for (let i = 0; i < 21; i++) {
+        store.add(
+          sampleRecord({
+            experimentId: `id-${i}`,
+            positivePrompt: `p${i}`,
+          })
+        );
+      }
+      assert.equal(store.size(), 20);
+      assert.equal(store.getAll()[0]?.experimentId, "id-1");
+      assert.equal(store.getById("id-0"), null);
+    });
+
+    it("9. Source data URI never appears in history", () => {
+      const record = sampleRecord({
+        positivePrompt: "safe prompt text only",
+      });
+      const json = JSON.stringify(record);
+      assert.equal(/data:image\//i.test(json), false);
+      assert.equal(json.includes(JPEG_DATA_URI), false);
+    });
+
+    it("10. Access key never appears in history", () => {
+      const record = sampleRecord();
+      assert.equal(JSON.stringify(record).includes(TEST_KEY), false);
+      assert.equal(
+        JSON.stringify(record).includes("AI_OS_CONTROL_ROOM_ACCESS_KEY"),
+        false
+      );
+    });
+
+    it("11. Provider token never appears in history", () => {
+      const record = sampleRecord();
+      assert.equal(
+        /REPLICATE_API_TOKEN|r8_[A-Za-z0-9]+/.test(JSON.stringify(record)),
+        false
+      );
+    });
+
+    it("12. Raw provider response never appears in history", () => {
+      const keys = Object.keys(sampleRecord());
+      assert.equal(keys.includes("rawProviderResponse"), false);
+      assert.equal(keys.includes("transportResult"), false);
+      assert.equal(keys.includes("headers"), false);
+    });
+
+    it("13. Prompt character counts are deterministic", () => {
+      assert.equal(countPromptCharacters("abc"), 3);
+      assert.equal(countPromptCharacters("a b"), 3);
+      assert.equal(countPromptCharacters("café"), 4);
+    });
+
+    it("14. Prompt word counts are deterministic", () => {
+      assert.equal(countPromptWords("one two three"), 3);
+      assert.equal(countPromptWords("  one   two\tthree  "), 3);
+    });
+
+    it("15. Empty prompt counts are zero", () => {
+      assert.equal(countPromptCharacters(""), 0);
+      assert.equal(countPromptWords(""), 0);
+      assert.equal(countPromptWords("   "), 0);
+    });
+
+    it("16. Positive and negative metrics are separate", () => {
+      const metrics = computePromptMetrics("one two", "three four five");
+      assert.equal(metrics.positiveWords, 2);
+      assert.equal(metrics.negativeWords, 3);
+      assert.equal(metrics.positiveCharacters, 7);
+      assert.equal(metrics.negativeCharacters, 15);
+      assert.equal(metrics.totalWords, 5);
+      assert.equal(metrics.totalCharacters, 22);
+    });
+
+    it("17. Exactly two records may be selected for comparison", () => {
+      const html = read(uiHtmlPath);
+      const js = read(uiJsPath);
+      assert.match(html, /Select as comparison A|comparison A/i);
+      assert.match(js, /promptExperimentSelectedA/);
+      assert.match(js, /promptExperimentSelectedB/);
+      assert.match(js, /Select as comparison A/);
+      assert.match(js, /Select as comparison B/);
+      const a = sampleRecord({ variant: "minimal", experimentId: "a" });
+      const b = sampleRecord({
+        variant: "current_ai_os",
+        experimentId: "b",
+        outcome: "safety_blocked",
+      });
+      const rows = buildComparisonRows(a, b);
+      assert.ok(rows.length >= 10);
+    });
+
+    it("18. Comparison displays both variants", () => {
+      const rows = buildComparisonRows(
+        sampleRecord({ variant: "minimal" }),
+        sampleRecord({ variant: "current_ai_os" })
+      );
+      const variantRow = rows.find((r) => r.field === "variant");
+      assert.equal(variantRow?.valueA, "minimal");
+      assert.equal(variantRow?.valueB, "current_ai_os");
+    });
+
+    it("19. Comparison displays both outcomes", () => {
+      const rows = buildComparisonRows(
+        sampleRecord({ outcome: "succeeded" }),
+        sampleRecord({
+          variant: "current_ai_os",
+          outcome: "safety_blocked",
+        })
+      );
+      const outcomeRow = rows.find((r) => r.field === "outcome");
+      assert.equal(outcomeRow?.valueA, "succeeded");
+      assert.equal(outcomeRow?.valueB, "safety_blocked");
+    });
+
+    it("20. Comparison displays prompt sizes", () => {
+      const rows = buildComparisonRows(
+        sampleRecord({ positivePrompt: "a b c", negativePrompt: "x" }),
+        sampleRecord({
+          variant: "current_ai_os",
+          positivePrompt: "a b",
+          negativePrompt: "",
+        })
+      );
+      assert.ok(rows.some((r) => r.field === "total words"));
+      assert.ok(rows.some((r) => r.field === "total characters"));
+    });
+
+    it("21. Line comparison ignores blank lines", () => {
+      const diff = comparePromptLines("a\n\n\nb", "a\nb");
+      assert.deepEqual(diff.shared, ["a", "b"]);
+      assert.deepEqual(diff.onlyInA, []);
+      assert.deepEqual(diff.onlyInB, []);
+    });
+
+    it("22. Line comparison trims whitespace", () => {
+      const diff = comparePromptLines("  hello  \n world", "hello\nworld");
+      assert.deepEqual(diff.shared, ["hello", "world"]);
+    });
+
+    it("23. Shared lines are identified", () => {
+      const diff = comparePromptLines("shared\nonlyA", "shared\nonlyB");
+      assert.deepEqual(diff.shared, ["shared"]);
+    });
+
+    it("24. A-only lines are identified", () => {
+      const diff = comparePromptLines("shared\nonlyA", "shared\nonlyB");
+      assert.deepEqual(diff.onlyInA, ["onlyA"]);
+    });
+
+    it("25. B-only lines are identified", () => {
+      const diff = comparePromptLines("shared\nonlyA", "shared\nonlyB");
+      assert.deepEqual(diff.onlyInB, ["onlyB"]);
+    });
+
+    it("26. Interpretation uses only same-model records", () => {
+      const interpretation = interpretPromptExperiments([
+        sampleRecord({
+          variant: "minimal",
+          outcome: "succeeded",
+          model: "model-a",
+        }),
+        sampleRecord({
+          variant: "current_ai_os",
+          outcome: "safety_blocked",
+          model: "model-b",
+        }),
+      ]);
+      assert.equal(interpretation.comparable, false);
+      assert.match(interpretation.summary, /inconclusive/i);
+    });
+
+    it("27. Interpretation warns when models differ", () => {
+      const interpretation = interpretPromptExperiments([
+        sampleRecord({ model: "m1", variant: "minimal" }),
+        sampleRecord({
+          model: "m2",
+          variant: "current_ai_os",
+          outcome: "safety_blocked",
+        }),
+      ]);
+      assert.ok(
+        interpretation.warnings.some((w) => /different provider models/i.test(w))
+      );
+    });
+
+    it("28. Interpretation warns when scenarios differ", () => {
+      const interpretation = interpretPromptExperiments([
+        sampleRecord({ scenarioId: "balanced_recomposition_12w" }),
+        sampleRecord({
+          scenarioId: "upper_body_definition_8w",
+          variant: "current_ai_os",
+          outcome: "safety_blocked",
+        }),
+      ]);
+      assert.ok(
+        interpretation.warnings.some((w) => /different scenarios/i.test(w))
+      );
+    });
+
+    it("29. Minimal success plus current block produces cautious prompt hypothesis", () => {
+      const interpretation = interpretPromptExperiments([
+        sampleRecord({ variant: "minimal", outcome: "succeeded" }),
+        sampleRecord({
+          variant: "current_ai_os",
+          outcome: "safety_blocked",
+          diagnostic: "provider_safety_blocked",
+        }),
+      ]);
+      assert.match(
+        interpretation.summary,
+        /Prompt content or complexity may be contributing/i
+      );
+    });
+
+    it("30. All-blocked outcome does not blame prompt alone", () => {
+      const interpretation = interpretPromptExperiments([
+        sampleRecord({ variant: "minimal", outcome: "safety_blocked" }),
+        sampleRecord({
+          variant: "current_ai_os",
+          outcome: "safety_blocked",
+        }),
+      ]);
+      assert.match(
+        interpretation.summary,
+        /unlikely to be the only cause/i
+      );
+    });
+
+    it("31. Interpretation always states that evidence is not proof", () => {
+      const interpretation = interpretPromptExperiments([
+        sampleRecord({ outcome: "succeeded" }),
+      ]);
+      const text = formatInterpretationText(interpretation);
+      assert.match(text, /diagnostic evidence, not proof/i);
+      assert.equal(
+        interpretation.disclaimer,
+        PROMPT_EXPERIMENT_NONDETERMINISM_DISCLAIMER
+      );
+    });
+
+    it("32. Interpretation never recommends moderation bypass", () => {
+      const interpretation = interpretPromptExperiments([
+        sampleRecord({ variant: "minimal", outcome: "succeeded" }),
+        sampleRecord({
+          variant: "current_ai_os",
+          outcome: "safety_blocked",
+        }),
+      ]);
+      const text = formatInterpretationText(interpretation).toLowerCase();
+      assert.equal(/disable.*moderation|bypass.*safety|circumvent/.test(text), false);
+    });
+
+    it("33. Export contains no source image", () => {
+      const report = buildSafeExportReport({
+        records: [sampleRecord()],
+        selectedA: null,
+        selectedB: null,
+        interpretation: "test",
+      });
+      assert.equal(report.safety.containsSourceImage, false);
+      assert.equal(/data:image\//i.test(JSON.stringify(report)), false);
+    });
+
+    it("34. Export contains no access key", () => {
+      const report = buildSafeExportReport({
+        records: [sampleRecord()],
+        selectedA: null,
+        selectedB: null,
+        interpretation: "test",
+      });
+      assert.equal(report.safety.containsAccessKey, false);
+      assert.equal(JSON.stringify(report).includes(TEST_KEY), false);
+    });
+
+    it("35. Export contains no provider token", () => {
+      const report = buildSafeExportReport({
+        records: [sampleRecord()],
+        selectedA: null,
+        selectedB: null,
+        interpretation: "test",
+      });
+      assert.equal(report.safety.containsProviderToken, false);
+      assert.equal(
+        /REPLICATE_API_TOKEN|r8_/.test(JSON.stringify(report)),
+        false
+      );
+    });
+
+    it("36. Export rejects unsafe token-like content", () => {
+      assert.throws(
+        () =>
+          buildSafeExportReport({
+            records: [
+              sampleRecord({
+                positivePrompt: "see REPLICATE_API_TOKEN value",
+              }),
+            ],
+            selectedA: null,
+            selectedB: null,
+            interpretation: "x",
+          }),
+        (err: unknown) => err instanceof PromptExperimentExportError
+      );
+      assert.ok(scanExportForUnsafeContent("Bearer abcdefghijkl"));
+      assert.ok(scanExportForUnsafeContent("sk_live_test"));
+      assert.ok(scanExportForUnsafeContent("data:image/png;base64,aaa"));
+    });
+
+    it("37. Export is generated locally in browser", () => {
+      const js = read(uiJsPath);
+      assert.match(js, /URL\.createObjectURL/);
+      assert.match(js, /ai-os-prompt-experiments-/);
+      assert.match(js, /application\/json/);
+      assert.equal(exportFileName(new Date(Date.UTC(2026, 7, 6))), 
+        "ai-os-prompt-experiments-2026-08-06.json");
+    });
+
+    it("38. Export is not uploaded", () => {
+      const js = read(uiJsPath);
+      assert.match(js, /not uploaded/i);
+      assert.equal(
+        /fetch\([^)]*promptExperiment|upload.*promptExperiment/i.test(js),
+        false
+      );
+    });
+
+    it("39. No provider request is added by this demand", () => {
+      const js = read(uiJsPath);
+      assert.match(js, /recordIsolationLabExperiment/);
+      assert.equal(/runAllVariants|queueExperiment|prefetchPrediction/i.test(js), false);
+      assert.match(js, /fromIsolationLab:\s*true/);
+    });
+
+    it("40. No automatic retry is added", () => {
+      const js = read(uiJsPath);
+      assert.equal(/autoRetry|retryIsolation|setInterval\([^)]*generatePreview/i.test(js), false);
+    });
+
+    it("41. No Run All button exists", () => {
+      const html = read(uiHtmlPath);
+      assert.equal(/id=["']runAll|Run All variants/i.test(html), false);
+      assert.match(html, /Prompt experiment history/);
+    });
+
+    it("42. Existing one-call-per-click behavior remains", () => {
+      const js = read(uiJsPath);
+      assert.match(js, /previewInFlight/);
+      assert.match(js, /promptIsolationGenerateButton/);
+      assert.equal((js.match(/generatePreview\(\{\s*fromIsolationLab:\s*true/g) || []).length, 1);
+    });
+
+    it("43. Existing Prompt Isolation variants remain unchanged", () => {
+      assert.deepEqual([...PROMPT_ISOLATION_VARIANTS], [
+        "minimal",
+        "current_ai_os",
+        "current_without_preview_context",
+        "pre_017c_baseline",
+      ]);
+    });
+
+    it("44. Existing Control Room unlock remains unchanged", () => {
+      const dirty = execSync(
+        'git status --porcelain -- "api/ai-os-control-room.ts"',
+        { encoding: "utf8", cwd: repoRoot }
+      ).trim();
+      assert.equal(dirty, "");
+      assert.match(read(uiJsPath), /function unlock|unlock\(\)/);
+    });
+
+    it("45. Existing dry run remains unchanged", () => {
+      assert.match(read(uiHtmlPath), /Dry-run|runButton/i);
+      assert.match(read(uiJsPath), /runScenario/);
+    });
+
+    it("46. Existing public production route remains unchanged", () => {
+      const dirty = execSync(
+        'git status --porcelain -- "api/generate-future-you.js" "public/index.html"',
+        { encoding: "utf8", cwd: repoRoot }
+      ).trim();
+      assert.equal(dirty, "");
+    });
+
+    it("47. lib/replicate.js remains unchanged", () => {
+      const dirty = execSync(
+        'git status --porcelain -- "lib/replicate.js"',
+        { encoding: "utf8", cwd: repoRoot }
+      ).trim();
+      assert.equal(dirty, "");
+    });
+
+    it("48. Formatter files remain unchanged", () => {
+      const dirty = execSync(
+        'git status --porcelain -- "src/ai/formatters"',
+        { encoding: "utf8", cwd: repoRoot }
+      ).trim();
+      assert.equal(dirty, "");
+    });
+
+    it("49. Transport files remain unchanged", () => {
+      const dirty = execSync(
+        'git status --porcelain -- "src/ai/transport"',
+        { encoding: "utf8", cwd: repoRoot }
+      ).trim();
+      assert.equal(dirty, "");
+    });
+
+    it("50. Provider files remain unchanged", () => {
+      const dirty = execSync(
+        'git status --porcelain -- "src/ai/provider"',
+        { encoding: "utf8", cwd: repoRoot }
+      ).trim();
+      assert.equal(dirty, "");
+      const docs = read(docsPath);
+      assert.match(docs, /## Prompt experiment history/);
+      assert.match(docs, /## Prompt comparison/);
+      assert.match(docs, /## Diagnostic interpretation/);
+      assert.match(docs, /## Safe report export/);
+    });
+
+    it("51. Outcome classification maps safety block safely", () => {
+      assert.equal(
+        classifyPromptExperimentOutcome({
+          diagnostic: "provider_safety_blocked",
+          code: "provider_failure",
+        }),
+        "safety_blocked"
+      );
+      assert.equal(
+        classifyPromptExperimentOutcome({ success: true }),
+        "succeeded"
+      );
+    });
+
+    it("52. Preview-context interpretation rule is deterministic", () => {
+      const interpretation = interpretPromptExperiments([
+        sampleRecord({ variant: "minimal", outcome: "succeeded" }),
+        sampleRecord({
+          variant: "current_without_preview_context",
+          outcome: "succeeded",
+        }),
+        sampleRecord({
+          variant: "current_ai_os",
+          outcome: "safety_blocked",
+        }),
+      ]);
+      assert.match(
+        interpretation.summary,
+        /preview-specific formatter context may be contributing/i
       );
     });
   });

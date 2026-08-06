@@ -430,6 +430,83 @@ moderation text. No moderation bypass.
 Legal/onboarding policy text stays out of provider prompts (confirmations remain
 API gates only).
 
+## Prompt experiment history
+
+Demand 018D extends the Prompt Isolation Lab with **session-only** experiment
+history in the Control Room browser:
+
+- stored only in current page memory (JavaScript array)
+- maximum **20** records (FIFO — oldest dropped when exceeded)
+- cleared on Control Room **Lock** and on page **refresh**
+- never written to `localStorage`, `sessionStorage`, IndexedDB, or cookies
+- never sent to analytics or a HelseApp persistence API
+- never includes source images, source data URIs, access keys, provider tokens,
+  raw provider responses, or environment values
+- may include formatted positive/negative prompts (authorized internal tool)
+
+Each record captures variant, scenario, provider model, formatter identity,
+safe outcome classification, optional diagnostic, duration, prompt size
+metrics, and whether a generated image URL was available (boolean only — the
+temporary URL itself is not stored in export).
+
+History is appended only after the owner manually completes an existing
+Prompt Isolation Lab request. One manual click remains one provider request
+maximum. No Run All, queue, auto-retry, or scheduled experiments.
+
+## Prompt comparison
+
+The owner may select exactly two completed history records as Comparison A and
+Comparison B. The UI shows:
+
+- variant, scenario, provider model, formatter name/version
+- outcome, diagnostic, duration
+- prompt word and character metrics (positive, negative, total)
+- exact positive/negative prompt text for each side
+- a line-based difference summary: Only in A / Only in B / Lines in both
+
+Line comparison normalizes by splitting on newlines, trimming each line, and
+ignoring empty lines, then comparing exact normalized lines. Original prompt
+display is preserved separately. Comparison does **not** claim that a changed
+line caused the provider outcome. Comparable interpretation requires the same
+scenario and provider model; the UI warns when they differ.
+
+## Diagnostic interpretation
+
+Interpretation is a **deterministic** rules engine over completed session
+records only:
+
+- no AI call
+- no provider call
+- no automatic re-runs
+
+Rules (most specific first) produce cautious hypotheses such as prompt
+complexity contribution, preview-context contribution, newer formatter/
+preview-context contribution, “prompt wording unlikely to be the only cause”,
+or transient/input-dependent earlier blocks. Incomplete or mixed evidence
+yields an inconclusive summary. Every interpretation always includes:
+
+> This is diagnostic evidence, not proof. Provider generation and moderation may
+> be nondeterministic.
+
+Interpretation never recommends disabling provider moderation, bypassing
+safety, or making legal conclusions.
+
+## Safe report export
+
+**Export safe report** builds a local JSON download:
+
+`ai-os-prompt-experiments-YYYY-MM-DD.json`
+
+Shape includes `schemaVersion`, `exportedAt`, service
+`ai-os-prompt-isolation-lab`, environment `internal_control_room`, records,
+selected comparison ids, interpretation text, and fixed safety flags
+(`containsSourceImage: false`, etc.). Before download the payload is
+recursively scanned and **rejected** if any string contains `data:image/`,
+`REPLICATE_API_TOKEN`, `AI_OS_CONTROL_ROOM_ACCESS_KEY`, `Authorization:`,
+Bearer token-like values, `sk_live_`, or raw provider-header patterns.
+Generated-image URLs/binaries are excluded. The file is not uploaded to a
+server. Browser object URLs created for export are revoked on Lock.
+
 ## Next milestones
 
 Patch 017C — Formatter preserves original presentation and transforms body only

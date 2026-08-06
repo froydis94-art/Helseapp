@@ -89,12 +89,71 @@
   var promptIsolationResultSummary = document.getElementById(
     "promptIsolationResultSummary"
   );
+  var promptExperimentHistoryList = document.getElementById(
+    "promptExperimentHistoryList"
+  );
+  var promptExperimentClearButton = document.getElementById(
+    "promptExperimentClearButton"
+  );
+  var promptExperimentExportButton = document.getElementById(
+    "promptExperimentExportButton"
+  );
+  var promptExperimentHistoryMessage = document.getElementById(
+    "promptExperimentHistoryMessage"
+  );
+  var promptExperimentComparisonA = document.getElementById(
+    "promptExperimentComparisonA"
+  );
+  var promptExperimentComparisonB = document.getElementById(
+    "promptExperimentComparisonB"
+  );
+  var promptExperimentCompareFields = document.getElementById(
+    "promptExperimentCompareFields"
+  );
+  var promptExperimentPositiveA = document.getElementById(
+    "promptExperimentPositiveA"
+  );
+  var promptExperimentPositiveB = document.getElementById(
+    "promptExperimentPositiveB"
+  );
+  var promptExperimentNegativeA = document.getElementById(
+    "promptExperimentNegativeA"
+  );
+  var promptExperimentNegativeB = document.getElementById(
+    "promptExperimentNegativeB"
+  );
+  var promptExperimentOnlyA = document.getElementById("promptExperimentOnlyA");
+  var promptExperimentOnlyB = document.getElementById("promptExperimentOnlyB");
+  var promptExperimentCommonLines = document.getElementById(
+    "promptExperimentCommonLines"
+  );
+  var promptExperimentInterpretationText = document.getElementById(
+    "promptExperimentInterpretationText"
+  );
+  var promptExperimentViewPositive = document.getElementById(
+    "promptExperimentViewPositive"
+  );
+  var promptExperimentViewNegative = document.getElementById(
+    "promptExperimentViewNegative"
+  );
+  var promptExperimentViewPromptsDetails = document.getElementById(
+    "promptExperimentViewPromptsDetails"
+  );
   var ALLOWED_PROMPT_ISOLATION_VARIANTS = {
     minimal: true,
     current_ai_os: true,
     current_without_preview_context: true,
     pre_017c_baseline: true,
   };
+  /** Session-only Prompt Isolation Lab history (Demand 018D). Max 20 FIFO. */
+  var PROMPT_EXPERIMENT_HISTORY_MAX = 20;
+  var PROMPT_EXPERIMENT_NONDETERMINISM_DISCLAIMER =
+    "This is diagnostic evidence, not proof. Provider generation and moderation may be nondeterministic.";
+  var promptExperimentHistory = [];
+  var promptExperimentSelectedA = null;
+  var promptExperimentSelectedB = null;
+  var promptExperimentViewId = null;
+  var promptExperimentExportObjectUrl = null;
 
   function setText(el, value) {
     if (!el) return;
@@ -134,6 +193,798 @@
     } catch (_err) {
       return "";
     }
+  }
+
+  function countPromptCharacters(text) {
+    if (typeof text !== "string" || text.length === 0) return 0;
+    return text.length;
+  }
+
+  function countPromptWords(text) {
+    if (typeof text !== "string") return 0;
+    var trimmed = text.trim();
+    if (trimmed.length === 0) return 0;
+    return trimmed.split(/\s+/).length;
+  }
+
+  function computePromptMetrics(positivePrompt, negativePrompt) {
+    var positiveCharacters = countPromptCharacters(positivePrompt);
+    var positiveWords = countPromptWords(positivePrompt);
+    var negativeCharacters = countPromptCharacters(negativePrompt);
+    var negativeWords = countPromptWords(negativePrompt);
+    return {
+      positiveCharacters: positiveCharacters,
+      positiveWords: positiveWords,
+      negativeCharacters: negativeCharacters,
+      negativeWords: negativeWords,
+      totalCharacters: positiveCharacters + negativeCharacters,
+      totalWords: positiveWords + negativeWords,
+    };
+  }
+
+  function createExperimentId() {
+    var rand =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : "r" + Math.random().toString(36).slice(2, 10);
+    return "pex_" + Date.now().toString(36) + "_" + rand;
+  }
+
+  function normalizePromptLines(text) {
+    if (typeof text !== "string" || text.length === 0) return [];
+    return text
+      .split(/\r?\n/)
+      .map(function (line) {
+        return line.trim();
+      })
+      .filter(function (line) {
+        return line.length > 0;
+      });
+  }
+
+  function comparePromptLines(promptA, promptB) {
+    var linesA = normalizePromptLines(promptA);
+    var linesB = normalizePromptLines(promptB);
+    var setA = {};
+    var setB = {};
+    var i;
+    for (i = 0; i < linesA.length; i++) setA[linesA[i]] = true;
+    for (i = 0; i < linesB.length; i++) setB[linesB[i]] = true;
+    var onlyInA = [];
+    var onlyInB = [];
+    var shared = [];
+    Object.keys(setA).forEach(function (line) {
+      if (setB[line]) shared.push(line);
+      else onlyInA.push(line);
+    });
+    Object.keys(setB).forEach(function (line) {
+      if (!setA[line]) onlyInB.push(line);
+    });
+    onlyInA.sort();
+    onlyInB.sort();
+    shared.sort();
+    return { onlyInA: onlyInA, onlyInB: onlyInB, shared: shared };
+  }
+
+  function classifyPromptExperimentOutcome(input) {
+    if (input && input.success === true) return "succeeded";
+    var diagnostic =
+      input && typeof input.diagnostic === "string" ? input.diagnostic : "";
+    if (diagnostic === "provider_safety_blocked") return "safety_blocked";
+    var code = input && typeof input.code === "string" ? input.code : "";
+    if (code === "validation_rejected" || diagnostic === "validation_failed") {
+      return "validation_rejected";
+    }
+    if (
+      code === "provider_failure" ||
+      diagnostic === "provider_failure" ||
+      diagnostic === "provider_timeout" ||
+      diagnostic === "provider_invalid_input" ||
+      diagnostic === "provider_auth_error" ||
+      diagnostic === "provider_http_error" ||
+      diagnostic === "provider_invalid_response" ||
+      diagnostic === "provider_network_error" ||
+      diagnostic === "token_missing"
+    ) {
+      return "provider_failed";
+    }
+    if (input && input.validationAccepted === false) {
+      return "validation_rejected";
+    }
+    return "runtime_failed";
+  }
+
+  function revokePromptExperimentExportUrl() {
+    if (promptExperimentExportObjectUrl) {
+      try {
+        URL.revokeObjectURL(promptExperimentExportObjectUrl);
+      } catch (_err) {
+        /* ignore */
+      }
+      promptExperimentExportObjectUrl = null;
+    }
+  }
+
+  function clearPromptExperimentHistoryState() {
+    promptExperimentHistory = [];
+    promptExperimentSelectedA = null;
+    promptExperimentSelectedB = null;
+    promptExperimentViewId = null;
+    revokePromptExperimentExportUrl();
+    setText(promptExperimentViewPositive, "");
+    setText(promptExperimentViewNegative, "");
+    if (promptExperimentViewPromptsDetails) {
+      promptExperimentViewPromptsDetails.open = false;
+    }
+    if (promptExperimentHistoryMessage) {
+      setMessage(promptExperimentHistoryMessage, "", null);
+    }
+    renderPromptExperimentHistory();
+  }
+
+  function findPromptExperimentRecord(experimentId) {
+    for (var i = 0; i < promptExperimentHistory.length; i++) {
+      if (promptExperimentHistory[i].experimentId === experimentId) {
+        return promptExperimentHistory[i];
+      }
+    }
+    return null;
+  }
+
+  function interpretPromptExperiments(records) {
+    var warnings = [];
+    var disclaimer = PROMPT_EXPERIMENT_NONDETERMINISM_DISCLAIMER;
+    if (!records || records.length === 0) {
+      return {
+        summary:
+          "Current evidence is inconclusive. Additional manual tests under identical conditions may be needed.",
+        warnings: warnings,
+        disclaimer: disclaimer,
+        text:
+          "Current evidence is inconclusive. Additional manual tests under identical conditions may be needed.\n\n" +
+          disclaimer,
+      };
+    }
+    var scenarios = {};
+    var models = {};
+    var i;
+    for (i = 0; i < records.length; i++) {
+      scenarios[records[i].scenarioId] = true;
+      models[records[i].provider.model || ""] = true;
+    }
+    if (Object.keys(scenarios).length > 1) {
+      warnings.push(
+        "Records use different scenarios; test conditions are not comparable."
+      );
+    }
+    if (Object.keys(models).length > 1) {
+      warnings.push(
+        "Records use different provider models; test conditions are not comparable."
+      );
+    }
+    if (warnings.length > 0) {
+      var warnText = warnings
+        .map(function (w) {
+          return "Warning: " + w;
+        })
+        .join("\n\n");
+      return {
+        summary:
+          "Current evidence is inconclusive. Additional manual tests under identical conditions may be needed.",
+        warnings: warnings,
+        disclaimer: disclaimer,
+        text:
+          "Current evidence is inconclusive. Additional manual tests under identical conditions may be needed.\n\n" +
+          warnText +
+          "\n\n" +
+          disclaimer,
+      };
+    }
+    var byVariant = {};
+    for (i = 0; i < records.length; i++) {
+      byVariant[records[i].variant] = records[i];
+    }
+    var minimal = byVariant.minimal;
+    var current = byVariant.current_ai_os;
+    var withoutPreview = byVariant.current_without_preview_context;
+    var baseline = byVariant.pre_017c_baseline;
+    var tested = Object.keys(byVariant).map(function (key) {
+      return byVariant[key];
+    });
+    var allBlocked =
+      tested.length > 0 &&
+      tested.every(function (r) {
+        return r.outcome === "safety_blocked";
+      });
+    var allSucceeded =
+      tested.length > 0 &&
+      tested.every(function (r) {
+        return r.outcome === "succeeded";
+      });
+    var summary;
+    if (
+      minimal &&
+      minimal.outcome === "succeeded" &&
+      baseline &&
+      baseline.outcome === "succeeded" &&
+      current &&
+      current.outcome === "safety_blocked" &&
+      withoutPreview &&
+      withoutPreview.outcome === "safety_blocked"
+    ) {
+      summary =
+        "A newer formatter or preview-context change may be contributing.";
+    } else if (
+      minimal &&
+      minimal.outcome === "succeeded" &&
+      withoutPreview &&
+      withoutPreview.outcome === "succeeded" &&
+      current &&
+      current.outcome === "safety_blocked"
+    ) {
+      summary =
+        "The preview-specific formatter context may be contributing to the provider block.";
+    } else if (
+      minimal &&
+      minimal.outcome === "succeeded" &&
+      current &&
+      current.outcome === "safety_blocked"
+    ) {
+      summary =
+        "Prompt content or complexity may be contributing to the provider block.";
+    } else if (allBlocked) {
+      summary =
+        "Prompt wording is unlikely to be the only cause. The provider model, source image handling or provider moderation may also be contributing.";
+    } else if (allSucceeded) {
+      summary =
+        "The earlier provider block may have been transient or input-dependent.";
+    } else {
+      summary =
+        "Current evidence is inconclusive. Additional manual tests under identical conditions may be needed.";
+    }
+    return {
+      summary: summary,
+      warnings: warnings,
+      disclaimer: disclaimer,
+      text: summary + "\n\n" + disclaimer,
+    };
+  }
+
+  function scanExportForUnsafeContent(value) {
+    if (value == null) return null;
+    if (typeof value === "string") {
+      if (/data:image\//i.test(value)) return "data:image/";
+      if (/REPLICATE_API_TOKEN/i.test(value)) return "REPLICATE_API_TOKEN";
+      if (/AI_OS_CONTROL_ROOM_ACCESS_KEY/i.test(value)) {
+        return "AI_OS_CONTROL_ROOM_ACCESS_KEY";
+      }
+      if (/Authorization\s*:/i.test(value)) return "Authorization:";
+      if (/\bBearer\s+[A-Za-z0-9._\-]{8,}/i.test(value)) return "Bearer token";
+      if (/sk_live_/i.test(value)) return "sk_live_";
+      if (/\b(x-api-key|api-key|authorization)\b\s*[:=]/i.test(value)) {
+        return "raw provider headers";
+      }
+      return null;
+    }
+    if (typeof value !== "object") return null;
+    if (Array.isArray(value)) {
+      for (var i = 0; i < value.length; i++) {
+        var hitArr = scanExportForUnsafeContent(value[i]);
+        if (hitArr) return hitArr;
+      }
+      return null;
+    }
+    var keys = Object.keys(value);
+    for (var k = 0; k < keys.length; k++) {
+      var hitObj = scanExportForUnsafeContent(value[keys[k]]);
+      if (hitObj) return hitObj;
+    }
+    return null;
+  }
+
+  function buildPromptExperimentRecordFromLab(input) {
+    var variant =
+      input.variant && ALLOWED_PROMPT_ISOLATION_VARIANTS[input.variant]
+        ? input.variant
+        : "current_ai_os";
+    var positive =
+      typeof input.positivePrompt === "string" ? input.positivePrompt : "";
+    var negative =
+      typeof input.negativePrompt === "string" ? input.negativePrompt : "";
+    var record = {
+      schemaVersion: 1,
+      experimentId: createExperimentId(),
+      createdAt: new Date().toISOString(),
+      variant: variant,
+      scenarioId: input.scenarioId || "",
+      provider: {
+        family: input.providerFamily || "flux",
+        model: typeof input.model === "string" ? input.model : "",
+      },
+      promptMetrics: computePromptMetrics(positive, negative),
+      outcome: input.outcome || "runtime_failed",
+      generatedImageAvailable: input.generatedImageAvailable === true,
+      formatter: {
+        name: input.formatterName != null ? input.formatterName : null,
+        version:
+          input.formatterVersion != null ? input.formatterVersion : null,
+      },
+      prompts: {
+        positivePrompt: positive,
+        negativePrompt: negative,
+      },
+    };
+    if (typeof input.predictionId === "string" && input.predictionId) {
+      record.provider.predictionId = input.predictionId;
+    }
+    if (typeof input.diagnostic === "string" && input.diagnostic) {
+      record.diagnostic = input.diagnostic;
+    }
+    if (
+      typeof input.durationMs === "number" &&
+      isFinite(input.durationMs)
+    ) {
+      record.durationMs = Math.max(0, input.durationMs);
+    }
+    return record;
+  }
+
+  function addPromptExperimentRecord(record) {
+    promptExperimentHistory.push(record);
+    while (promptExperimentHistory.length > PROMPT_EXPERIMENT_HISTORY_MAX) {
+      var removed = promptExperimentHistory.shift();
+      if (removed) {
+        if (promptExperimentSelectedA === removed.experimentId) {
+          promptExperimentSelectedA = null;
+        }
+        if (promptExperimentSelectedB === removed.experimentId) {
+          promptExperimentSelectedB = null;
+        }
+        if (promptExperimentViewId === removed.experimentId) {
+          promptExperimentViewId = null;
+          setText(promptExperimentViewPositive, "");
+          setText(promptExperimentViewNegative, "");
+        }
+      }
+    }
+    renderPromptExperimentHistory();
+  }
+
+  function removePromptExperimentRecord(experimentId) {
+    promptExperimentHistory = promptExperimentHistory.filter(function (r) {
+      return r.experimentId !== experimentId;
+    });
+    if (promptExperimentSelectedA === experimentId) {
+      promptExperimentSelectedA = null;
+    }
+    if (promptExperimentSelectedB === experimentId) {
+      promptExperimentSelectedB = null;
+    }
+    if (promptExperimentViewId === experimentId) {
+      promptExperimentViewId = null;
+      setText(promptExperimentViewPositive, "");
+      setText(promptExperimentViewNegative, "");
+    }
+    renderPromptExperimentHistory();
+  }
+
+  function renderComparisonSide(container, record, label) {
+    if (!container) return;
+    clearChildren(container);
+    if (!record) {
+      appendKv(container, label, "Not selected");
+      return;
+    }
+    appendKv(container, "Timestamp", record.createdAt);
+    appendKv(container, "Variant", record.variant);
+    appendKv(container, "Scenario", record.scenarioId);
+    appendKv(container, "Model", record.provider.model);
+    appendKv(container, "Outcome", record.outcome);
+    appendKv(container, "Diagnostic", record.diagnostic || "—");
+  }
+
+  function renderPromptExperimentComparison() {
+    var recordA = promptExperimentSelectedA
+      ? findPromptExperimentRecord(promptExperimentSelectedA)
+      : null;
+    var recordB = promptExperimentSelectedB
+      ? findPromptExperimentRecord(promptExperimentSelectedB)
+      : null;
+    renderComparisonSide(promptExperimentComparisonA, recordA, "Comparison A");
+    renderComparisonSide(promptExperimentComparisonB, recordB, "Comparison B");
+    if (promptExperimentCompareFields) {
+      clearChildren(promptExperimentCompareFields);
+    }
+    setText(promptExperimentPositiveA, "");
+    setText(promptExperimentPositiveB, "");
+    setText(promptExperimentNegativeA, "");
+    setText(promptExperimentNegativeB, "");
+    setText(promptExperimentOnlyA, "");
+    setText(promptExperimentOnlyB, "");
+    setText(promptExperimentCommonLines, "");
+    if (recordA && recordB && promptExperimentCompareFields) {
+      var rows = [
+        ["variant", recordA.variant, recordB.variant],
+        ["scenario", recordA.scenarioId, recordB.scenarioId],
+        ["provider model", recordA.provider.model, recordB.provider.model],
+        [
+          "formatter name",
+          recordA.formatter.name || "—",
+          recordB.formatter.name || "—",
+        ],
+        [
+          "formatter version",
+          recordA.formatter.version || "—",
+          recordB.formatter.version || "—",
+        ],
+        ["outcome", recordA.outcome, recordB.outcome],
+        [
+          "diagnostic",
+          recordA.diagnostic || "—",
+          recordB.diagnostic || "—",
+        ],
+        [
+          "duration",
+          recordA.durationMs != null ? String(recordA.durationMs) : "—",
+          recordB.durationMs != null ? String(recordB.durationMs) : "—",
+        ],
+        [
+          "positive words",
+          String(recordA.promptMetrics.positiveWords),
+          String(recordB.promptMetrics.positiveWords),
+        ],
+        [
+          "negative words",
+          String(recordA.promptMetrics.negativeWords),
+          String(recordB.promptMetrics.negativeWords),
+        ],
+        [
+          "total words",
+          String(recordA.promptMetrics.totalWords),
+          String(recordB.promptMetrics.totalWords),
+        ],
+        [
+          "positive characters",
+          String(recordA.promptMetrics.positiveCharacters),
+          String(recordB.promptMetrics.positiveCharacters),
+        ],
+        [
+          "negative characters",
+          String(recordA.promptMetrics.negativeCharacters),
+          String(recordB.promptMetrics.negativeCharacters),
+        ],
+        [
+          "total characters",
+          String(recordA.promptMetrics.totalCharacters),
+          String(recordB.promptMetrics.totalCharacters),
+        ],
+      ];
+      rows.forEach(function (row) {
+        appendKv(
+          promptExperimentCompareFields,
+          row[0],
+          "A: " + row[1] + " | B: " + row[2]
+        );
+      });
+      setText(
+        promptExperimentPositiveA,
+        recordA.prompts.positivePrompt || ""
+      );
+      setText(
+        promptExperimentPositiveB,
+        recordB.prompts.positivePrompt || ""
+      );
+      setText(
+        promptExperimentNegativeA,
+        recordA.prompts.negativePrompt || ""
+      );
+      setText(
+        promptExperimentNegativeB,
+        recordB.prompts.negativePrompt || ""
+      );
+      var posDiff = comparePromptLines(
+        recordA.prompts.positivePrompt || "",
+        recordB.prompts.positivePrompt || ""
+      );
+      var negDiff = comparePromptLines(
+        recordA.prompts.negativePrompt || "",
+        recordB.prompts.negativePrompt || ""
+      );
+      var onlyA = posDiff.onlyInA.concat(
+        negDiff.onlyInA.map(function (line) {
+          return "[neg] " + line;
+        })
+      );
+      var onlyB = posDiff.onlyInB.concat(
+        negDiff.onlyInB.map(function (line) {
+          return "[neg] " + line;
+        })
+      );
+      var commonLines = posDiff.shared.concat(
+        negDiff.shared.map(function (line) {
+          return "[neg] " + line;
+        })
+      );
+      setText(promptExperimentOnlyA, onlyA.join("\n") || "(none)");
+      setText(promptExperimentOnlyB, onlyB.join("\n") || "(none)");
+      setText(promptExperimentCommonLines, commonLines.join("\n") || "(none)");
+    }
+    var interpretation = interpretPromptExperiments(promptExperimentHistory);
+    setText(
+      promptExperimentInterpretationText,
+      interpretation.text || interpretation.summary
+    );
+  }
+
+  function renderPromptExperimentHistory() {
+    if (!promptExperimentHistoryList) return;
+    clearChildren(promptExperimentHistoryList);
+    if (promptExperimentHistory.length === 0) {
+      var empty = document.createElement("p");
+      empty.className = "experiment-history-empty";
+      empty.textContent =
+        "No session experiments yet. Complete a manual Prompt Isolation Lab run to record one.";
+      promptExperimentHistoryList.appendChild(empty);
+      renderPromptExperimentComparison();
+      return;
+    }
+    promptExperimentHistory.forEach(function (record) {
+      var item = document.createElement("div");
+      item.className = "experiment-history-item";
+      var title = document.createElement("h5");
+      title.textContent =
+        record.createdAt + " — " + record.variant + " — " + record.outcome;
+      item.appendChild(title);
+      var meta = document.createElement("div");
+      meta.className = "kv-grid";
+      appendKv(meta, "Scenario", record.scenarioId);
+      appendKv(meta, "Model", record.provider.model);
+      appendKv(
+        meta,
+        "Formatter",
+        (record.formatter.name || "—") +
+          " " +
+          (record.formatter.version || "")
+      );
+      appendKv(meta, "Outcome", record.outcome);
+      appendKv(meta, "Diagnostic", record.diagnostic || "—");
+      appendKv(
+        meta,
+        "Duration ms",
+        record.durationMs != null ? String(record.durationMs) : "—"
+      );
+      appendKv(
+        meta,
+        "Prompt words",
+        String(record.promptMetrics.totalWords)
+      );
+      appendKv(
+        meta,
+        "Prompt characters",
+        String(record.promptMetrics.totalCharacters)
+      );
+      appendKv(
+        meta,
+        "Generated image available",
+        record.generatedImageAvailable ? "yes" : "no"
+      );
+      if (promptExperimentSelectedA === record.experimentId) {
+        appendKv(meta, "Comparison", "A");
+      } else if (promptExperimentSelectedB === record.experimentId) {
+        appendKv(meta, "Comparison", "B");
+      }
+      item.appendChild(meta);
+      var actions = document.createElement("div");
+      actions.className = "experiment-history-actions";
+      function makeBtn(label, onClick) {
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "btn";
+        btn.textContent = label;
+        btn.addEventListener("click", onClick);
+        actions.appendChild(btn);
+      }
+      makeBtn("Select as comparison A", function () {
+        if (promptExperimentSelectedB === record.experimentId) {
+          promptExperimentSelectedB = null;
+        }
+        promptExperimentSelectedA = record.experimentId;
+        renderPromptExperimentHistory();
+      });
+      makeBtn("Select as comparison B", function () {
+        if (promptExperimentSelectedA === record.experimentId) {
+          promptExperimentSelectedA = null;
+        }
+        promptExperimentSelectedB = record.experimentId;
+        renderPromptExperimentHistory();
+      });
+      makeBtn("View prompts", function () {
+        promptExperimentViewId = record.experimentId;
+        setText(
+          promptExperimentViewPositive,
+          record.prompts.positivePrompt || ""
+        );
+        setText(
+          promptExperimentViewNegative,
+          record.prompts.negativePrompt || ""
+        );
+        if (promptExperimentViewPromptsDetails) {
+          promptExperimentViewPromptsDetails.open = true;
+        }
+      });
+      makeBtn("Remove record", function () {
+        removePromptExperimentRecord(record.experimentId);
+      });
+      item.appendChild(actions);
+      promptExperimentHistoryList.appendChild(item);
+    });
+    renderPromptExperimentComparison();
+  }
+
+  function exportPromptExperimentReport() {
+    var interpretation = interpretPromptExperiments(promptExperimentHistory);
+    var report = {
+      schemaVersion: 1,
+      exportedAt: new Date().toISOString(),
+      service: "ai-os-prompt-isolation-lab",
+      environment: "internal_control_room",
+      records: promptExperimentHistory.map(function (r) {
+        return {
+          schemaVersion: r.schemaVersion,
+          experimentId: r.experimentId,
+          createdAt: r.createdAt,
+          variant: r.variant,
+          scenarioId: r.scenarioId,
+          provider: {
+            family: r.provider.family,
+            model: r.provider.model,
+          },
+          promptMetrics: r.promptMetrics,
+          outcome: r.outcome,
+          diagnostic: r.diagnostic,
+          durationMs: r.durationMs,
+          generatedImageAvailable: r.generatedImageAvailable,
+          formatter: r.formatter,
+          prompts: r.prompts,
+        };
+      }),
+      comparisons: {
+        selectedA: promptExperimentSelectedA,
+        selectedB: promptExperimentSelectedB,
+        interpretation: interpretation.text,
+      },
+      safety: {
+        containsSourceImage: false,
+        containsAccessKey: false,
+        containsProviderToken: false,
+        containsRawProviderResponse: false,
+        containsEnvironmentValues: false,
+      },
+    };
+    report.records.forEach(function (rec) {
+      if (rec.provider && rec.provider.predictionId) {
+        delete rec.provider.predictionId;
+      }
+    });
+    var unsafe = scanExportForUnsafeContent(report);
+    if (unsafe) {
+      setMessage(
+        promptExperimentHistoryMessage,
+        "Export rejected: unsafe content detected (" + unsafe + ").",
+        "error"
+      );
+      return;
+    }
+    var json;
+    try {
+      json = JSON.stringify(report, null, 2);
+    } catch (_err) {
+      setMessage(
+        promptExperimentHistoryMessage,
+        "Export failed: could not serialize report.",
+        "error"
+      );
+      return;
+    }
+    revokePromptExperimentExportUrl();
+    var blob = new Blob([json], { type: "application/json" });
+    promptExperimentExportObjectUrl = URL.createObjectURL(blob);
+    var now = new Date();
+    var y = now.getUTCFullYear();
+    var m = String(now.getUTCMonth() + 1).padStart(2, "0");
+    var d = String(now.getUTCDate()).padStart(2, "0");
+    var filename = "ai-os-prompt-experiments-" + y + "-" + m + "-" + d + ".json";
+    var anchor = document.createElement("a");
+    anchor.href = promptExperimentExportObjectUrl;
+    anchor.download = filename;
+    anchor.rel = "noopener";
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    setMessage(
+      promptExperimentHistoryMessage,
+      "Safe report downloaded locally (not uploaded).",
+      "ok"
+    );
+  }
+
+  function recordIsolationLabExperiment(payload, options) {
+    options = options || {};
+    var result = payload && payload.result ? payload.result : null;
+    var isolation =
+      (result && result.promptIsolation) ||
+      (payload && payload.promptIsolation) ||
+      null;
+    var summary =
+      result &&
+      result.artifacts &&
+      result.artifacts.formattedRequestSummary
+        ? result.artifacts.formattedRequestSummary
+        : null;
+    var variant =
+      (isolation && isolation.variant) ||
+      options.variant ||
+      "current_ai_os";
+    if (!ALLOWED_PROMPT_ISOLATION_VARIANTS[variant]) {
+      variant = "current_ai_os";
+    }
+    var outcome = classifyPromptExperimentOutcome({
+      success: result && result.success === true,
+      code: payload && payload.code,
+      diagnostic: options.diagnostic || (payload && payload.diagnostic),
+      validationAccepted:
+        result && result.validation ? result.validation.accepted : null,
+    });
+    var record = buildPromptExperimentRecordFromLab({
+      variant: variant,
+      scenarioId:
+        (result && result.scenarioId) ||
+        options.scenarioId ||
+        selectedScenarioId ||
+        "",
+      providerFamily:
+        (result && result.provider && result.provider.providerFamily) ||
+        (summary && summary.providerFamily) ||
+        "flux",
+      model:
+        (isolation && isolation.model) ||
+        (result && result.provider && result.provider.model) ||
+        (summary && summary.model) ||
+        "",
+      predictionId:
+        result && result.provider && result.provider.predictionId
+          ? result.provider.predictionId
+          : undefined,
+      outcome: outcome,
+      diagnostic:
+        options.diagnostic ||
+        (payload && payload.diagnostic) ||
+        undefined,
+      durationMs:
+        result && result.provider && typeof result.provider.durationMs === "number"
+          ? result.provider.durationMs
+          : undefined,
+      generatedImageAvailable: !!(
+        result &&
+        result.generatedImage &&
+        result.generatedImage.url
+      ),
+      formatterName:
+        (isolation && isolation.formatterName) ||
+        (summary && summary.formatterName) ||
+        null,
+      formatterVersion:
+        (isolation && isolation.formatterVersion) ||
+        (summary && summary.formatterVersion) ||
+        null,
+      positivePrompt: summary && summary.positivePrompt
+        ? summary.positivePrompt
+        : "",
+      negativePrompt: summary && summary.negativePrompt
+        ? summary.negativePrompt
+        : "",
+    });
+    addPromptExperimentRecord(record);
   }
 
   function clearPreviewState() {
@@ -181,6 +1032,7 @@
     }
     var defaultVariant = document.getElementById("promptIsolationVariantB");
     if (defaultVariant) defaultVariant.checked = true;
+    clearPromptExperimentHistoryState();
     updatePreviewGenerateEnabled();
   }
 
@@ -1271,6 +2123,13 @@
               null
             );
           }
+          if (fromIsolationLab) {
+            recordIsolationLabExperiment(payload, {
+              variant: variant,
+              scenarioId: selectedScenarioId,
+              diagnostic: safeDiagnostic(payload),
+            });
+          }
           setMessage(
             messageEl,
             formatPreviewFailure(safeCode(payload, "runtime_failure"), status, {
@@ -1287,6 +2146,12 @@
         unauthorizedStreak = 0;
         if (previewCompare) previewCompare.hidden = false;
         renderPreviewResult(payload.result);
+        if (fromIsolationLab) {
+          recordIsolationLabExperiment(payload, {
+            variant: variant,
+            scenarioId: selectedScenarioId,
+          });
+        }
         setMessage(
           messageEl,
           fromIsolationLab
@@ -1353,5 +2218,21 @@
       generatePreview({ fromIsolationLab: true });
     });
   }
+  if (promptExperimentClearButton) {
+    promptExperimentClearButton.addEventListener("click", function () {
+      clearPromptExperimentHistoryState();
+      setMessage(
+        promptExperimentHistoryMessage,
+        "Session history cleared.",
+        "ok"
+      );
+    });
+  }
+  if (promptExperimentExportButton) {
+    promptExperimentExportButton.addEventListener("click", function () {
+      exportPromptExperimentReport();
+    });
+  }
+  renderPromptExperimentHistory();
   updatePreviewGenerateEnabled();
 })();

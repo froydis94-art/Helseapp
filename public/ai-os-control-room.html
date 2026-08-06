@@ -266,6 +266,83 @@
           </div>
           <p id="promptIsolationMessage" class="message" role="status"></p>
           <div id="promptIsolationResultSummary" class="kv-grid" hidden></div>
+
+          <article class="subpanel nested" id="promptExperimentHistoryPanel">
+            <h3>Prompt experiment history</h3>
+            <p class="panel-copy">
+              Session memory only (max 20). Cleared on Lock and page refresh.
+              Never written to localStorage, sessionStorage, IndexedDB, or
+              cookies. No source images, access keys, tokens, or raw provider
+              payloads.
+            </p>
+            <div id="promptExperimentHistoryList" class="experiment-history-list"></div>
+            <div class="actions">
+              <button
+                type="button"
+                id="promptExperimentClearButton"
+                class="btn"
+              >
+                Clear session history
+              </button>
+              <button
+                type="button"
+                id="promptExperimentExportButton"
+                class="btn"
+              >
+                Export safe report
+              </button>
+            </div>
+            <p id="promptExperimentHistoryMessage" class="message" role="status"></p>
+
+            <div id="promptExperimentComparisonPanel" class="experiment-comparison">
+              <h4>Side-by-side comparison</h4>
+              <p class="panel-copy">
+                Select exactly two completed records (A and B). Line differences
+                are exact matches after trim; they do not prove causation.
+              </p>
+              <div class="experiment-compare-grid">
+                <div>
+                  <h5>Comparison A</h5>
+                  <div id="promptExperimentComparisonA" class="kv-grid"></div>
+                </div>
+                <div>
+                  <h5>Comparison B</h5>
+                  <div id="promptExperimentComparisonB" class="kv-grid"></div>
+                </div>
+              </div>
+              <div id="promptExperimentCompareFields" class="kv-grid"></div>
+              <details id="promptExperimentPromptCompareDetails">
+                <summary>Prompt texts and line difference</summary>
+                <h5>Positive prompt A</h5>
+                <pre id="promptExperimentPositiveA" class="code-block"></pre>
+                <h5>Positive prompt B</h5>
+                <pre id="promptExperimentPositiveB" class="code-block"></pre>
+                <h5>Negative prompt A</h5>
+                <pre id="promptExperimentNegativeA" class="code-block"></pre>
+                <h5>Negative prompt B</h5>
+                <pre id="promptExperimentNegativeB" class="code-block"></pre>
+                <h5>Only in A</h5>
+                <pre id="promptExperimentOnlyA" class="code-block"></pre>
+                <h5>Only in B</h5>
+                <pre id="promptExperimentOnlyB" class="code-block"></pre>
+                <h5>Lines in both</h5>
+                <pre id="promptExperimentCommonLines" class="code-block"></pre>
+              </details>
+            </div>
+
+            <div id="promptExperimentInterpretationPanel">
+              <h4>Diagnostic interpretation</h4>
+              <p id="promptExperimentInterpretationText" class="panel-copy"></p>
+            </div>
+
+            <details id="promptExperimentViewPromptsDetails">
+              <summary>View prompts</summary>
+              <h5>Positive prompt</h5>
+              <pre id="promptExperimentViewPositive" class="code-block"></pre>
+              <h5>Negative prompt</h5>
+              <pre id="promptExperimentViewNegative" class="code-block"></pre>
+            </details>
+          </article>
         </article>
 
         <div class="actions">

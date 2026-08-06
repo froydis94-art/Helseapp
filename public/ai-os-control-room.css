@@ -375,11 +375,65 @@ summary {
   background: #0a0d0a;
 }
 
+.subpanel.nested {
+  margin-top: 16px;
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.experiment-history-list {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.experiment-history-item {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.experiment-history-item h5 {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+}
+
+.experiment-history-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.experiment-history-actions .btn {
+  font-size: 0.8rem;
+  padding: 6px 10px;
+}
+
+.experiment-compare-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 10px 0;
+}
+
+.experiment-comparison h4,
+#promptExperimentInterpretationPanel h4 {
+  margin: 14px 0 6px;
+}
+
+.experiment-history-empty {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin: 8px 0;
+}
+
 @media (max-width: 820px) {
   .status-bar,
   .scenario-grid,
   .kv-grid,
-  .preview-compare {
+  .preview-compare,
+  .experiment-compare-grid {
     grid-template-columns: 1fr;
   }
 
