@@ -196,8 +196,48 @@ function buildRealismSection(
   return ["REALISM", ...uniqueStable(lines)].join("\n");
 }
 
-function buildNegativePrompt(plan: RenderPlan): string {
-  return uniqueStable(plan.exclusions).join(", ");
+function buildSafetySection(): string {
+  const lines = [
+    "Clearly adult subject only.",
+    "Non-sexual fitness progress visualization in a health and training context.",
+    "Neutral documentary presentation.",
+    "Ordinary underwear or athletic clothing may be present and must remain non-sexual.",
+    "Preserve existing clothing coverage.",
+    "Do not remove clothing.",
+    "Do not make clothing more revealing.",
+    "No nudity.",
+    "No genital exposure.",
+    "No sexualization.",
+    "No erotic pose.",
+    "No age reduction.",
+    "No age ambiguity.",
+    "Preserve identity.",
+    "Preserve pose unless the approved transformation requires only a minor natural adjustment.",
+  ];
+  return ["SAFETY", ...lines].join("\n");
+}
+
+const PREVIEW_SAFETY_NEGATIVE = [
+  "nudity",
+  "genital exposure",
+  "sexualized pose",
+  "erotic framing",
+  "age reduction",
+  "minor appearance",
+  "childlike features",
+  "removed clothing",
+  "more revealing clothing",
+] as const;
+
+function buildNegativePrompt(
+  plan: RenderPlan,
+  includePreviewSafety: boolean
+): string {
+  const parts = [...plan.exclusions];
+  if (includePreviewSafety) {
+    parts.push(...PREVIEW_SAFETY_NEGATIVE);
+  }
+  return uniqueStable(parts).join(", ");
 }
 
 function resolvePresentationStyle(
@@ -305,16 +345,23 @@ export class FluxFormatter implements ProviderFormatter {
       renderPlan.transformation.approvedChanges;
     void approvedChanges;
 
-    const prompt = [
+    const includePreviewSafety =
+      options?.previewSafetyContext === "non_sexual_fitness_visualization";
+
+    const promptSections = [
       buildSourceSection(renderPlan),
       buildIdentitySection(renderPlan),
       buildSceneSection(renderPlan),
       buildTransformSection(renderPlan),
       buildAnatomySection(renderPlan),
       buildRealismSection(renderPlan, presentationStyle),
-    ].join("\n\n");
+    ];
+    if (includePreviewSafety) {
+      promptSections.push(buildSafetySection());
+    }
+    const prompt = promptSections.join("\n\n");
 
-    const negativePrompt = buildNegativePrompt(renderPlan);
+    const negativePrompt = buildNegativePrompt(renderPlan, includePreviewSafety);
 
     const result: FormattedImageRequest = {
       providerFamily: this.providerFamily,

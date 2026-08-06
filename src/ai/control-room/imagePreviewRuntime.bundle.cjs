@@ -359,8 +359,43 @@ function buildRealismSection(plan, presentationStyle) {
   }
   return ["REALISM", ...uniqueStable(lines)].join("\n");
 }
-function buildNegativePrompt(plan) {
-  return uniqueStable(plan.exclusions).join(", ");
+function buildSafetySection() {
+  const lines = [
+    "Clearly adult subject only.",
+    "Non-sexual fitness progress visualization in a health and training context.",
+    "Neutral documentary presentation.",
+    "Ordinary underwear or athletic clothing may be present and must remain non-sexual.",
+    "Preserve existing clothing coverage.",
+    "Do not remove clothing.",
+    "Do not make clothing more revealing.",
+    "No nudity.",
+    "No genital exposure.",
+    "No sexualization.",
+    "No erotic pose.",
+    "No age reduction.",
+    "No age ambiguity.",
+    "Preserve identity.",
+    "Preserve pose unless the approved transformation requires only a minor natural adjustment."
+  ];
+  return ["SAFETY", ...lines].join("\n");
+}
+var PREVIEW_SAFETY_NEGATIVE = [
+  "nudity",
+  "genital exposure",
+  "sexualized pose",
+  "erotic framing",
+  "age reduction",
+  "minor appearance",
+  "childlike features",
+  "removed clothing",
+  "more revealing clothing"
+];
+function buildNegativePrompt(plan, includePreviewSafety) {
+  const parts = [...plan.exclusions];
+  if (includePreviewSafety) {
+    parts.push(...PREVIEW_SAFETY_NEGATIVE);
+  }
+  return uniqueStable(parts).join(", ");
 }
 function resolvePresentationStyle(plan, options, warnings) {
   if (options?.styleOverride !== void 0) {
@@ -435,15 +470,20 @@ var FluxFormatter = class {
     const optionFields = applyOptions(options, warnings);
     const approvedChanges = renderPlan.transformation.approvedChanges;
     void approvedChanges;
-    const prompt = [
+    const includePreviewSafety = options?.previewSafetyContext === "non_sexual_fitness_visualization";
+    const promptSections = [
       buildSourceSection(renderPlan),
       buildIdentitySection(renderPlan),
       buildSceneSection(renderPlan),
       buildTransformSection(renderPlan),
       buildAnatomySection(renderPlan),
       buildRealismSection(renderPlan, presentationStyle)
-    ].join("\n\n");
-    const negativePrompt = buildNegativePrompt(renderPlan);
+    ];
+    if (includePreviewSafety) {
+      promptSections.push(buildSafetySection());
+    }
+    const prompt = promptSections.join("\n\n");
+    const negativePrompt = buildNegativePrompt(renderPlan, includePreviewSafety);
     const result = {
       providerFamily: this.providerFamily,
       prompt,
@@ -4989,6 +5029,7 @@ function getControlRoomScenario(id) {
 
 // src/ai/control-room/ImagePreviewTypes.ts
 var IMAGE_PREVIEW_SCHEMA_VERSION = 1;
+var IMAGE_PREVIEW_INTENDED_CONTEXT = "non_sexual_fitness_visualization";
 var IMAGE_PREVIEW_FORBIDDEN_CONTENT_ERROR = "Image preview projection contained forbidden content.";
 var IMAGE_PREVIEW_SAFETY_STATUS = {
   internalOnly: true,
@@ -4999,6 +5040,13 @@ var IMAGE_PREVIEW_SAFETY_STATUS = {
   legacyProductionChanged: false,
   publicCutoverEnabled: false
 };
+var IMAGE_PREVIEW_INPUT_ASSURANCES = {
+  adultConfirmed: true,
+  consentConfirmed: true,
+  billingConfirmed: true,
+  intendedContext: IMAGE_PREVIEW_INTENDED_CONTEXT
+};
+var IMAGE_PREVIEW_PROVIDER_SAFETY_BLOCKED_MESSAGE = "The AI provider declined this image under its safety policy. HelseApp did not bypass the safety filter. Clearly adult, neutral and non-sexual underwear or fitness photos are supported by HelseApp, but an external provider may still decline some images.";
 var IMAGE_PREVIEW_MAX_BYTES = 5 * 1024 * 1024;
 var IMAGE_PREVIEW_ACCEPTED_MIME = [
   "image/jpeg",
@@ -5136,6 +5184,9 @@ function projectProvider(transport, model) {
     durationMs: Math.max(0, transport.generationTimeMs)
   };
 }
+function isExactInputAssurances(value) {
+  return value != null && value.adultConfirmed === true && value.consentConfirmed === true && value.billingConfirmed === true && value.intendedContext === IMAGE_PREVIEW_INTENDED_CONTEXT;
+}
 function projectImagePreviewResult(input) {
   const { runtimeResult } = input;
   const transport = runtimeResult.artifacts.transportResult;
@@ -5172,7 +5223,8 @@ function projectImagePreviewResult(input) {
       }
     };
   }
-  const success = runtimeResult.success === true && generatedUrl != null && (validation == null || validation.accepted === true);
+  const assurancesOk = isExactInputAssurances(input.inputAssurances);
+  const success = runtimeResult.success === true && generatedUrl != null && (validation == null || validation.accepted === true) && assurancesOk;
   return {
     schemaVersion: IMAGE_PREVIEW_SCHEMA_VERSION,
     success,
@@ -5194,6 +5246,7 @@ function projectImagePreviewResult(input) {
     provider: projectProvider(transport, input.model),
     validation,
     safety: { ...IMAGE_PREVIEW_SAFETY_STATUS },
+    inputAssurances: assurancesOk ? { ...IMAGE_PREVIEW_INPUT_ASSURANCES } : { ...input.inputAssurances },
     warnings,
     errors: [...runtimeResult.errors].slice(0, 20)
   };
@@ -5245,6 +5298,12 @@ function validateImagePreviewProjection(result) {
   if (safety == null || safety.internalOnly !== true || safety.explicitBillingConfirmation !== true || safety.requestCapApplied !== true || safety.sourceImagePersisted !== false || safety.generatedImagePersistedByHelseApp !== false || safety.legacyProductionChanged !== false || safety.publicCutoverEnabled !== false) {
     errors.push("Safety invariants are not exact.");
   }
+  if (!isExactInputAssurances(result.inputAssurances)) {
+    errors.push("Input assurances are missing or not exact.");
+  }
+  if (result.success === true && !isExactInputAssurances(result.inputAssurances)) {
+    errors.push("Successful projection requires exact input assurances.");
+  }
   if (result.generatedImage != null) {
     if (result.generatedImage.expiresOrIsTemporary !== true) {
       errors.push("Generated image must be marked temporary.");
@@ -5291,6 +5350,7 @@ function sanitizeImagePreviewProjection(result) {
     provider: null,
     validation: null,
     safety: { ...IMAGE_PREVIEW_SAFETY_STATUS },
+    inputAssurances: { ...IMAGE_PREVIEW_INPUT_ASSURANCES },
     warnings: [],
     errors: [IMAGE_PREVIEW_FORBIDDEN_CONTENT_ERROR]
   };
@@ -5422,6 +5482,22 @@ function validatePreviewSourceImage(raw) {
     byteLength: bytes.length
   };
 }
+function assertAdultConfirmed(value) {
+  if (value !== true) {
+    throw new ImagePreviewServiceError(
+      "adult_confirmation_required",
+      "Adult confirmation is required."
+    );
+  }
+}
+function assertConsentConfirmed(value) {
+  if (value !== true) {
+    throw new ImagePreviewServiceError(
+      "consent_confirmation_required",
+      "Consent confirmation is required."
+    );
+  }
+}
 function assertBillingConfirmed(value) {
   if (value !== true) {
     throw new ImagePreviewServiceError(
@@ -5490,7 +5566,7 @@ function mapTransportFailureToPreviewError(transport) {
       if (isProviderSafetyMessage(transport.error.message)) {
         return new ImagePreviewServiceError(
           "provider_safety_blocked",
-          "Provider safety filter blocked the request."
+          IMAGE_PREVIEW_PROVIDER_SAFETY_BLOCKED_MESSAGE
         );
       }
       return new ImagePreviewServiceError(
@@ -5561,6 +5637,8 @@ var ImagePreviewService = class {
     this.deps = deps;
   }
   async runPreview(input) {
+    assertAdultConfirmed(input.adultConfirmed);
+    assertConsentConfirmed(input.consentConfirmed);
     assertBillingConfirmed(input.billingConfirmed);
     const scenarioId = input.scenarioId;
     if (typeof scenarioId !== "string") {
@@ -5603,11 +5681,15 @@ var ImagePreviewService = class {
         now
       })
     );
+    const formatterOptions = {
+      ...resolved.runtimeInput.formatterOptions ?? {},
+      previewSafetyContext: "non_sexual_fitness_visualization"
+    };
     const runtimeInput = {
       mode: "transport_mock",
       profile: resolved.runtimeInput.profile,
       goal: resolved.runtimeInput.goal,
-      ...resolved.runtimeInput.formatterOptions !== void 0 ? { formatterOptions: resolved.runtimeInput.formatterOptions } : {},
+      formatterOptions,
       sourceImage: {
         kind: "data_uri",
         value: source.dataUri,
@@ -5690,6 +5772,7 @@ var ImagePreviewService = class {
         runtimeResult,
         validationDecision,
         model,
+        inputAssurances: { ...IMAGE_PREVIEW_INPUT_ASSURANCES },
         extraWarnings: [
           "Preview laboratory: ResultValidator used provisional evidence; real vision analysis is deferred to Demand 018.",
           "No automatic retry was performed."

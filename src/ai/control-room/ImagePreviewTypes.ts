@@ -16,8 +16,23 @@ export type ImagePreviewScenarioId =
 
 export type ImagePreviewMimeType = "image/jpeg" | "image/png" | "image/webp";
 
+export const IMAGE_PREVIEW_INTENDED_CONTEXT =
+  "non_sexual_fitness_visualization" as const;
+
+export type ImagePreviewIntendedContext =
+  typeof IMAGE_PREVIEW_INTENDED_CONTEXT;
+
+export interface ImagePreviewInputAssurances {
+  adultConfirmed: true;
+  consentConfirmed: true;
+  billingConfirmed: true;
+  intendedContext: ImagePreviewIntendedContext;
+}
+
 export interface ImagePreviewRequestMetadata {
   scenarioId: ImagePreviewScenarioId;
+  adultConfirmed: true;
+  consentConfirmed: true;
   billingConfirmed: true;
   requestId: string;
 }
@@ -101,6 +116,7 @@ export interface ImagePreviewResult {
   provider: ImagePreviewProviderSummary | null;
   validation: ImagePreviewValidationSummary | null;
   safety: ImagePreviewSafetyStatus;
+  inputAssurances: ImagePreviewInputAssurances;
 
   warnings: string[];
   errors: string[];
@@ -122,6 +138,8 @@ export interface ImagePreviewApiFailure {
     | "invalid_request"
     | "invalid_image"
     | "image_too_large"
+    | "adult_confirmation_required"
+    | "consent_confirmation_required"
     | "billing_confirmation_required"
     | "preview_rate_limited"
     | "scenario_not_found"
@@ -165,6 +183,16 @@ export const IMAGE_PREVIEW_SAFETY_STATUS: ImagePreviewSafetyStatus = {
   legacyProductionChanged: false,
   publicCutoverEnabled: false,
 };
+
+export const IMAGE_PREVIEW_INPUT_ASSURANCES: ImagePreviewInputAssurances = {
+  adultConfirmed: true,
+  consentConfirmed: true,
+  billingConfirmed: true,
+  intendedContext: IMAGE_PREVIEW_INTENDED_CONTEXT,
+};
+
+export const IMAGE_PREVIEW_PROVIDER_SAFETY_BLOCKED_MESSAGE =
+  "The AI provider declined this image under its safety policy. HelseApp did not bypass the safety filter. Clearly adult, neutral and non-sexual underwear or fitness photos are supported by HelseApp, but an external provider may still decline some images." as const;
 
 export const IMAGE_PREVIEW_MAX_BYTES = 5 * 1024 * 1024;
 

@@ -58,6 +58,10 @@
     "previewGeneratedLinkWrap"
   );
   var previewGeneratedLink = document.getElementById("previewGeneratedLink");
+  var previewAdultCheckbox = document.getElementById("previewAdultCheckbox");
+  var previewConsentCheckbox = document.getElementById(
+    "previewConsentCheckbox"
+  );
   var previewBillingCheckbox = document.getElementById(
     "previewBillingCheckbox"
   );
@@ -130,6 +134,8 @@
       previewObjectUrl = null;
     }
     if (previewFileInput) previewFileInput.value = "";
+    if (previewAdultCheckbox) previewAdultCheckbox.checked = false;
+    if (previewConsentCheckbox) previewConsentCheckbox.checked = false;
     if (previewBillingCheckbox) previewBillingCheckbox.checked = false;
     if (previewCompare) previewCompare.hidden = true;
     if (previewSourceImg) previewSourceImg.removeAttribute("src");
@@ -162,6 +168,8 @@
       !!accessKey &&
       !!selectedScenarioId &&
       !!previewSourceDataUri &&
+      !!(previewAdultCheckbox && previewAdultCheckbox.checked) &&
+      !!(previewConsentCheckbox && previewConsentCheckbox.checked) &&
       !!(previewBillingCheckbox && previewBillingCheckbox.checked) &&
       !previewInFlight &&
       !requestInFlight;
@@ -1046,6 +1054,8 @@
     invalid_request: true,
     invalid_image: true,
     image_too_large: true,
+    adult_confirmation_required: true,
+    consent_confirmation_required: true,
     billing_confirmation_required: true,
     preview_rate_limited: true,
     runtime_failure: true,
@@ -1083,6 +1093,8 @@
       !accessKey ||
       !selectedScenarioId ||
       !previewSourceDataUri ||
+      !(previewAdultCheckbox && previewAdultCheckbox.checked) ||
+      !(previewConsentCheckbox && previewConsentCheckbox.checked) ||
       !(previewBillingCheckbox && previewBillingCheckbox.checked)
     ) {
       return;
@@ -1099,6 +1111,8 @@
 
     previewRequest({
       scenarioId: selectedScenarioId,
+      adultConfirmed: true,
+      consentConfirmed: true,
       billingConfirmed: true,
       sourceImageDataUri: previewSourceDataUri,
     })
@@ -1190,6 +1204,18 @@
 
   if (previewFileInput) {
     previewFileInput.addEventListener("change", onPreviewFileSelected);
+  }
+  if (previewAdultCheckbox) {
+    previewAdultCheckbox.addEventListener(
+      "change",
+      updatePreviewGenerateEnabled
+    );
+  }
+  if (previewConsentCheckbox) {
+    previewConsentCheckbox.addEventListener(
+      "change",
+      updatePreviewGenerateEnabled
+    );
   }
   if (previewBillingCheckbox) {
     previewBillingCheckbox.addEventListener("change", updatePreviewGenerateEnabled);

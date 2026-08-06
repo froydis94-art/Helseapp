@@ -69,6 +69,8 @@ export interface FormattedImageRequest {
   };
 }
 
+export type PreviewSafetyContext = "non_sexual_fitness_visualization";
+
 export interface FormatterOptions {
   aspectRatio?: string;
   seed?: number;
@@ -77,6 +79,11 @@ export interface FormatterOptions {
     | "source_faithful"
     | "natural_athletic"
     | "documentary_fitness";
+  /**
+   * Internal preview laboratory only — structured adult non-sexual fitness
+   * safety wording. Not a browser-supplied free-text prompt.
+   */
+  previewSafetyContext?: PreviewSafetyContext;
 }
 
 export interface ProviderFormatter {

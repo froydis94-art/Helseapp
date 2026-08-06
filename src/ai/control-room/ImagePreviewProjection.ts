@@ -11,8 +11,11 @@ import type { ValidationDecision } from "../validation-result/ValidationDecision
 import type { ReplicateTransportResult } from "../transport/ReplicateTransportTypes";
 import {
   IMAGE_PREVIEW_FORBIDDEN_CONTENT_ERROR,
+  IMAGE_PREVIEW_INPUT_ASSURANCES,
+  IMAGE_PREVIEW_INTENDED_CONTEXT,
   IMAGE_PREVIEW_SAFETY_STATUS,
   IMAGE_PREVIEW_SCHEMA_VERSION,
+  type ImagePreviewInputAssurances,
   type ImagePreviewMimeType,
   type ImagePreviewResult,
   type ImagePreviewScenarioId,
@@ -182,6 +185,18 @@ function projectProvider(
   };
 }
 
+function isExactInputAssurances(
+  value: ImagePreviewInputAssurances | null | undefined
+): value is ImagePreviewInputAssurances {
+  return (
+    value != null &&
+    value.adultConfirmed === true &&
+    value.consentConfirmed === true &&
+    value.billingConfirmed === true &&
+    value.intendedContext === IMAGE_PREVIEW_INTENDED_CONTEXT
+  );
+}
+
 export interface ImagePreviewProjectionInput {
   scenarioId: ImagePreviewScenarioId;
   requestId: string;
@@ -190,6 +205,7 @@ export interface ImagePreviewProjectionInput {
   runtimeResult: AiOsRuntimeResult;
   validationDecision?: ValidationDecision | null;
   model: string;
+  inputAssurances: ImagePreviewInputAssurances;
   extraWarnings?: string[];
 }
 
@@ -251,10 +267,12 @@ export function projectImagePreviewResult(
     };
   }
 
+  const assurancesOk = isExactInputAssurances(input.inputAssurances);
   const success =
     runtimeResult.success === true &&
     generatedUrl != null &&
-    (validation == null || validation.accepted === true);
+    (validation == null || validation.accepted === true) &&
+    assurancesOk;
 
   return {
     schemaVersion: IMAGE_PREVIEW_SCHEMA_VERSION,
@@ -280,6 +298,9 @@ export function projectImagePreviewResult(
     provider: projectProvider(transport, input.model),
     validation,
     safety: { ...IMAGE_PREVIEW_SAFETY_STATUS },
+    inputAssurances: assurancesOk
+      ? { ...IMAGE_PREVIEW_INPUT_ASSURANCES }
+      : { ...input.inputAssurances },
     warnings,
     errors: [...runtimeResult.errors].slice(0, 20),
   };
@@ -365,6 +386,14 @@ export function validateImagePreviewProjection(
     errors.push("Safety invariants are not exact.");
   }
 
+  if (!isExactInputAssurances(result.inputAssurances)) {
+    errors.push("Input assurances are missing or not exact.");
+  }
+
+  if (result.success === true && !isExactInputAssurances(result.inputAssurances)) {
+    errors.push("Successful projection requires exact input assurances.");
+  }
+
   if (result.generatedImage != null) {
     if (result.generatedImage.expiresOrIsTemporary !== true) {
       errors.push("Generated image must be marked temporary.");
@@ -421,6 +450,7 @@ export function sanitizeImagePreviewProjection(
     provider: null,
     validation: null,
     safety: { ...IMAGE_PREVIEW_SAFETY_STATUS },
+    inputAssurances: { ...IMAGE_PREVIEW_INPUT_ASSURANCES },
     warnings: [],
     errors: [IMAGE_PREVIEW_FORBIDDEN_CONTENT_ERROR],
   };

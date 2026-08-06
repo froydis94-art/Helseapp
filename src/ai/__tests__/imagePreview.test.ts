@@ -31,11 +31,18 @@ import {
   type ImagePreviewResult,
 } from "../control-room";
 import {
+  IMAGE_PREVIEW_INPUT_ASSURANCES,
+  IMAGE_PREVIEW_INTENDED_CONTEXT,
+  IMAGE_PREVIEW_PROVIDER_SAFETY_BLOCKED_MESSAGE,
+} from "../control-room/ImagePreviewTypes";
+import { mapTransportFailureToPreviewError } from "../control-room/ImagePreviewService";
+import {
   RUNTIME_FIXTURE_PREDICTION_ID,
   runtimeTransportSuccessResult,
 } from "../runtime";
 import type {
   ReplicateTransportAdapter,
+  ReplicateTransportFailure,
   ReplicateTransportInput,
   ReplicateTransportResult,
 } from "../transport";
@@ -263,6 +270,8 @@ describe("imagePreview — DEMAND_017", () => {
             headers: { "x-ai-os-control-room-key": TEST_KEY },
             body: {
               scenarioId: "balanced_recomposition_12w",
+              adultConfirmed: true,
+              consentConfirmed: true,
               billingConfirmed: true,
               sourceImageDataUri: JPEG_DATA_URI,
             },
@@ -287,6 +296,8 @@ describe("imagePreview — DEMAND_017", () => {
               });
               return service.runPreview({
                 scenarioId: "balanced_recomposition_12w",
+                adultConfirmed: true,
+                consentConfirmed: true,
                 billingConfirmed: true,
                 sourceImageDataUri: JPEG_DATA_URI,
               });
@@ -303,6 +314,8 @@ describe("imagePreview — DEMAND_017", () => {
               headers: { "x-ai-os-control-room-key": TEST_KEY },
               body: {
                 scenarioId: "balanced_recomposition_12w",
+                adultConfirmed: true,
+                consentConfirmed: true,
                 billingConfirmed: true,
                 sourceImageDataUri: JPEG_DATA_URI,
               },
@@ -331,6 +344,8 @@ describe("imagePreview — DEMAND_017", () => {
             headers: { "x-ai-os-control-room-key": "wrong-key-value-xxxxxxxx" },
             body: {
               scenarioId: "balanced_recomposition_12w",
+              adultConfirmed: true,
+              consentConfirmed: true,
               billingConfirmed: true,
               sourceImageDataUri: JPEG_DATA_URI,
             },
@@ -353,6 +368,8 @@ describe("imagePreview — DEMAND_017", () => {
             query: { accessKey: TEST_KEY },
             body: {
               scenarioId: "balanced_recomposition_12w",
+              adultConfirmed: true,
+              consentConfirmed: true,
               billingConfirmed: true,
               sourceImageDataUri: JPEG_DATA_URI,
             },
@@ -374,6 +391,8 @@ describe("imagePreview — DEMAND_017", () => {
             headers: { "x-ai-os-control-room-key": TEST_KEY },
             body: {
               scenarioId: "balanced_recomposition_12w",
+              adultConfirmed: true,
+              consentConfirmed: true,
               billingConfirmed: true,
               sourceImageDataUri: JPEG_DATA_URI,
               accessKey: TEST_KEY,
@@ -397,6 +416,8 @@ describe("imagePreview — DEMAND_017", () => {
             },
             body: {
               scenarioId: "balanced_recomposition_12w",
+              adultConfirmed: true,
+              consentConfirmed: true,
               billingConfirmed: true,
               sourceImageDataUri: JPEG_DATA_URI,
             },
@@ -518,6 +539,8 @@ describe("imagePreview — DEMAND_017", () => {
       });
       const result = await service.runPreview({
         scenarioId: "balanced_recomposition_12w",
+        adultConfirmed: true,
+        consentConfirmed: true,
         billingConfirmed: true,
         sourceImageDataUri: JPEG_DATA_URI,
       });
@@ -539,6 +562,8 @@ describe("imagePreview — DEMAND_017", () => {
         () =>
           service.runPreview({
             scenarioId: "balanced_recomposition_12w",
+            adultConfirmed: true,
+            consentConfirmed: true,
             billingConfirmed: undefined,
             sourceImageDataUri: JPEG_DATA_URI,
           }),
@@ -559,6 +584,8 @@ describe("imagePreview — DEMAND_017", () => {
         () =>
           service.runPreview({
             scenarioId: "balanced_recomposition_12w",
+            adultConfirmed: true,
+            consentConfirmed: true,
             billingConfirmed: false,
             sourceImageDataUri: JPEG_DATA_URI,
           }),
@@ -579,6 +606,8 @@ describe("imagePreview — DEMAND_017", () => {
         () =>
           service.runPreview({
             scenarioId: "balanced_recomposition_12w",
+            adultConfirmed: true,
+            consentConfirmed: true,
             billingConfirmed: "true",
             sourceImageDataUri: JPEG_DATA_URI,
           }),
@@ -595,6 +624,8 @@ describe("imagePreview — DEMAND_017", () => {
       });
       const result = await service.runPreview({
         scenarioId: "balanced_recomposition_12w",
+        adultConfirmed: true,
+        consentConfirmed: true,
         billingConfirmed: true,
         sourceImageDataUri: JPEG_DATA_URI,
       });
@@ -609,6 +640,8 @@ describe("imagePreview — DEMAND_017", () => {
       await assert.rejects(() =>
         service.runPreview({
           scenarioId: "balanced_recomposition_12w",
+          adultConfirmed: true,
+          consentConfirmed: true,
           billingConfirmed: false,
           sourceImageDataUri: JPEG_DATA_URI,
         })
@@ -659,6 +692,7 @@ describe("imagePreview — DEMAND_017", () => {
                   provider: null,
                   validation: null,
                   safety: { ...IMAGE_PREVIEW_SAFETY_STATUS },
+                  inputAssurances: { ...IMAGE_PREVIEW_INPUT_ASSURANCES },
                   warnings: [],
                   errors: [],
                 } satisfies ImagePreviewResult;
@@ -674,6 +708,8 @@ describe("imagePreview — DEMAND_017", () => {
                 headers: { "x-ai-os-control-room-key": TEST_KEY },
                 body: {
                   scenarioId: "balanced_recomposition_12w",
+                  adultConfirmed: true,
+                  consentConfirmed: true,
                   billingConfirmed: true,
                   sourceImageDataUri: JPEG_DATA_URI,
                 },
@@ -688,6 +724,8 @@ describe("imagePreview — DEMAND_017", () => {
                 headers: { "x-ai-os-control-room-key": TEST_KEY },
                 body: {
                   scenarioId: "balanced_recomposition_12w",
+                  adultConfirmed: true,
+                  consentConfirmed: true,
                   billingConfirmed: true,
                   sourceImageDataUri: JPEG_DATA_URI,
                 },
@@ -714,6 +752,8 @@ describe("imagePreview — DEMAND_017", () => {
       });
       await service.runPreview({
         scenarioId: "balanced_recomposition_12w",
+        adultConfirmed: true,
+        consentConfirmed: true,
         billingConfirmed: true,
         sourceImageDataUri: JPEG_DATA_URI,
       });
@@ -727,6 +767,8 @@ describe("imagePreview — DEMAND_017", () => {
       });
       const result = await service.runPreview({
         scenarioId: "upper_body_definition_8w",
+        adultConfirmed: true,
+        consentConfirmed: true,
         billingConfirmed: true,
         sourceImageDataUri: JPEG_DATA_URI,
       });
@@ -760,6 +802,8 @@ describe("imagePreview — DEMAND_017", () => {
         () =>
           service.runPreview({
             scenarioId: "balanced_recomposition_12w",
+            adultConfirmed: true,
+            consentConfirmed: true,
             billingConfirmed: true,
             sourceImageDataUri: JPEG_DATA_URI,
           }),
@@ -826,6 +870,8 @@ describe("imagePreview — DEMAND_017", () => {
           () =>
             service.runPreview({
               scenarioId: "balanced_recomposition_12w",
+              adultConfirmed: true,
+              consentConfirmed: true,
               billingConfirmed: true,
               sourceImageDataUri: JPEG_DATA_URI,
             }),
@@ -890,6 +936,8 @@ describe("imagePreview — DEMAND_017", () => {
 
       const result = await service.runPreview({
         scenarioId: "balanced_recomposition_12w",
+        adultConfirmed: true,
+        consentConfirmed: true,
         billingConfirmed: true,
         sourceImageDataUri: JPEG_DATA_URI,
       });
@@ -922,6 +970,8 @@ describe("imagePreview — DEMAND_017", () => {
       });
       const result = await service.runPreview({
         scenarioId: "gradual_fat_loss_16w",
+        adultConfirmed: true,
+        consentConfirmed: true,
         billingConfirmed: true,
         sourceImageDataUri: JPEG_DATA_URI,
       });
@@ -984,6 +1034,8 @@ describe("imagePreview — DEMAND_017", () => {
       });
       const result = await service.runPreview({
         scenarioId: "athletic_strength_24w",
+        adultConfirmed: true,
+        consentConfirmed: true,
         billingConfirmed: true,
         sourceImageDataUri: JPEG_DATA_URI,
       });
@@ -1009,6 +1061,8 @@ describe("imagePreview — DEMAND_017", () => {
         () =>
           service.runPreview({
             scenarioId: "balanced_recomposition_12w",
+            adultConfirmed: true,
+            consentConfirmed: true,
             billingConfirmed: true,
             sourceImageDataUri: JPEG_DATA_URI,
           }),
@@ -1028,6 +1082,8 @@ describe("imagePreview — DEMAND_017", () => {
       });
       const result = await service.runPreview({
         scenarioId: "balanced_recomposition_12w",
+        adultConfirmed: true,
+        consentConfirmed: true,
         billingConfirmed: true,
         sourceImageDataUri: JPEG_DATA_URI,
       });
@@ -1074,6 +1130,7 @@ describe("imagePreview — DEMAND_017", () => {
         provider: null,
         validation: null,
         safety: { ...IMAGE_PREVIEW_SAFETY_STATUS },
+        inputAssurances: { ...IMAGE_PREVIEW_INPUT_ASSURANCES },
         warnings: [],
         errors: [],
       };
@@ -1101,9 +1158,12 @@ describe("imagePreview — DEMAND_017", () => {
       assert.match(js, /toDataURL\("image\/jpeg"/);
       assert.match(js, /drawImage/);
       assert.match(js, /PREVIEW_MAX_LONG_EDGE|1600/);
+      assert.match(js, /previewAdultCheckbox\.checked/);
+      assert.match(js, /previewConsentCheckbox\.checked/);
       assert.match(js, /previewBillingCheckbox\.checked/);
       assert.match(js, /clearPreviewState/);
       assert.match(html, /AI OS PREVIEW/);
+      assert.match(html, /Ordinary underwear/);
       assert.equal(/share|twitter|facebook|download/i.test(html), false);
       assert.equal(/public production generation/i.test(html), false);
       assert.match(html, /Internal preview only/);
@@ -1261,6 +1321,8 @@ describe("imagePreview — DEMAND_017", () => {
             env: { REPLICATE_API_TOKEN: "" },
           }).runPreview({
             scenarioId: "balanced_recomposition_12w",
+            adultConfirmed: true,
+            consentConfirmed: true,
             billingConfirmed: true,
             sourceImageDataUri: JPEG_DATA_URI,
           }),
@@ -1278,6 +1340,8 @@ describe("imagePreview — DEMAND_017", () => {
                 env: { REPLICATE_API_TOKEN: undefined },
               }).runPreview({
                 scenarioId: "balanced_recomposition_12w",
+                adultConfirmed: true,
+                consentConfirmed: true,
                 billingConfirmed: true,
                 sourceImageDataUri: JPEG_DATA_URI,
               });
@@ -1296,6 +1360,8 @@ describe("imagePreview — DEMAND_017", () => {
               headers: { "x-ai-os-control-room-key": TEST_KEY },
               body: {
                 scenarioId: "balanced_recomposition_12w",
+                adultConfirmed: true,
+                consentConfirmed: true,
                 billingConfirmed: true,
                 sourceImageDataUri: JPEG_DATA_URI,
               },
@@ -1387,6 +1453,8 @@ describe("imagePreview — DEMAND_017", () => {
               headers: { "x-ai-os-control-room-key": TEST_KEY },
               body: {
                 scenarioId: "balanced_recomposition_12w",
+                adultConfirmed: true,
+                consentConfirmed: true,
                 billingConfirmed: true,
                 sourceImageDataUri: JPEG_DATA_URI,
               },
@@ -1451,6 +1519,8 @@ describe("imagePreview — DEMAND_017", () => {
               headers: { "x-ai-os-control-room-key": TEST_KEY },
               body: {
                 scenarioId: "balanced_recomposition_12w",
+                adultConfirmed: true,
+                consentConfirmed: true,
                 billingConfirmed: true,
                 sourceImageDataUri: JPEG_DATA_URI,
               },
@@ -1468,6 +1538,338 @@ describe("imagePreview — DEMAND_017", () => {
           api.loadImagePreviewServiceModule = original;
         }
       });
+    });
+  });
+
+  describe("PATCH 017B — adult consent and non-sexual underwear", () => {
+    it("1-2. UI allows ordinary underwear for clearly adult neutral fitness", () => {
+      const html = read(uiHtmlPath);
+      assert.match(
+        html,
+        /Ordinary underwear, sports bras, swimwear, fitted training clothes/
+      );
+      assert.match(html, /allowed for clearly adult users/);
+      assert.match(html, /neutral and non-sexual/);
+      assert.equal(/underwear is (prohibited|not allowed|banned)/i.test(html), false);
+    });
+
+    it("3-5. Adult and consent confirmations exist unchecked by default", () => {
+      const html = read(uiHtmlPath);
+      assert.match(html, /previewAdultCheckbox/);
+      assert.match(html, /at least 18 years old/);
+      assert.match(html, /previewConsentCheckbox/);
+      assert.match(html, /explicit permission from the adult person/);
+      assert.equal(/previewAdultCheckbox[^>]*checked/i.test(html), false);
+      assert.equal(/previewConsentCheckbox[^>]*checked/i.test(html), false);
+      assert.equal(/previewBillingCheckbox[^>]*checked/i.test(html), false);
+    });
+
+    it("6-10. Adult confirmation rejects non-literal-true and accepts true", async () => {
+      const calls = { count: 0, inputs: [] as ReplicateTransportInput[] };
+      const service = new ImagePreviewService({
+        transportAdapter: createFakeTransport(successTransportResult(), calls),
+      });
+      for (const value of [undefined, false, "true", 1] as const) {
+        await assert.rejects(
+          () =>
+            service.runPreview({
+              scenarioId: "balanced_recomposition_12w",
+              adultConfirmed: value,
+              consentConfirmed: true,
+              billingConfirmed: true,
+              sourceImageDataUri: JPEG_DATA_URI,
+            }),
+          (err: unknown) =>
+            err instanceof ImagePreviewServiceError &&
+            err.code === "adult_confirmation_required"
+        );
+      }
+      assert.equal(calls.count, 0);
+      const ok = await service.runPreview({
+        scenarioId: "balanced_recomposition_12w",
+        adultConfirmed: true,
+        consentConfirmed: true,
+        billingConfirmed: true,
+        sourceImageDataUri: JPEG_DATA_URI,
+      });
+      assert.equal(ok.success, true);
+      assert.equal(calls.count, 1);
+    });
+
+    it("11-15. Consent confirmation rejects non-literal-true and accepts true", async () => {
+      const calls = { count: 0, inputs: [] as ReplicateTransportInput[] };
+      const service = new ImagePreviewService({
+        transportAdapter: createFakeTransport(successTransportResult(), calls),
+      });
+      for (const value of [undefined, false, "true", 1] as const) {
+        await assert.rejects(
+          () =>
+            service.runPreview({
+              scenarioId: "balanced_recomposition_12w",
+              adultConfirmed: true,
+              consentConfirmed: value,
+              billingConfirmed: true,
+              sourceImageDataUri: JPEG_DATA_URI,
+            }),
+          (err: unknown) =>
+            err instanceof ImagePreviewServiceError &&
+            err.code === "consent_confirmation_required"
+        );
+      }
+      assert.equal(calls.count, 0);
+      const ok = await service.runPreview({
+        scenarioId: "balanced_recomposition_12w",
+        adultConfirmed: true,
+        consentConfirmed: true,
+        billingConfirmed: true,
+        sourceImageDataUri: JPEG_DATA_URI,
+      });
+      assert.equal(ok.success, true);
+    });
+
+    it("16-19. Provider not called before any of the three confirmations", async () => {
+      const cases = [
+        {
+          adultConfirmed: false as unknown,
+          consentConfirmed: true as unknown,
+          billingConfirmed: true as unknown,
+        },
+        {
+          adultConfirmed: true as unknown,
+          consentConfirmed: false as unknown,
+          billingConfirmed: true as unknown,
+        },
+        {
+          adultConfirmed: true as unknown,
+          consentConfirmed: true as unknown,
+          billingConfirmed: false as unknown,
+        },
+      ];
+      for (const conf of cases) {
+        const calls = { count: 0, inputs: [] as ReplicateTransportInput[] };
+        const service = new ImagePreviewService({
+          transportAdapter: createFakeTransport(successTransportResult(), calls),
+        });
+        await assert.rejects(() =>
+          service.runPreview({
+            scenarioId: "balanced_recomposition_12w",
+            sourceImageDataUri: JPEG_DATA_URI,
+            adultConfirmed: conf.adultConfirmed,
+            consentConfirmed: conf.consentConfirmed,
+            billingConfirmed: conf.billingConfirmed,
+          })
+        );
+        assert.equal(calls.count, 0);
+      }
+      const js = read(uiJsPath);
+      assert.match(js, /previewAdultCheckbox\.checked/);
+      assert.match(js, /previewConsentCheckbox\.checked/);
+      assert.match(js, /previewBillingCheckbox\.checked/);
+      assert.match(js, /adultConfirmed:\s*true/);
+      assert.match(js, /consentConfirmed:\s*true/);
+    });
+
+    it("20-24. Lock clears confirmations; no persistent browser storage", () => {
+      const js = read(uiJsPath);
+      assert.match(js, /previewAdultCheckbox\.checked = false/);
+      assert.match(js, /previewConsentCheckbox\.checked = false/);
+      assert.match(js, /previewBillingCheckbox\.checked = false/);
+      assert.match(js, /clearPreviewState/);
+      assert.equal(/localStorage\.(setItem|getItem)/.test(js), false);
+      assert.equal(/sessionStorage\.(setItem|getItem)/.test(js), false);
+      assert.equal(/document\.cookie\s*=/.test(js), false);
+      const html = read(uiHtmlPath);
+      assert.match(html, /No image is stored in browser persistent storage/);
+    });
+
+    it("25-26. MIME and 5 MB limits remain", () => {
+      assert.deepEqual(
+        ["image/jpeg", "image/png", "image/webp"],
+        ["image/jpeg", "image/png", "image/webp"]
+      );
+      assert.throws(
+        () => validatePreviewSourceImage(`data:image/gif;base64,${PNG_B64}`),
+        (err: unknown) =>
+          err instanceof ImagePreviewServiceError && err.code === "invalid_image"
+      );
+      const huge = Buffer.alloc(5 * 1024 * 1024 + 1, 0xff);
+      huge[0] = 0xff;
+      huge[1] = 0xd8;
+      huge[2] = 0xff;
+      assert.throws(
+        () =>
+          validatePreviewSourceImage(
+            `data:image/jpeg;base64,${huge.toString("base64")}`
+          ),
+        (err: unknown) =>
+          err instanceof ImagePreviewServiceError && err.code === "image_too_large"
+      );
+    });
+
+    it("27-31. Safety context reaches formatter with clothing/age/nudity rules", async () => {
+      const calls = { count: 0, inputs: [] as ReplicateTransportInput[] };
+      const service = new ImagePreviewService({
+        transportAdapter: createFakeTransport(successTransportResult(), calls),
+      });
+      const result = await service.runPreview({
+        scenarioId: "balanced_recomposition_12w",
+        adultConfirmed: true,
+        consentConfirmed: true,
+        billingConfirmed: true,
+        sourceImageDataUri: JPEG_DATA_URI,
+      });
+      const prompt =
+        result.artifacts?.formattedRequestSummary.positivePrompt ?? "";
+      const negative =
+        result.artifacts?.formattedRequestSummary.negativePrompt ?? "";
+      assert.match(prompt, /\bSAFETY\b/);
+      assert.match(prompt, /Preserve existing clothing coverage/);
+      assert.match(prompt, /Ordinary underwear or athletic clothing may be present/);
+      assert.equal(/underwear is (prohibited|banned|not allowed)/i.test(prompt), false);
+      assert.match(prompt, /No nudity/);
+      assert.match(prompt, /No sexualization/);
+      assert.match(prompt, /No age reduction/);
+      assert.match(negative, /nudity/i);
+      assert.equal(calls.count, 1);
+    });
+
+    it("32. API route does not handwrite the full provider prompt", () => {
+      const apiSrc = read(apiPath);
+      assert.equal(apiSrc.includes("SOURCE\n"), false);
+      assert.equal(apiSrc.includes("buildSafetySection"), false);
+      assert.equal(/positivePrompt\s*=/.test(apiSrc), false);
+    });
+
+    it("33-36. Provider safety block is terminal, safe, no retry, no raw moderation", async () => {
+      const calls = { count: 0, inputs: [] as ReplicateTransportInput[] };
+      const failing: ReplicateTransportFailure = {
+        success: false,
+        provider: "replicate",
+        imageUrl: null,
+        generationTimeMs: 10,
+        error: {
+          code: "provider_failed",
+          message: "The input or output was flagged as sensitive. (E005)",
+          retryable: true,
+        },
+        warnings: [],
+        metadata: { traceId: "t", pollingAttempts: 1 },
+      };
+      const service = new ImagePreviewService({
+        transportAdapter: createFakeTransport(failing, calls),
+      });
+      await assert.rejects(
+        () =>
+          service.runPreview({
+            scenarioId: "balanced_recomposition_12w",
+            adultConfirmed: true,
+            consentConfirmed: true,
+            billingConfirmed: true,
+            sourceImageDataUri: JPEG_DATA_URI,
+          }),
+        (err: unknown) =>
+          err instanceof ImagePreviewServiceError &&
+          err.code === "provider_safety_blocked" &&
+          err.message === IMAGE_PREVIEW_PROVIDER_SAFETY_BLOCKED_MESSAGE
+      );
+      assert.equal(calls.count, 1);
+      const mapped = mapTransportFailureToPreviewError(failing);
+      assert.equal(mapped.code, "provider_safety_blocked");
+      assert.equal(/E005|flagged as sensitive|moderation score/i.test(mapped.message), false);
+      const apiSrc = read(apiPath);
+      assert.match(apiSrc, /provider_safety_blocked/);
+      assert.match(apiSrc, /HelseApp did not bypass the safety filter/);
+    });
+
+    it("37-38. Successful projection includes exact inputAssurances; incomplete invalidates", async () => {
+      const calls = { count: 0, inputs: [] as ReplicateTransportInput[] };
+      const service = new ImagePreviewService({
+        transportAdapter: createFakeTransport(successTransportResult(), calls),
+      });
+      const result = await service.runPreview({
+        scenarioId: "balanced_recomposition_12w",
+        adultConfirmed: true,
+        consentConfirmed: true,
+        billingConfirmed: true,
+        sourceImageDataUri: JPEG_DATA_URI,
+      });
+      assert.deepEqual(result.inputAssurances, {
+        adultConfirmed: true,
+        consentConfirmed: true,
+        billingConfirmed: true,
+        intendedContext: IMAGE_PREVIEW_INTENDED_CONTEXT,
+      });
+      const incomplete = structuredClone(result);
+      incomplete.inputAssurances = {
+        adultConfirmed: true,
+        consentConfirmed: true,
+        billingConfirmed: true,
+        intendedContext: "other" as typeof IMAGE_PREVIEW_INTENDED_CONTEXT,
+      };
+      incomplete.success = true;
+      const check = validateImagePreviewProjection(incomplete);
+      assert.equal(check.valid, false);
+      const sanitized = sanitizeImagePreviewProjection(incomplete);
+      assert.equal(sanitized.success, false);
+    });
+
+    it("39-41. One provider call; rate limit remains; invalid confirmations do not consume", async () => {
+      const calls = { count: 0, inputs: [] as ReplicateTransportInput[] };
+      const service = new ImagePreviewService({
+        transportAdapter: createFakeTransport(successTransportResult(), calls),
+      });
+      await service.runPreview({
+        scenarioId: "balanced_recomposition_12w",
+        adultConfirmed: true,
+        consentConfirmed: true,
+        billingConfirmed: true,
+        sourceImageDataUri: JPEG_DATA_URI,
+      });
+      assert.equal(calls.count, 1);
+
+      const api = await loadPreviewApi();
+      await withPreviewEnv({ enabled: "1", accessKey: TEST_KEY, maxPerHour: "3" }, async () => {
+        api.rateBuckets.clear();
+        const before = api.rateBuckets.size;
+        const { res, state } = createMockResponse();
+        await api.default(
+          {
+            method: "POST",
+            headers: { "x-ai-os-control-room-key": TEST_KEY },
+            body: {
+              scenarioId: "balanced_recomposition_12w",
+              adultConfirmed: false,
+              consentConfirmed: true,
+              billingConfirmed: true,
+              sourceImageDataUri: JPEG_DATA_URI,
+            },
+          },
+          res
+        );
+        assert.equal(state.statusCode, 400);
+        assert.equal(
+          (state.body as { code?: string }).code,
+          "adult_confirmation_required"
+        );
+        assert.equal(api.rateBuckets.size, before);
+        const apiSrc = read(apiPath);
+        assert.match(apiSrc, /consumeRateLimit/);
+        assert.match(
+          apiSrc,
+          /Full image validation before consuming the hourly paid-request allowance/
+        );
+      });
+    });
+
+    it("42-47. Legacy routes/UI unlock/dry-run unchanged; no provider in unit tests", () => {
+      assert.equal(existsSync(imageRoutePath), true);
+      assert.equal(read(imageRoutePath).includes("adultConfirmed"), false);
+      assert.equal(read(replicatePath).includes("adultConfirmed"), false);
+      assert.equal(read(indexHtmlPath).includes("previewAdultCheckbox"), false);
+      const html = read(uiHtmlPath);
+      assert.match(html, /Unlock Control Room/);
+      assert.match(html, /Run AI OS dry run/);
+      assert.equal(read(uiJsPath).includes("api.replicate.com"), false);
     });
   });
 });

@@ -91,15 +91,47 @@
           internal visual-quality laboratory only.
         </p>
         <p class="panel-copy" id="previewPrivacyNotice">
-          Privacy: the source photo stays in browser memory until Generate, is
-          not stored in localStorage or sessionStorage, and is cleared on Lock
-          or refresh. HelseApp does not persist the image. The configured AI
-          provider may process it under its own retention terms.
+          Privacy: the source photo stays in browser memory before submission,
+          is sent to the HelseApp preview API after Generate, and may be sent to
+          the configured AI provider. HelseApp does not persist it. The provider
+          may process it under its own retention terms. The submitter confirms
+          adult status and consent. No image is stored in browser persistent storage
+          (localStorage, sessionStorage, or cookies). Cleared on Lock or refresh.
         </p>
         <p class="panel-copy">
           Internal preview only. Not a medical prediction and not yet used by
           the public HelseApp experience.
         </p>
+
+        <div class="panel-copy" id="previewClothingGuidance">
+          <p>
+            Ordinary underwear, sports bras, swimwear, fitted training clothes
+            and training shorts are allowed for clearly adult users when the
+            image is neutral and non-sexual. An external provider may still
+            decline some compliant images.
+          </p>
+          <p><strong>Preferred source photo</strong></p>
+          <ul class="guidance-list">
+            <li>Clearly adult subject</li>
+            <li>Front-facing or slight angle</li>
+            <li>Neutral standing pose</li>
+            <li>Full body visible</li>
+            <li>Arms slightly away from torso</li>
+            <li>Ordinary underwear or athletic clothing</li>
+            <li>Good lighting</li>
+            <li>Unobstructed body outline</li>
+            <li>Non-sexual context</li>
+          </ul>
+          <p><strong>Not accepted</strong></p>
+          <ul class="guidance-list">
+            <li>Nudity</li>
+            <li>Exposed genitals</li>
+            <li>Sexually explicit content</li>
+            <li>Sexualized pose</li>
+            <li>Unclear or apparently minor subject</li>
+            <li>Image without consent</li>
+          </ul>
+        </div>
 
         <label class="field">
           <span>Source photograph</span>
@@ -133,6 +165,18 @@
           >
         </p>
 
+        <label class="checkbox-field">
+          <input id="previewAdultCheckbox" type="checkbox" />
+          <span
+            >I confirm that every person shown is at least 18 years old.</span
+          >
+        </label>
+        <label class="checkbox-field">
+          <input id="previewConsentCheckbox" type="checkbox" />
+          <span
+            >I confirm that I am the person shown, or that I have explicit permission from the adult person shown to use this image.</span
+          >
+        </label>
         <label class="checkbox-field">
           <input id="previewBillingCheckbox" type="checkbox" />
           <span

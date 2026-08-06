@@ -71,6 +71,13 @@ system.
 
 ## Privacy model
 
+- source image stays in browser memory before submission
+- source image is sent to the HelseApp preview API after Generate
+- source image may be sent to the configured provider
+- HelseApp does not persist it
+- the provider may process it under its own retention terms
+- the submitter confirms adult status and consent
+- no image is stored in browser persistent storage
 - no database storage
 - no filesystem persistence
 - no HelseApp object-storage upload
@@ -79,8 +86,78 @@ system.
 - no cache of source images
 - no request-body logging of images
 - no source image in error responses or telemetry
-- no `localStorage` / `sessionStorage` for images
-- browser image state cleared on Lock and page refresh
+- no `localStorage` / `sessionStorage` / cookies for images or confirmations
+- browser image state and confirmations cleared on Lock and page refresh
+
+Do not claim provider zero-retention unless proven by provider configuration.
+
+## Adult-only use
+
+Internal preview is adult-only. Generate requires an explicit confirmation:
+
+> I confirm that every person shown is at least 18 years old.
+
+The POST body must include `adultConfirmed: true` as a literal boolean.
+Missing, `false`, `"true"`, or numeric truthy values are rejected.
+
+## Consent requirement
+
+Generate also requires:
+
+> I confirm that I am the person shown, or that I have explicit permission from
+> the adult person shown to use this image.
+
+The POST body must include `consentConfirmed: true` as a literal boolean with
+the same strict acceptance rules. Confirmations are never stored in
+`localStorage`, `sessionStorage`, or cookies, and are cleared on Lock and
+refresh.
+
+## Supported clothing
+
+HelseApp supports clearly adult, neutral, non-sexual body-progress source photos
+in:
+
+- ordinary underwear
+- sports bras
+- swimwear
+- fitted athletic clothing
+- training shorts
+
+Neutral non-sexual context is required. The Control Room guidance must not say
+underwear is prohibited. An external provider may still decline some compliant
+images.
+
+## Disallowed content
+
+Not accepted for preview:
+
+- nudity
+- exposed genitals
+- sexually explicit content
+- fetishized or sexualized framing
+- uncertain or apparently minor subject
+- image submitted without subject consent
+- third-party image without authorization
+
+## Provider safety false positives
+
+External providers may still reject legitimate adult underwear or fitness
+images. HelseApp currently relies on explicit adult/consent confirmations,
+structured non-sexual fitness safety context in the AI OS formatter, and
+provider moderation. Dedicated image-based age/content moderation is not yet
+implemented. Demand 018 must evaluate provider/model compatibility using
+approved adult, consented test images.
+
+## Provider safety cannot be bypassed
+
+Provider moderation remains enabled. Preview must not disable, circumvent,
+obfuscate, auto-retry, or silently switch models to evade a safety block.
+A `provider_safety_blocked` result is terminal.
+
+For `black-forest-labs/flux-kontext-pro`, the documented safety input is
+`safety_tolerance` (0–6; max **2** when `input_image` is set). Preview already
+uses `2` and must not invent unsupported fields such as
+`disable_safety_checker`.
 
 ## Billing guard
 
@@ -89,8 +166,17 @@ Generate requires an explicit checkbox:
 > I understand that this creates one paid AI provider request.
 
 The POST body must include `billingConfirmed: true` as a literal boolean.
-Missing, `false`, `"true"`, or numeric truthy values are rejected. No provider
-request starts before this check succeeds.
+Missing, `false`, `"true"`, or numeric truthy values are rejected.
+
+Generate requires all three literal booleans together:
+
+- `adultConfirmed: true`
+- `consentConfirmed: true`
+- `billingConfirmed: true`
+
+No provider request starts before these checks succeed. The server validates
+them before loading the heavy runtime, constructing transport, contacting
+Replicate, or consuming the hourly allowance.
 
 ## Request cap
 
@@ -99,6 +185,13 @@ context (never the raw key, never raw IP in responses/logs).
 
 Serverless instances may each keep separate memory. This is a billing guard,
 not strong distributed security.
+
+The hourly paid-request allowance is consumed only immediately before the
+provider request path begins (after confirmations and source-image validation).
+It is not consumed for missing adult/consent/billing confirmation, malformed
+body, invalid image, unauthorized request, or disabled preview. A provider
+safety-blocked request may count because the external provider may have
+received it.
 
 Also enforced in the browser:
 
@@ -195,7 +288,8 @@ Owner actions required (not automated by this demand):
 3. Optionally set `AI_OS_IMAGE_PREVIEW_MAX_REQUESTS_PER_HOUR` and
    `AI_OS_IMAGE_PREVIEW_MODEL`.
 4. Redeploy Production.
-5. Unlock Control Room, select scenario, upload photo, confirm billing, Generate.
+5. Unlock Control Room, select scenario, upload photo, confirm adult + consent +
+   billing, Generate.
 
 Do not automatically create or alter Vercel environment variables from agents.
 
@@ -260,7 +354,7 @@ Preview provider wiring (PATCH 017B/C):
 - E005 / safety prediction failures map to `provider_safety_blocked`
 - Transport failure codes map to the diagnostics above (still one provider call, no retry)
 
-## Known limitations
+## Current limitations
 
 - provisional ResultValidator evidence (no vision adapter yet)
 - in-memory rate cap is per serverless instance
@@ -268,6 +362,13 @@ Preview provider wiring (PATCH 017B/C):
   API raises the parser limit to 10mb for preview)
 - preview runtime is prebundled CJS (rebuild after AI OS graph changes)
 - paid provider verification still requires owner browser confirmation
+- external providers may still reject legitimate adult underwear images
+- HelseApp currently relies on explicit confirmations and provider moderation
+- dedicated image-based age/content moderation is not yet implemented
+- lightweight preflight checks confirmations/MIME/size/fields only — not pixel
+  classification of age, consent, nudity, or sexualization
+- Demand 018 must evaluate provider/model compatibility using approved adult,
+  consented test images
 
 ## Next milestone
 
@@ -288,3 +389,9 @@ Permanent rules:
 
 > Internal preview may never silently retry, batch, persist personal images, or
 > replace production generation.
+
+> HelseApp may support clearly adult, consented, non-sexual body-progress images
+> in ordinary underwear or athletic clothing.
+
+> HelseApp may never support minors, nudity, sexualized imagery or
+> non-consensual source images.

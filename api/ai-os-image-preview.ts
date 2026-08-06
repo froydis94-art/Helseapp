@@ -12,7 +12,7 @@
  * import of the service module fails with ERR_UNSUPPORTED_DIR_IMPORT on
  * barrel paths like ../runtime). The AI OS preview graph is therefore
  * build-bundled to a single CJS artifact and required only after
- * auth/flag/validation — never at cold-start module scope.
+ * auth/flag/confirmations/validation — never at cold-start module scope.
  *
  * No api sibling runtime bridge. No JS shim. No legacy Replicate helper bypass.
  */
@@ -49,6 +49,8 @@ type ImagePreviewServiceModuleShape = {
   ImagePreviewService: new (deps?: unknown) => {
     runPreview(input: {
       scenarioId: string;
+      adultConfirmed: unknown;
+      consentConfirmed: unknown;
       billingConfirmed: unknown;
       sourceImageDataUri: unknown;
     }): Promise<unknown>;
@@ -57,7 +59,11 @@ type ImagePreviewServiceModuleShape = {
     code: string,
     message: string
   ) => Error & { code: string };
+  validatePreviewSourceImage?: (raw: unknown) => unknown;
 };
+
+const PROVIDER_SAFETY_BLOCKED_MESSAGE =
+  "The AI provider declined this image under its safety policy. HelseApp did not bypass the safety filter. Clearly adult, neutral and non-sexual underwear or fitness photos are supported by HelseApp, but an external provider may still decline some images.";
 
 type VercelLikeResponse = {
   setHeader(name: string, value: string): void;
@@ -99,6 +105,12 @@ function normalizeImagePreviewServiceModule(
         record.ImagePreviewService as ImagePreviewServiceModuleShape["ImagePreviewService"],
       ImagePreviewServiceError:
         record.ImagePreviewServiceError as ImagePreviewServiceModuleShape["ImagePreviewServiceError"],
+      ...(typeof record.validatePreviewSourceImage === "function"
+        ? {
+            validatePreviewSourceImage:
+              record.validatePreviewSourceImage as ImagePreviewServiceModuleShape["validatePreviewSourceImage"],
+          }
+        : {}),
     };
   }
 
@@ -117,6 +129,12 @@ function normalizeImagePreviewServiceModule(
         n.ImagePreviewService as ImagePreviewServiceModuleShape["ImagePreviewService"],
       ImagePreviewServiceError:
         n.ImagePreviewServiceError as ImagePreviewServiceModuleShape["ImagePreviewServiceError"],
+      ...(typeof n.validatePreviewSourceImage === "function"
+        ? {
+            validatePreviewSourceImage:
+              n.validatePreviewSourceImage as ImagePreviewServiceModuleShape["validatePreviewSourceImage"],
+          }
+        : {}),
     };
   }
 
@@ -365,6 +383,18 @@ function mapServiceErrorCode(code: string): {
   diagnostic?: string;
 } {
   switch (code) {
+    case "adult_confirmation_required":
+      return {
+        status: 400,
+        code: "adult_confirmation_required",
+        message: "Adult confirmation is required.",
+      };
+    case "consent_confirmation_required":
+      return {
+        status: 400,
+        code: "consent_confirmation_required",
+        message: "Consent confirmation is required.",
+      };
     case "billing_confirmation_required":
       return {
         status: 400,
@@ -434,7 +464,7 @@ function mapServiceErrorCode(code: string): {
       return {
         status: 502,
         code: "provider_failure",
-        message: "Provider safety filter blocked the request.",
+        message: PROVIDER_SAFETY_BLOCKED_MESSAGE,
         diagnostic: "provider_safety_blocked",
       };
     case "provider_invalid_response":
@@ -530,6 +560,8 @@ async function handlePost(
 
   const allowedKeys = new Set([
     "scenarioId",
+    "adultConfirmed",
+    "consentConfirmed",
     "billingConfirmed",
     "sourceImageDataUri",
   ]);
@@ -545,6 +577,25 @@ async function handlePost(
     }
   }
 
+  // Confirmations before heavy runtime / rate-limit / provider.
+  if (body.adultConfirmed !== true) {
+    send(res, 400, {
+      ok: false,
+      enabled: true,
+      code: "adult_confirmation_required",
+      message: "Adult confirmation is required.",
+    });
+    return;
+  }
+  if (body.consentConfirmed !== true) {
+    send(res, 400, {
+      ok: false,
+      enabled: true,
+      code: "consent_confirmation_required",
+      message: "Consent confirmation is required.",
+    });
+    return;
+  }
   if (body.billingConfirmed !== true) {
     send(res, 400, {
       ok: false,
@@ -582,17 +633,6 @@ async function handlePost(
     return;
   }
 
-  const limit = parseMaxRequestsPerHour();
-  if (!consumeRateLimit(rateKey, limit, Date.now())) {
-    send(res, 429, {
-      ok: false,
-      enabled: true,
-      code: "preview_rate_limited",
-      message: "Preview rate limit exceeded.",
-    });
-    return;
-  }
-
   let loaded: unknown;
   try {
     loaded = await apiHelpers.loadImagePreviewServiceModule();
@@ -619,9 +659,50 @@ async function handlePost(
     return;
   }
 
+  // Full image validation before consuming the hourly paid-request allowance.
+  if (typeof previewModule.validatePreviewSourceImage === "function") {
+    try {
+      previewModule.validatePreviewSourceImage(body.sourceImageDataUri);
+    } catch (error) {
+      if (
+        isImagePreviewServiceError(error, previewModule.ImagePreviewServiceError)
+      ) {
+        const mapped = mapServiceErrorCode(error.code);
+        send(res, mapped.status, {
+          ok: false,
+          enabled: true,
+          code: mapped.code,
+          message: mapped.message,
+          ...(mapped.diagnostic ? { diagnostic: mapped.diagnostic } : {}),
+        });
+        return;
+      }
+      send(res, 400, {
+        ok: false,
+        enabled: true,
+        code: "invalid_image",
+        message: "Invalid source image.",
+      });
+      return;
+    }
+  }
+
+  const limit = parseMaxRequestsPerHour();
+  if (!consumeRateLimit(rateKey, limit, Date.now())) {
+    send(res, 429, {
+      ok: false,
+      enabled: true,
+      code: "preview_rate_limited",
+      message: "Preview rate limit exceeded.",
+    });
+    return;
+  }
+
   let service: {
     runPreview(input: {
       scenarioId: string;
+      adultConfirmed: unknown;
+      consentConfirmed: unknown;
       billingConfirmed: unknown;
       sourceImageDataUri: unknown;
     }): Promise<unknown>;
@@ -642,6 +723,8 @@ async function handlePost(
   try {
     const result = await service.runPreview({
       scenarioId,
+      adultConfirmed: body.adultConfirmed,
+      consentConfirmed: body.consentConfirmed,
       billingConfirmed: body.billingConfirmed,
       sourceImageDataUri: body.sourceImageDataUri,
     });

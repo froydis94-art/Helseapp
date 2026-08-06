@@ -322,6 +322,25 @@ summary {
   margin-top: 3px;
 }
 
+.guidance-list {
+  margin: 6px 0 12px 1.2em;
+  padding: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.guidance-list li {
+  margin: 2px 0;
+}
+
+#previewClothingGuidance {
+  margin: 12px 0 4px;
+}
+
+#previewClothingGuidance p {
+  margin: 8px 0;
+}
+
 .preview-compare {
   display: grid;
   grid-template-columns: 1fr 1fr;

@@ -43,7 +43,9 @@ import {
 import {
   IMAGE_PREVIEW_ACCEPTED_MIME,
   IMAGE_PREVIEW_FORBIDDEN_CONTENT_ERROR,
+  IMAGE_PREVIEW_INPUT_ASSURANCES,
   IMAGE_PREVIEW_MAX_BYTES,
+  IMAGE_PREVIEW_PROVIDER_SAFETY_BLOCKED_MESSAGE,
   IMAGE_PREVIEW_SAFETY_STATUS,
   type ImagePreviewMimeType,
   type ImagePreviewResult,
@@ -56,6 +58,8 @@ export class ImagePreviewServiceError extends Error {
     | "invalid_request"
     | "invalid_image"
     | "image_too_large"
+    | "adult_confirmation_required"
+    | "consent_confirmation_required"
     | "billing_confirmation_required"
     | "runtime_failure"
     | "provider_failure"
@@ -88,6 +92,8 @@ export interface ImagePreviewValidatedSource {
 
 export interface ImagePreviewRunInput {
   scenarioId: string;
+  adultConfirmed: unknown;
+  consentConfirmed: unknown;
   billingConfirmed: unknown;
   sourceImageDataUri: unknown;
   requestId?: string;
@@ -263,6 +269,24 @@ export function validatePreviewSourceImage(
   };
 }
 
+function assertAdultConfirmed(value: unknown): asserts value is true {
+  if (value !== true) {
+    throw new ImagePreviewServiceError(
+      "adult_confirmation_required",
+      "Adult confirmation is required."
+    );
+  }
+}
+
+function assertConsentConfirmed(value: unknown): asserts value is true {
+  if (value !== true) {
+    throw new ImagePreviewServiceError(
+      "consent_confirmation_required",
+      "Consent confirmation is required."
+    );
+  }
+}
+
 function assertBillingConfirmed(value: unknown): asserts value is true {
   if (value !== true) {
     throw new ImagePreviewServiceError(
@@ -354,7 +378,7 @@ export function mapTransportFailureToPreviewError(
       if (isProviderSafetyMessage(transport.error.message)) {
         return new ImagePreviewServiceError(
           "provider_safety_blocked",
-          "Provider safety filter blocked the request."
+          IMAGE_PREVIEW_PROVIDER_SAFETY_BLOCKED_MESSAGE
         );
       }
       return new ImagePreviewServiceError(
@@ -442,6 +466,8 @@ export class ImagePreviewService {
   }
 
   async runPreview(input: ImagePreviewRunInput): Promise<ImagePreviewResult> {
+    assertAdultConfirmed(input.adultConfirmed);
+    assertConsentConfirmed(input.consentConfirmed);
     assertBillingConfirmed(input.billingConfirmed);
 
     const scenarioId = input.scenarioId;
@@ -493,13 +519,16 @@ export class ImagePreviewService {
       })
     );
 
+    const formatterOptions = {
+      ...(resolved.runtimeInput.formatterOptions ?? {}),
+      previewSafetyContext: "non_sexual_fitness_visualization" as const,
+    };
+
     const runtimeInput = {
       mode: "transport_mock" as const,
       profile: resolved.runtimeInput.profile,
       goal: resolved.runtimeInput.goal,
-      ...(resolved.runtimeInput.formatterOptions !== undefined
-        ? { formatterOptions: resolved.runtimeInput.formatterOptions }
-        : {}),
+      formatterOptions,
       sourceImage: {
         kind: "data_uri" as const,
         value: source.dataUri,
@@ -596,6 +625,7 @@ export class ImagePreviewService {
         runtimeResult,
         validationDecision,
         model,
+        inputAssurances: { ...IMAGE_PREVIEW_INPUT_ASSURANCES },
         extraWarnings: [
           "Preview laboratory: ResultValidator used provisional evidence; real vision analysis is deferred to Demand 018.",
           "No automatic retry was performed.",
