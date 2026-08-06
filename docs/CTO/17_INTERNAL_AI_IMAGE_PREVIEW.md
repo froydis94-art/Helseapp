@@ -238,6 +238,9 @@ Safe authorized `diagnostic` values on failure responses:
 - `provider_invalid_input`
 - `provider_auth_error`
 - `provider_http_error`
+- `provider_safety_blocked`
+- `provider_invalid_response`
+- `provider_network_error`
 - `token_missing`
 - `validation_failed`
 - `projection_failed`
@@ -245,11 +248,16 @@ Safe authorized `diagnostic` values on failure responses:
 Missing / empty `REPLICATE_API_TOKEN` maps to HTTP `502` / `provider_failure`
 with diagnostic `token_missing` (not an opaque `runtime_failure`).
 
-Preview provider wiring (PATCH 017B):
+Preview provider wiring (PATCH 017B/C):
 
 - Vercel function `maxDuration: 120` and `bodyParser.sizeLimit: 10mb`
 - Preview transport create timeout `60s`, total timeout `120s` (data-URI upload budget)
-- Replicate create uses `Prefer: wait` capped below create timeout
+- Replicate create uses short `Prefer: wait` (≤12s, same order as working Flux path) plus poll
+- Flux create body aligns with working path: `input_image`, `aspect_ratio` (supported or
+  `match_input_image`), `output_format: png`, `safety_tolerance: 2`
+- Node/undici abort and timeout-like `fetch failed` errors map to `provider_timeout`
+  (not opaque `provider_failure`)
+- E005 / safety prediction failures map to `provider_safety_blocked`
 - Transport failure codes map to the diagnostics above (still one provider call, no retry)
 
 ## Known limitations

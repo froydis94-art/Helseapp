@@ -337,12 +337,12 @@ describe("DEMAND_011 Replicate transport adapter", () => {
 
       const badFormatted = sampleFormatted();
       (badFormatted as { aspectRatio?: string }).aspectRatio = "21:9";
-      // builder still omits unsupported if somehow present
+      // unsupported falls back to Flux edit default (match_input_image)
       const body = buildReplicateCreatePredictionBody(
         enabledConfig(),
         sampleInput({ formattedRequest: badFormatted })
       );
-      assert.equal("aspect_ratio" in body.input, false);
+      assert.equal(body.input.aspect_ratio, "match_input_image");
     });
 
     it("22. invalid options are not invented", () => {
@@ -357,7 +357,9 @@ describe("DEMAND_011 Replicate transport adapter", () => {
         })
       );
       assert.equal("seed" in body.input, false);
-      assert.equal("aspect_ratio" in body.input, false);
+      assert.equal(body.input.aspect_ratio, "match_input_image");
+      assert.equal(body.input.output_format, "png");
+      assert.equal(body.input.safety_tolerance, 2);
       assert.equal("prompt_strength" in body.input, false);
       assert.equal("num_inference_steps" in body.input, false);
       assert.equal("prompt_upsampling" in body.input, false);

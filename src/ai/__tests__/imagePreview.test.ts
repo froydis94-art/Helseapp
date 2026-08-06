@@ -776,8 +776,12 @@ describe("imagePreview — DEMAND_017", () => {
           | "request_timeout"
           | "provider_validation_error"
           | "provider_auth_error"
-          | "provider_unavailable";
+          | "provider_unavailable"
+          | "provider_failed"
+          | "invalid_provider_response"
+          | "unknown_transport_error";
         code: string;
+        message?: string;
       }> = [
         { transportCode: "request_timeout", code: "provider_timeout" },
         {
@@ -786,6 +790,19 @@ describe("imagePreview — DEMAND_017", () => {
         },
         { transportCode: "provider_auth_error", code: "provider_auth_error" },
         { transportCode: "provider_unavailable", code: "provider_http_error" },
+        {
+          transportCode: "provider_failed",
+          code: "provider_safety_blocked",
+          message: "The input or output was flagged as sensitive. (E005)",
+        },
+        {
+          transportCode: "invalid_provider_response",
+          code: "provider_invalid_response",
+        },
+        {
+          transportCode: "unknown_transport_error",
+          code: "provider_network_error",
+        },
       ];
       for (const item of cases) {
         const calls = { count: 0, inputs: [] as ReplicateTransportInput[] };
@@ -796,7 +813,7 @@ describe("imagePreview — DEMAND_017", () => {
           generationTimeMs: 10,
           error: {
             code: item.transportCode,
-            message: "x",
+            message: item.message ?? "x",
             retryable: false,
           },
           warnings: [],
@@ -823,9 +840,16 @@ describe("imagePreview — DEMAND_017", () => {
       let postCount = 0;
       let createUrl = "";
       let createBody: {
-        input?: { input_image?: string; prompt?: string; aspect_ratio?: string };
+        input?: {
+          input_image?: string;
+          prompt?: string;
+          aspect_ratio?: string;
+          output_format?: string;
+          safety_tolerance?: number;
+        };
       } = {};
       let preferHeader = "";
+      let cancelAfterHeader = "";
       const fakeFetch = (async (
         input: string | URL | Request,
         init?: RequestInit
@@ -835,7 +859,9 @@ describe("imagePreview — DEMAND_017", () => {
           postCount += 1;
           createUrl = String(input);
           createBody = JSON.parse(String(init?.body ?? "{}")) as typeof createBody;
-          preferHeader = new Headers(init?.headers).get("Prefer") ?? "";
+          const headers = new Headers(init?.headers);
+          preferHeader = headers.get("Prefer") ?? "";
+          cancelAfterHeader = headers.get("Cancel-After") ?? "";
           return new Response(
             JSON.stringify({
               id: "pred_contract_once",
@@ -877,7 +903,12 @@ describe("imagePreview — DEMAND_017", () => {
       assert.equal(typeof createBody.input?.prompt, "string");
       assert.ok((createBody.input?.prompt?.length ?? 0) > 0);
       assert.equal(createBody.input?.aspect_ratio, "3:4");
+      assert.equal(createBody.input?.output_format, "png");
+      assert.equal(createBody.input?.safety_tolerance, 2);
       assert.match(preferHeader, /^wait=\d+$/);
+      const waitSec = Number(preferHeader.replace("wait=", ""));
+      assert.ok(Number.isFinite(waitSec) && waitSec >= 1 && waitSec <= 12);
+      assert.match(cancelAfterHeader, /^\d+s$/);
       assert.equal(result.success, true);
       assert.equal(result.generatedImage?.url, GENERATED_HTTPS);
     });

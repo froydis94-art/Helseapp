@@ -69,8 +69,66 @@ export function mapHttpStatusToTransportError(
   };
 }
 
+/**
+ * True when the error (or its cause chain) is an abort.
+ * Node/undici often wraps AbortSignal aborts as TypeError: fetch failed
+ * with cause AbortError — checking only the outer name misses those.
+ */
 export function isAbortError(err: unknown): boolean {
-  if (err == null || typeof err !== "object") return false;
-  const e = err as { name?: string; code?: string };
-  return e.name === "AbortError" || e.code === "ABORT_ERR";
+  let current: unknown = err;
+  const seen = new Set<unknown>();
+  while (current != null && typeof current === "object" && !seen.has(current)) {
+    seen.add(current);
+    const e = current as { name?: string; code?: string; cause?: unknown };
+    if (
+      e.name === "AbortError" ||
+      e.code === "ABORT_ERR" ||
+      e.code === "ERR_ABORT" ||
+      e.code === "UND_ERR_ABORTED"
+    ) {
+      return true;
+    }
+    current = e.cause;
+  }
+  return false;
+}
+
+/**
+ * True when the error looks like a connect/headers/body timeout from fetch/undici.
+ * Used so timeout-like TypeError: fetch failed maps to request_timeout instead of
+ * opaque unknown_transport_error.
+ */
+export function isTimeoutLikeFetchError(err: unknown): boolean {
+  if (isAbortError(err)) return true;
+  let current: unknown = err;
+  const seen = new Set<unknown>();
+  while (current != null && typeof current === "object" && !seen.has(current)) {
+    seen.add(current);
+    const e = current as {
+      name?: string;
+      code?: string;
+      message?: string;
+      cause?: unknown;
+    };
+    if (
+      e.name === "TimeoutError" ||
+      e.code === "UND_ERR_CONNECT_TIMEOUT" ||
+      e.code === "UND_ERR_HEADERS_TIMEOUT" ||
+      e.code === "UND_ERR_BODY_TIMEOUT" ||
+      e.code === "ETIMEDOUT" ||
+      e.code === "ESOCKETTIMEDOUT"
+    ) {
+      return true;
+    }
+    if (
+      typeof e.message === "string" &&
+      /timed?\s*out|timeout|HeadersTimeout|BodyTimeout|ConnectTimeout/i.test(
+        e.message
+      )
+    ) {
+      return true;
+    }
+    current = e.cause;
+  }
+  return false;
 }

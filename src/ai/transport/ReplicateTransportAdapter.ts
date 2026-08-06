@@ -9,7 +9,7 @@ import {
   SUPPORTED_FORMATTER_ASPECT_RATIOS,
   validateFormattedImageRequest,
 } from "../formatters/ProviderFormatter";
-import { isAbortError } from "./ReplicateErrors";
+import { isAbortError, isTimeoutLikeFetchError } from "./ReplicateErrors";
 import {
   extractReplicateImageUrl,
   normalizeHttpFailure,
@@ -208,12 +208,14 @@ export function validateReplicateTransportInput(
  * Build create-prediction body from formatted request + source image.
  * Preserves formatted prompts; does not rewrite transformations.
  *
- * Mapping (flux-kontext-pro):
+ * Mapping (flux-kontext-pro) — aligned with the working production Flux contract:
  * - prompt ← formatted positive prompt (+ EXCLUSIONS appendix when negative present)
  * - input_image ← sourceImage.value
- * - aspect_ratio ← when present and supported
+ * - aspect_ratio ← supported formatter value, else match_input_image
+ * - output_format ← png
+ * - safety_tolerance ← 2 (Replicate max when input_image is set)
  * - seed ← when present
- * Quality is omitted (no invented provider knobs in this demand).
+ * prompt_upsampling / strength knobs stay omitted (not invented here).
  */
 export function buildReplicateCreatePredictionBody(
   config: ReplicateTransportConfig,
@@ -230,6 +232,9 @@ export function buildReplicateCreatePredictionBody(
   const bodyInput: Record<string, unknown> = {
     prompt,
     input_image: input.sourceImage.value,
+    aspect_ratio: "match_input_image",
+    output_format: "png",
+    safety_tolerance: 2,
   };
 
   if (
@@ -408,11 +413,12 @@ export class ReplicateTransportAdapter {
         this.config.createTimeoutMs
       );
 
-      // Prefer: wait keeps create open for near-sync completion (data-URI Flux
-      // uploads). Cap below createTimeout so local abort remains authoritative.
+      // Prefer: wait — short sync hold like the working Flux path (≈12s).
+      // Long wait + multi-MB data-URI uploads race Node/undici timeouts and
+      // were misclassified as opaque transport failures.
       const preferWaitSeconds = Math.max(
         1,
-        Math.min(60, Math.floor(this.config.createTimeoutMs / 1000) - 5)
+        Math.min(12, Math.floor(this.config.createTimeoutMs / 1000) - 8)
       );
 
       let createResponse: Response;
@@ -423,6 +429,11 @@ export class ReplicateTransportAdapter {
             Authorization: `Bearer ${this.config.apiToken}`,
             "Content-Type": "application/json",
             Prefer: `wait=${preferWaitSeconds}`,
+            // Auto-cancel hung predictions inside the create/total budget.
+            "Cancel-After": `${Math.max(
+              5,
+              Math.ceil(this.config.totalTimeoutMs / 1000)
+            )}s`,
           },
           body: JSON.stringify({ input: body.input }),
           signal: createController.signal,
@@ -441,6 +452,16 @@ export class ReplicateTransportAdapter {
               model: this.config.model,
             });
           }
+          return normalizeReplicateFailure({
+            code: "request_timeout",
+            message: "Request timed out.",
+            retryable: true,
+            traceId,
+            generationTimeMs: elapsed(),
+            model: this.config.model,
+          });
+        }
+        if (isTimeoutLikeFetchError(err)) {
           return normalizeReplicateFailure({
             code: "request_timeout",
             message: "Request timed out.",
@@ -687,6 +708,18 @@ export class ReplicateTransportAdapter {
                 pollingAttempts,
               });
             }
+            return normalizeReplicateFailure({
+              code: "request_timeout",
+              message: "Request timed out.",
+              retryable: true,
+              traceId,
+              generationTimeMs: elapsed(),
+              predictionId,
+              model: this.config.model,
+              pollingAttempts,
+            });
+          }
+          if (isTimeoutLikeFetchError(err)) {
             return normalizeReplicateFailure({
               code: "request_timeout",
               message: "Request timed out.",

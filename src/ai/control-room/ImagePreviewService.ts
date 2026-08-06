@@ -63,6 +63,9 @@ export class ImagePreviewServiceError extends Error {
     | "provider_invalid_input"
     | "provider_auth_error"
     | "provider_http_error"
+    | "provider_safety_blocked"
+    | "provider_invalid_response"
+    | "provider_network_error"
     | "validation_rejected"
     | "unsafe_result"
     | "missing_token";
@@ -309,6 +312,10 @@ function buildPreviewTransportConfig(
  * Map transport failure codes to allowlisted preview error categories.
  * Never echoes provider payloads, tokens, or image bytes.
  */
+function isProviderSafetyMessage(message: string): boolean {
+  return /sensitive|E005|flagged|nsfw|safety/i.test(message);
+}
+
 export function mapTransportFailureToPreviewError(
   transport: ReplicateTransportFailure
 ): ImagePreviewServiceError {
@@ -344,9 +351,27 @@ export function mapTransportFailureToPreviewError(
         "Provider HTTP request failed."
       );
     case "provider_failed":
+      if (isProviderSafetyMessage(transport.error.message)) {
+        return new ImagePreviewServiceError(
+          "provider_safety_blocked",
+          "Provider safety filter blocked the request."
+        );
+      }
+      return new ImagePreviewServiceError(
+        "provider_failure",
+        "Provider request failed."
+      );
     case "invalid_provider_response":
-    case "request_aborted":
+      return new ImagePreviewServiceError(
+        "provider_invalid_response",
+        "Provider returned an unusable response."
+      );
     case "unknown_transport_error":
+      return new ImagePreviewServiceError(
+        "provider_network_error",
+        "Provider network request failed."
+      );
+    case "request_aborted":
     default:
       return new ImagePreviewServiceError(
         "provider_failure",

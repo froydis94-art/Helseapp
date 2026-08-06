@@ -430,6 +430,27 @@ function mapServiceErrorCode(code: string): {
         message: "Provider HTTP request failed.",
         diagnostic: "provider_http_error",
       };
+    case "provider_safety_blocked":
+      return {
+        status: 502,
+        code: "provider_failure",
+        message: "Provider safety filter blocked the request.",
+        diagnostic: "provider_safety_blocked",
+      };
+    case "provider_invalid_response":
+      return {
+        status: 502,
+        code: "provider_failure",
+        message: "Provider returned an unusable response.",
+        diagnostic: "provider_invalid_response",
+      };
+    case "provider_network_error":
+      return {
+        status: 502,
+        code: "provider_failure",
+        message: "Provider network request failed.",
+        diagnostic: "provider_network_error",
+      };
     case "missing_token":
       return {
         status: 502,
@@ -632,6 +653,11 @@ async function handlePost(
   } catch (error) {
     if (isImagePreviewServiceError(error, previewModule.ImagePreviewServiceError)) {
       const mapped = mapServiceErrorCode(error.code);
+      // Safe category-only log — never tokens, prompts, or image bytes.
+      console.warn(
+        "[ai-os-image-preview]",
+        mapped.diagnostic || mapped.code
+      );
       send(res, mapped.status, {
         ok: false,
         enabled: true,
@@ -641,6 +667,7 @@ async function handlePost(
       });
       return;
     }
+    console.warn("[ai-os-image-preview]", "runtime_execute_failed");
     send(res, 500, {
       ok: false,
       enabled: true,

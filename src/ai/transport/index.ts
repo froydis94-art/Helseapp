@@ -33,6 +33,7 @@ export type { ReplicateTransportConfig } from "./ReplicateTransportConfig";
 export {
   MAX_SAFE_PROVIDER_ERROR_LENGTH,
   isAbortError,
+  isTimeoutLikeFetchError,
   mapHttpStatusToTransportError,
   sanitizeProviderErrorMessage,
 } from "./ReplicateErrors";

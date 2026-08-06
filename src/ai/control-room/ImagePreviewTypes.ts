@@ -141,6 +141,9 @@ export interface ImagePreviewApiFailure {
     | "provider_invalid_input"
     | "provider_auth_error"
     | "provider_http_error"
+    | "provider_safety_blocked"
+    | "provider_invalid_response"
+    | "provider_network_error"
     | "token_missing"
     | "validation_failed"
     | "projection_failed";
