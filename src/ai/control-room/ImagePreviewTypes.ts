@@ -130,7 +130,20 @@ export interface ImagePreviewApiFailure {
     | "validation_rejected"
     | "unsafe_result";
   message: string;
-  diagnostic?: string;
+  /** Allowlisted safe diagnostic category — never a raw provider payload. */
+  diagnostic?:
+    | "module_load_failed"
+    | "module_shape_invalid"
+    | "service_construct_failed"
+    | "runtime_execute_failed"
+    | "provider_failure"
+    | "provider_timeout"
+    | "provider_invalid_input"
+    | "provider_auth_error"
+    | "provider_http_error"
+    | "token_missing"
+    | "validation_failed"
+    | "projection_failed";
 }
 
 export type ImagePreviewApiResponse =

@@ -234,17 +234,30 @@ Safe authorized `diagnostic` values on failure responses:
 - `service_construct_failed`
 - `runtime_execute_failed`
 - `provider_failure`
+- `provider_timeout`
+- `provider_invalid_input`
+- `provider_auth_error`
+- `provider_http_error`
+- `token_missing`
 - `validation_failed`
 - `projection_failed`
 
 Missing / empty `REPLICATE_API_TOKEN` maps to HTTP `502` / `provider_failure`
-(not an opaque `runtime_failure`).
+with diagnostic `token_missing` (not an opaque `runtime_failure`).
+
+Preview provider wiring (PATCH 017B):
+
+- Vercel function `maxDuration: 120` and `bodyParser.sizeLimit: 10mb`
+- Preview transport create timeout `60s`, total timeout `120s` (data-URI upload budget)
+- Replicate create uses `Prefer: wait` capped below create timeout
+- Transport failure codes map to the diagnostics above (still one provider call, no retry)
 
 ## Known limitations
 
 - provisional ResultValidator evidence (no vision adapter yet)
 - in-memory rate cap is per serverless instance
-- Vercel request body size may constrain large uploads (browser compresses first)
+- Vercel request body size may constrain large uploads (browser compresses first;
+  API raises the parser limit to 10mb for preview)
 - preview runtime is prebundled CJS (rebuild after AI OS graph changes)
 - paid provider verification still requires owner browser confirmation
 

@@ -480,6 +480,7 @@ export {
   buildProvisionalPreviewEvidence,
   getControlRoomScenario,
   getImagePreviewSafetyStatus,
+  mapTransportFailureToPreviewError,
   listControlRoomScenarioIds,
   listControlRoomScenarios,
   previewStageLabel,

@@ -10,16 +10,16 @@ import {
   createAiOsRuntimeDependencies,
 } from "../runtime";
 import {
-  DEFAULT_CREATE_TIMEOUT_MS,
   DEFAULT_MAX_POLL_ATTEMPTS,
   DEFAULT_POLL_INTERVAL_MS,
   DEFAULT_REPLICATE_API_BASE_URL,
   DEFAULT_REPLICATE_TRANSPORT_MODEL,
-  DEFAULT_TOTAL_TIMEOUT_MS,
   ReplicateTransportAdapter,
   isValidReplicateTransportModel,
   type ReplicateTransportConfig,
   type ReplicateTransportDependencies,
+  type ReplicateTransportFailure,
+  type ReplicateTransportResult,
 } from "../transport";
 import {
   RESULT_VALIDATOR_RULES_VERSION,
@@ -28,6 +28,11 @@ import {
   type ValidationDecision,
   type ValidationEvidence,
 } from "../validation-result";
+
+/** Preview create must absorb large data-URI uploads from serverless regions. */
+const PREVIEW_CREATE_TIMEOUT_MS = 60_000;
+/** Allow one Flux create+poll cycle inside the Vercel maxDuration budget. */
+const PREVIEW_TOTAL_TIMEOUT_MS = 120_000;
 import { getControlRoomScenario } from "./ControlRoomFixtures";
 import {
   ImagePreviewProjectionError,
@@ -54,6 +59,10 @@ export class ImagePreviewServiceError extends Error {
     | "billing_confirmation_required"
     | "runtime_failure"
     | "provider_failure"
+    | "provider_timeout"
+    | "provider_invalid_input"
+    | "provider_auth_error"
+    | "provider_http_error"
     | "validation_rejected"
     | "unsafe_result"
     | "missing_token";
@@ -289,11 +298,67 @@ function buildPreviewTransportConfig(
     apiToken,
     apiBaseUrl: DEFAULT_REPLICATE_API_BASE_URL,
     model,
-    createTimeoutMs: DEFAULT_CREATE_TIMEOUT_MS,
+    createTimeoutMs: PREVIEW_CREATE_TIMEOUT_MS,
     pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
-    totalTimeoutMs: DEFAULT_TOTAL_TIMEOUT_MS,
+    totalTimeoutMs: PREVIEW_TOTAL_TIMEOUT_MS,
     maxPollAttempts: DEFAULT_MAX_POLL_ATTEMPTS,
   };
+}
+
+/**
+ * Map transport failure codes to allowlisted preview error categories.
+ * Never echoes provider payloads, tokens, or image bytes.
+ */
+export function mapTransportFailureToPreviewError(
+  transport: ReplicateTransportFailure
+): ImagePreviewServiceError {
+  switch (transport.error.code) {
+    case "missing_token":
+    case "adapter_disabled":
+      return new ImagePreviewServiceError(
+        "missing_token",
+        "Provider is not configured."
+      );
+    case "invalid_request":
+    case "unsupported_source_image":
+    case "provider_validation_error":
+      return new ImagePreviewServiceError(
+        "provider_invalid_input",
+        "Provider rejected the request input."
+      );
+    case "provider_auth_error":
+      return new ImagePreviewServiceError(
+        "provider_auth_error",
+        "Provider authentication failed."
+      );
+    case "request_timeout":
+    case "polling_exhausted":
+      return new ImagePreviewServiceError(
+        "provider_timeout",
+        "Provider request timed out."
+      );
+    case "provider_rate_limited":
+    case "provider_unavailable":
+      return new ImagePreviewServiceError(
+        "provider_http_error",
+        "Provider HTTP request failed."
+      );
+    case "provider_failed":
+    case "invalid_provider_response":
+    case "request_aborted":
+    case "unknown_transport_error":
+    default:
+      return new ImagePreviewServiceError(
+        "provider_failure",
+        "Provider request failed."
+      );
+  }
+}
+
+function isTransportFailure(
+  transport: ReplicateTransportResult
+): transport is ReplicateTransportFailure {
+  return !transport.success;
 }
 
 /**
@@ -428,11 +493,14 @@ export class ImagePreviewService {
     }
 
     const transport = runtimeResult.artifacts.transportResult;
-    if (!transport || !transport.success) {
+    if (!transport) {
       throw new ImagePreviewServiceError(
         "provider_failure",
         "Provider request failed."
       );
+    }
+    if (isTransportFailure(transport)) {
+      throw mapTransportFailureToPreviewError(transport);
     }
 
     // Exactly one transport call already performed by the runtime.

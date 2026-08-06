@@ -408,6 +408,13 @@ export class ReplicateTransportAdapter {
         this.config.createTimeoutMs
       );
 
+      // Prefer: wait keeps create open for near-sync completion (data-URI Flux
+      // uploads). Cap below createTimeout so local abort remains authoritative.
+      const preferWaitSeconds = Math.max(
+        1,
+        Math.min(60, Math.floor(this.config.createTimeoutMs / 1000) - 5)
+      );
+
       let createResponse: Response;
       try {
         createResponse = await this.deps.fetchFn(createUrl, {
@@ -415,6 +422,7 @@ export class ReplicateTransportAdapter {
           headers: {
             Authorization: `Bearer ${this.config.apiToken}`,
             "Content-Type": "application/json",
+            Prefer: `wait=${preferWaitSeconds}`,
           },
           body: JSON.stringify({ input: body.input }),
           signal: createController.signal,

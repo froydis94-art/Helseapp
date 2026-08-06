@@ -251,6 +251,11 @@
     projection_failed: true,
     runtime_execute_failed: true,
     provider_failure: true,
+    provider_timeout: true,
+    provider_invalid_input: true,
+    provider_auth_error: true,
+    provider_http_error: true,
+    token_missing: true,
     validation_failed: true,
     preview_run_failed: true,
   };

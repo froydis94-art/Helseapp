@@ -11,5 +11,6 @@ export {
   ImagePreviewServiceError,
   buildProvisionalPreviewEvidence,
   getImagePreviewSafetyStatus,
+  mapTransportFailureToPreviewError,
   validatePreviewSourceImage,
 } from "./ImagePreviewService";

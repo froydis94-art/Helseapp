@@ -25,6 +25,7 @@ __export(ImagePreviewService_exports, {
   ImagePreviewServiceError: () => ImagePreviewServiceError,
   buildProvisionalPreviewEvidence: () => buildProvisionalPreviewEvidence,
   getImagePreviewSafetyStatus: () => getImagePreviewSafetyStatus,
+  mapTransportFailureToPreviewError: () => mapTransportFailureToPreviewError,
   validatePreviewSourceImage: () => validatePreviewSourceImage
 });
 module.exports = __toCommonJS(ImagePreviewService_exports);
@@ -4367,13 +4368,18 @@ var ReplicateTransportAdapter = class {
         () => createController.abort(),
         this.config.createTimeoutMs
       );
+      const preferWaitSeconds = Math.max(
+        1,
+        Math.min(60, Math.floor(this.config.createTimeoutMs / 1e3) - 5)
+      );
       let createResponse;
       try {
         createResponse = await this.deps.fetchFn(createUrl, {
           method: "POST",
           headers: {
             Authorization: `Bearer ${this.config.apiToken}`,
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            Prefer: `wait=${preferWaitSeconds}`
           },
           body: JSON.stringify({ input: body.input }),
           signal: createController.signal
@@ -5375,6 +5381,8 @@ function resolvePreviewModel(env) {
   }
   return DEFAULT_REPLICATE_TRANSPORT_MODEL;
 }
+var PREVIEW_CREATE_TIMEOUT_MS = 6e4;
+var PREVIEW_TOTAL_TIMEOUT_MS = 12e4;
 function buildPreviewTransportConfig(env, model) {
   const tokenRaw = env.REPLICATE_API_TOKEN;
   const apiToken = typeof tokenRaw === "string" && tokenRaw.trim().length > 0 ? tokenRaw.trim() : null;
@@ -5383,11 +5391,57 @@ function buildPreviewTransportConfig(env, model) {
     apiToken,
     apiBaseUrl: DEFAULT_REPLICATE_API_BASE_URL,
     model,
-    createTimeoutMs: DEFAULT_CREATE_TIMEOUT_MS,
+    createTimeoutMs: PREVIEW_CREATE_TIMEOUT_MS,
     pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
-    totalTimeoutMs: DEFAULT_TOTAL_TIMEOUT_MS,
+    totalTimeoutMs: PREVIEW_TOTAL_TIMEOUT_MS,
     maxPollAttempts: DEFAULT_MAX_POLL_ATTEMPTS
   };
+}
+function mapTransportFailureToPreviewError(transport) {
+  switch (transport.error.code) {
+    case "missing_token":
+    case "adapter_disabled":
+      return new ImagePreviewServiceError(
+        "missing_token",
+        "Provider is not configured."
+      );
+    case "invalid_request":
+    case "unsupported_source_image":
+    case "provider_validation_error":
+      return new ImagePreviewServiceError(
+        "provider_invalid_input",
+        "Provider rejected the request input."
+      );
+    case "provider_auth_error":
+      return new ImagePreviewServiceError(
+        "provider_auth_error",
+        "Provider authentication failed."
+      );
+    case "request_timeout":
+    case "polling_exhausted":
+      return new ImagePreviewServiceError(
+        "provider_timeout",
+        "Provider request timed out."
+      );
+    case "provider_rate_limited":
+    case "provider_unavailable":
+      return new ImagePreviewServiceError(
+        "provider_http_error",
+        "Provider HTTP request failed."
+      );
+    case "provider_failed":
+    case "invalid_provider_response":
+    case "request_aborted":
+    case "unknown_transport_error":
+    default:
+      return new ImagePreviewServiceError(
+        "provider_failure",
+        "Provider request failed."
+      );
+  }
+}
+function isTransportFailure(transport) {
+  return !transport.success;
 }
 function buildProvisionalPreviewEvidence(predictionId, model) {
   const dims = [
@@ -5495,11 +5549,14 @@ var ImagePreviewService = class {
       );
     }
     const transport = runtimeResult.artifacts.transportResult;
-    if (!transport || !transport.success) {
+    if (!transport) {
       throw new ImagePreviewServiceError(
         "provider_failure",
         "Provider request failed."
       );
+    }
+    if (isTransportFailure(transport)) {
+      throw mapTransportFailureToPreviewError(transport);
     }
     const evidenceBuilder = this.deps.buildValidationEvidence ?? buildProvisionalPreviewEvidence;
     const evidence2 = evidenceBuilder(transport.predictionId, model);
@@ -5599,5 +5656,6 @@ function getImagePreviewSafetyStatus() {
   ImagePreviewServiceError,
   buildProvisionalPreviewEvidence,
   getImagePreviewSafetyStatus,
+  mapTransportFailureToPreviewError,
   validatePreviewSourceImage
 });

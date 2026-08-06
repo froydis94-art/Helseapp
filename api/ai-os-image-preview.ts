@@ -402,12 +402,40 @@ function mapServiceErrorCode(code: string): {
         message: "Provider request failed.",
         diagnostic: "provider_failure",
       };
+    case "provider_timeout":
+      return {
+        status: 502,
+        code: "provider_failure",
+        message: "Provider request timed out.",
+        diagnostic: "provider_timeout",
+      };
+    case "provider_invalid_input":
+      return {
+        status: 502,
+        code: "provider_failure",
+        message: "Provider rejected the request input.",
+        diagnostic: "provider_invalid_input",
+      };
+    case "provider_auth_error":
+      return {
+        status: 502,
+        code: "provider_failure",
+        message: "Provider authentication failed.",
+        diagnostic: "provider_auth_error",
+      };
+    case "provider_http_error":
+      return {
+        status: 502,
+        code: "provider_failure",
+        message: "Provider HTTP request failed.",
+        diagnostic: "provider_http_error",
+      };
     case "missing_token":
       return {
         status: 502,
         code: "provider_failure",
-        message: "Provider request failed.",
-        diagnostic: "provider_failure",
+        message: "Provider is not configured.",
+        diagnostic: "token_missing",
       };
     case "validation_rejected":
       return {
@@ -679,6 +707,21 @@ async function handler(
   }
 }
 
+/** Vercel Node config — large data-URI body + one Flux create/poll cycle. */
+(handler as unknown as {
+  config: {
+    api: { bodyParser: { sizeLimit: string } };
+    maxDuration: number;
+  };
+}).config = {
+  api: {
+    bodyParser: {
+      sizeLimit: "10mb",
+    },
+  },
+  maxDuration: 120,
+};
+
 (handler as unknown as { default: typeof handler }).default = handler;
 (handler as unknown as { PREVIEW_RESPONSE_META: typeof PREVIEW_RESPONSE_META }).PREVIEW_RESPONSE_META =
   PREVIEW_RESPONSE_META;
@@ -715,6 +758,7 @@ Object.defineProperty(handler, "normalizeImagePreviewServiceModule", {
 
 module.exports = handler;
 module.exports.default = handler;
+module.exports.config = (handler as unknown as { config: unknown }).config;
 module.exports.PREVIEW_RESPONSE_META = PREVIEW_RESPONSE_META;
 module.exports.digestAccessKey = digestAccessKey;
 module.exports.timingSafeStringEqual = timingSafeStringEqual;

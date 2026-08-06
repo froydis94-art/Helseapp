@@ -765,9 +765,121 @@ describe("imagePreview — DEMAND_017", () => {
           }),
         (err: unknown) =>
           err instanceof ImagePreviewServiceError &&
-          err.code === "provider_failure"
+          err.code === "provider_timeout"
       );
       assert.equal(calls.count, 1);
+    });
+
+    it("29b. Transport timeout/validation/auth map to specific preview codes", async () => {
+      const cases: Array<{
+        transportCode:
+          | "request_timeout"
+          | "provider_validation_error"
+          | "provider_auth_error"
+          | "provider_unavailable";
+        code: string;
+      }> = [
+        { transportCode: "request_timeout", code: "provider_timeout" },
+        {
+          transportCode: "provider_validation_error",
+          code: "provider_invalid_input",
+        },
+        { transportCode: "provider_auth_error", code: "provider_auth_error" },
+        { transportCode: "provider_unavailable", code: "provider_http_error" },
+      ];
+      for (const item of cases) {
+        const calls = { count: 0, inputs: [] as ReplicateTransportInput[] };
+        const failing: ReplicateTransportResult = {
+          success: false,
+          provider: "replicate",
+          imageUrl: null,
+          generationTimeMs: 10,
+          error: {
+            code: item.transportCode,
+            message: "x",
+            retryable: false,
+          },
+          warnings: [],
+          metadata: { traceId: "t", pollingAttempts: 0 },
+        };
+        const service = new ImagePreviewService({
+          transportAdapter: createFakeTransport(failing, calls),
+        });
+        await assert.rejects(
+          () =>
+            service.runPreview({
+              scenarioId: "balanced_recomposition_12w",
+              billingConfirmed: true,
+              sourceImageDataUri: JPEG_DATA_URI,
+            }),
+          (err: unknown) =>
+            err instanceof ImagePreviewServiceError && err.code === item.code
+        );
+        assert.equal(calls.count, 1);
+      }
+    });
+
+    it("29c. Real transport adapter called once with data_uri input_image contract", async () => {
+      let postCount = 0;
+      let createUrl = "";
+      let createBody: {
+        input?: { input_image?: string; prompt?: string; aspect_ratio?: string };
+      } = {};
+      let preferHeader = "";
+      const fakeFetch = (async (
+        input: string | URL | Request,
+        init?: RequestInit
+      ) => {
+        const method = String(init?.method ?? "GET").toUpperCase();
+        if (method === "POST") {
+          postCount += 1;
+          createUrl = String(input);
+          createBody = JSON.parse(String(init?.body ?? "{}")) as typeof createBody;
+          preferHeader = new Headers(init?.headers).get("Prefer") ?? "";
+          return new Response(
+            JSON.stringify({
+              id: "pred_contract_once",
+              status: "succeeded",
+              output: GENERATED_HTTPS,
+              urls: {
+                get: "https://api.replicate.com/v1/predictions/pred_contract_once",
+              },
+            }),
+            { status: 201, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        return new Response("{}", { status: 500 });
+      }) as typeof fetch;
+
+      const service = new ImagePreviewService({
+        env: {
+          REPLICATE_API_TOKEN: "test-token-not-a-real-secret",
+        },
+        transportDependencies: {
+          fetchFn: fakeFetch,
+          now: () => 1_700_000_000_000,
+          sleep: async () => undefined,
+        },
+      });
+
+      const result = await service.runPreview({
+        scenarioId: "balanced_recomposition_12w",
+        billingConfirmed: true,
+        sourceImageDataUri: JPEG_DATA_URI,
+      });
+
+      assert.equal(postCount, 1);
+      assert.match(
+        createUrl,
+        /^https:\/\/api\.replicate\.com\/v1\/models\/black-forest-labs\/flux-kontext-pro\/predictions$/
+      );
+      assert.equal(createBody.input?.input_image, JPEG_DATA_URI);
+      assert.equal(typeof createBody.input?.prompt, "string");
+      assert.ok((createBody.input?.prompt?.length ?? 0) > 0);
+      assert.equal(createBody.input?.aspect_ratio, "3:4");
+      assert.match(preferHeader, /^wait=\d+$/);
+      assert.equal(result.success, true);
+      assert.equal(result.generatedImage?.url, GENERATED_HTTPS);
     });
   });
 
@@ -1166,7 +1278,7 @@ describe("imagePreview — DEMAND_017", () => {
             meta?: { service?: string };
           };
           assert.equal(body.code, "provider_failure");
-          assert.equal(body.diagnostic, "provider_failure");
+          assert.equal(body.diagnostic, "token_missing");
           assert.equal(body.meta?.service, "ai-os-image-preview");
           assert.equal(containsSensitive(body), false);
         } finally {
@@ -1175,6 +1287,23 @@ describe("imagePreview — DEMAND_017", () => {
           else process.env.REPLICATE_API_TOKEN = prevToken;
         }
       });
+    });
+
+    it("API exposes maxDuration and 10mb bodyParser for data-URI preview", async () => {
+      const api = await loadPreviewApi();
+      const cfg = (
+        api as {
+          config?: {
+            maxDuration?: number;
+            api?: { bodyParser?: { sizeLimit?: string } };
+          };
+        }
+      ).config;
+      assert.equal(cfg?.maxDuration, 120);
+      assert.equal(cfg?.api?.bodyParser?.sizeLimit, "10mb");
+      const apiSrc = read(apiPath);
+      assert.match(apiSrc, /maxDuration:\s*120/);
+      assert.match(apiSrc, /sizeLimit:\s*["']10mb["']/);
     });
 
     it("real bundle loader + mocked fetch returns HTTP 200 valid JSON", async () => {
@@ -1259,6 +1388,11 @@ describe("imagePreview — DEMAND_017", () => {
       const js = read(uiJsPath);
       assert.match(js, /runtime_execute_failed:\s*true/);
       assert.match(js, /provider_failure:\s*true/);
+      assert.match(js, /provider_timeout:\s*true/);
+      assert.match(js, /provider_invalid_input:\s*true/);
+      assert.match(js, /provider_auth_error:\s*true/);
+      assert.match(js, /provider_http_error:\s*true/);
+      assert.match(js, /token_missing:\s*true/);
       assert.match(js, /validation_failed:\s*true/);
       assert.match(js, /module_load_failed:\s*true/);
       assert.match(js, /Diagnostic:\s*"\s*\+\s*String\(diagnostic\)/);
