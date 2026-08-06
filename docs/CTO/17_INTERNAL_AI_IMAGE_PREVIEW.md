@@ -114,43 +114,59 @@ refresh.
 
 ## Supported clothing
 
-HelseApp supports clearly adult, neutral, non-sexual body-progress source photos
-in:
+HelseApp supports clearly adult, consented body-progress source photos,
+including ordinary underwear, sports bras, swimwear, fitted athletic clothing,
+and training shorts.
 
-- ordinary underwear
-- sports bras
-- swimwear
-- fitted athletic clothing
-- training shorts
+Clothing or underwear style alone must never determine whether an image is
+interpreted as sexual. The Control Room guidance must not say underwear is
+prohibited. An external provider may still decline some compliant images.
 
-Neutral non-sexual context is required. The Control Room guidance must not say
-underwear is prohibited. An external provider may still decline some compliant
-images.
+## Original presentation (PATCH 017C)
+
+Internal body-progress previews treat the submitted photograph as the source of
+truth for pose, facial expression, camera framing, clothing, underwear style,
+swimwear, styling, confidence, attractiveness, glamour, background, and
+lighting.
+
+Only the requested health and body-progress transformation may change.
+
+The AI OS formatter preview safety context must:
+
+- preserve original presentation and visual character
+- preserve existing clothing and clothing coverage (no redesign/remove/replace
+  except a minor natural fit adjustment for the transformed body)
+- limit edits to approved plan body characteristics
+- not classify underwear, swimwear, sports bras, or training clothing as sexual
+  merely by garment type
+- not estimate age from appearance (the adult confirmation is primary)
+- not judge why the photograph was taken, attractiveness, pose, or glamour
+- use one narrow content boundary: do not introduce explicit pornographic
+  content absent from the source image
 
 ## Disallowed content
 
 Not accepted for preview:
 
-- nudity
-- exposed genitals
-- sexually explicit content
-- fetishized or sexualized framing
-- uncertain or apparently minor subject
+- introducing explicit pornographic content absent from the source
 - image submitted without subject consent
 - third-party image without authorization
+- missing adult confirmation (user declaration is primary; AI must not
+  estimate age from appearance)
+
+Provider moderation remains separate and may still decline some images.
 
 ## Provider limitations
 
 External providers may still reject legitimate adult underwear or fitness
-images. This foundation patch does not alter provider moderation, does not
-change the provider model, and does not rewrite formatter/provider prompt
-behavior. Formatter/provider compatibility work belongs in Patch 017C.
-Provider/model evaluation with approved adult, consented test images belongs
-in Demand 018.
+images. Patch 017C updates formatter presentation-preservation wording only; it
+does not alter provider moderation, the provider model, transport, runtime, or
+production generation. Provider/model evaluation with approved adult, consented
+test images belongs in Demand 018.
 
 HelseApp currently relies on explicit adult/consent/billing confirmations and
-provider moderation (plus any formatter safety context already present from
-prior work). Dedicated image-based age/content moderation is not yet
+provider moderation (plus formatter presentation-preservation context from
+PATCH 017C). Dedicated image-based age/content moderation is not yet
 implemented.
 
 ## Provider safety cannot be bypassed
@@ -377,9 +393,8 @@ Preview provider wiring (PATCH 017B/C):
 
 ## Next milestones
 
-Patch 017C — Formatter/provider compatibility for adult non-sexual fitness
-previews (prompt/safety context and provider-model fit). This foundation patch
-does not own that work.
+Patch 017C — Formatter preserves original presentation and transforms body only
+(complete in formatter/docs; provider-model evaluation remains Demand 018).
 
 Demand 018 — Preview Evaluation and Prompt Calibration
 
@@ -400,8 +415,22 @@ Permanent rules:
 > Internal preview may never silently retry, batch, persist personal images, or
 > replace production generation.
 
-> HelseApp may support clearly adult, consented, non-sexual body-progress images
-> in ordinary underwear or athletic clothing.
+> HelseApp does not judge why a photograph was taken.
 
-> HelseApp may never support minors, nudity, sexualized imagery or
-> non-consensual source images.
+> HelseApp preserves the user's original presentation and modifies only what is
+> necessary for the requested health and body-progress visualization.
+
+> Clothing or underwear style alone must never determine whether an image is
+> interpreted as sexual.
+
+> The user's declaration is the primary basis for adulthood. AI must not estimate
+> age from appearance.
+
+> HelseApp must not introduce explicit pornographic content that is absent from
+> the source image.
+
+> HelseApp may support clearly adult, consented body-progress images in ordinary
+> underwear or athletic clothing.
+
+> HelseApp may never support non-consensual source images, or introduce explicit
+> pornographic content absent from the source.

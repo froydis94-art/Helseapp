@@ -80,8 +80,8 @@ export interface FormatterOptions {
     | "natural_athletic"
     | "documentary_fitness";
   /**
-   * Internal preview laboratory only — structured adult non-sexual fitness
-   * safety wording. Not a browser-supplied free-text prompt.
+   * Internal preview laboratory only — structured presentation-preservation
+   * and body-transform-only wording. Not a browser-supplied free-text prompt.
    */
   previewSafetyContext?: PreviewSafetyContext;
 }

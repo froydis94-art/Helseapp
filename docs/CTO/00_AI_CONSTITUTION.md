@@ -361,3 +361,24 @@ It is complete only when:
 ## 20. Permanent architectural rule
 
 > HelseApp owns the transformation intelligence. External models render the result.
+
+## 21. Original presentation and adulthood
+
+Body-progress visualization preserves the user's original presentation and
+modifies only what the approved health and body-progress plan requires.
+
+Permanent product rules:
+
+> HelseApp does not judge why a photograph was taken.
+
+> HelseApp preserves the user's original presentation and modifies only what is
+> necessary for the requested health and body-progress visualization.
+
+> Clothing or underwear style alone must never determine whether an image is
+> interpreted as sexual.
+
+> The user's declaration is the primary basis for adulthood. AI must not estimate
+> age from appearance.
+
+> HelseApp must not introduce explicit pornographic content that is absent from
+> the source image.

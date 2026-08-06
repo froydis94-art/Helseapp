@@ -6,6 +6,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -426,5 +427,152 @@ describe("providerFormatter — DEMAND_007", () => {
     assert.equal(formatter.name, "FluxFormatter");
     assert.ok(formatter.capabilities.includes("negative_prompt"));
     assert.ok(formatter.capabilities.includes("source_image_edit"));
+  });
+});
+
+describe("providerFormatter — PATCH 017C preserve original presentation", () => {
+  const formatter = new FluxFormatter();
+  const previewOptions = {
+    previewSafetyContext: "non_sexual_fitness_visualization" as const,
+  };
+
+  function previewPrompt(): string {
+    return formatter.format(sampleRenderPlan(), previewOptions).prompt;
+  }
+
+  function previewNegative(): string {
+    return formatter.format(sampleRenderPlan(), previewOptions).negativePrompt ?? "";
+  }
+
+  const forbiddenJudgment =
+    /ordinary underwear only|modest underwear|inappropriate underwear|provocative clothing|sexual clothing|appears young|possibly minor|looks underage|mature-looking|youthful body/i;
+
+  it("1. The formatter preserves original pose", () => {
+    const prompt = previewPrompt();
+    assert.match(prompt, /original pose/i);
+    assert.match(prompt, /original presentation[^\n]*pose/i);
+  });
+
+  it("2. The formatter preserves original facial expression", () => {
+    assert.match(previewPrompt(), /expression/i);
+  });
+
+  it("3. The formatter preserves original camera framing", () => {
+    assert.match(previewPrompt(), /camera framing/i);
+  });
+
+  it("4. The formatter preserves existing clothing", () => {
+    const prompt = previewPrompt();
+    assert.match(prompt, /Preserve the clothing/i);
+    assert.match(prompt, /Preserve the existing clothing/i);
+  });
+
+  it("5. The formatter preserves clothing coverage", () => {
+    assert.match(previewPrompt(), /clothing coverage/i);
+  });
+
+  it("6. The formatter does not classify underwear as sexual by garment type", () => {
+    const prompt = previewPrompt();
+    assert.equal(/underwear[^\n]{0,80}sexual|sexual[^\n]{0,80}underwear/i.test(prompt), false);
+    assert.equal(forbiddenJudgment.test(prompt), false);
+  });
+
+  it("7. The formatter does not classify swimwear as sexual by garment type", () => {
+    const prompt = previewPrompt();
+    assert.equal(/swimwear[^\n]{0,80}sexual|sexual[^\n]{0,80}swimwear/i.test(prompt), false);
+    assert.equal(forbiddenJudgment.test(prompt), false);
+  });
+
+  it("8. The formatter does not classify sports bras as sexual by garment type", () => {
+    const prompt = previewPrompt();
+    assert.equal(
+      /sports\s*bras?[^\n]{0,80}sexual|sexual[^\n]{0,80}sports\s*bras?/i.test(prompt),
+      false
+    );
+    assert.equal(forbiddenJudgment.test(prompt), false);
+  });
+
+  it("9. The formatter does not judge attractive, confident or glamorous presentation", () => {
+    const prompt = previewPrompt();
+    assert.match(
+      prompt,
+      /Do not change the subject's identity, confidence, attractiveness/i
+    );
+    assert.equal(
+      /reduce attractiveness|desexualize|less glamorous|tone down confidence|make less attractive/i.test(
+        prompt
+      ),
+      false
+    );
+  });
+
+  it("10. The formatter does not infer age from appearance", () => {
+    const prompt = previewPrompt();
+    assert.equal(
+      /estimate age|infer age|age from (appearance|height|weight|body shape|breast|facial|youthful|ethnicity|clothing|pose)/i.test(
+        prompt
+      ),
+      false
+    );
+    assert.equal(forbiddenJudgment.test(prompt), false);
+  });
+
+  it("11. The formatter does not use age estimation language", () => {
+    const joined = `${previewPrompt()}\n${previewNegative()}`;
+    assert.equal(/appears young|underage|possibly minor|looks underage|mature-looking|youthful body|minor appearance|childlike features|age reduction|age ambiguity/i.test(joined), false);
+  });
+
+  it("12. The formatter limits changes to the approved body-progress plan", () => {
+    const prompt = previewPrompt();
+    assert.match(
+      prompt,
+      /Only modify the body characteristics required by the approved health and body-progress transformation plan/i
+    );
+    assert.match(prompt, /Do not introduce unrelated styling changes/i);
+  });
+
+  it("13. The formatter includes a narrow prohibition against introducing explicit pornographic content absent from the source", () => {
+    const prompt = previewPrompt();
+    assert.match(
+      prompt,
+      /must not introduce explicit pornographic content that is absent from the source image/i
+    );
+    assert.equal(/No erotic pose|No sexualization|erotic framing/i.test(prompt), false);
+  });
+
+  it("14. Existing formatter contracts remain compatible", () => {
+    const render = sampleRenderPlan();
+    const base = formatter.format(render);
+    const preview = formatter.format(render, previewOptions);
+    const baseValidation = validateFormattedImageRequest(base);
+    const previewValidation = validateFormattedImageRequest(preview);
+    assert.equal(baseValidation.valid, true, baseValidation.errors.join("; "));
+    assert.equal(previewValidation.valid, true, previewValidation.errors.join("; "));
+    assert.equal(base.sourceOperation, "edit_source_image");
+    assert.equal(preview.sourceOperation, "edit_source_image");
+    assert.equal(preview.prompt.includes("SAFETY"), true);
+    assert.equal(base.prompt.includes("SAFETY"), false);
+    for (const change of render.transformation.approvedChanges) {
+      assert.equal(preview.prompt.includes(change.description), true);
+    }
+  });
+
+  it("15. No provider, transport, runtime or production file changes", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const repoRoot = join(here, "..", "..", "..");
+    const guarded = [
+      "src/ai/transport",
+      "src/ai/runtime",
+      "src/ai/provider",
+      "api/generate-future-you.js",
+      "lib/replicate.js",
+      "lib/visuellPrompt.js",
+      "src/ai/control-room/imagePreviewRuntime.bundle.cjs",
+    ];
+    const status = execSync("git status --porcelain -- " + guarded.join(" "), {
+      cwd: repoRoot,
+      encoding: "utf8",
+    }).trim();
+    assert.equal(status, "", `unexpected guarded changes:\n${status}`);
   });
 });

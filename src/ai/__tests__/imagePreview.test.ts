@@ -1768,7 +1768,7 @@ describe("imagePreview — DEMAND_017", () => {
       );
     });
 
-    it("27-31. Safety context reaches formatter with clothing/age/nudity rules", async () => {
+    it("27-31. Safety context preserves presentation and limits body-only transform", async () => {
       const calls = { count: 0, inputs: [] as ReplicateTransportInput[] };
       const service = new ImagePreviewService({
         transportAdapter: createFakeTransport(successTransportResult(), calls),
@@ -1785,13 +1785,20 @@ describe("imagePreview — DEMAND_017", () => {
       const negative =
         result.artifacts?.formattedRequestSummary.negativePrompt ?? "";
       assert.match(prompt, /\bSAFETY\b/);
-      assert.match(prompt, /Preserve existing clothing coverage/);
-      assert.match(prompt, /Ordinary underwear or athletic clothing may be present/);
+      assert.match(prompt, /Preserve the subject's original presentation/);
+      assert.match(prompt, /clothing coverage/);
+      assert.match(
+        prompt,
+        /must not introduce explicit pornographic content that is absent from the source image/i
+      );
       assert.equal(/underwear is (prohibited|banned|not allowed)/i.test(prompt), false);
-      assert.match(prompt, /No nudity/);
-      assert.match(prompt, /No sexualization/);
-      assert.match(prompt, /No age reduction/);
-      assert.match(negative, /nudity/i);
+      assert.equal(
+        /ordinary underwear only|modest underwear|No sexualization|No age reduction|appears young|underage/i.test(
+          prompt
+        ),
+        false
+      );
+      assert.match(negative, /explicit pornographic content absent from source/i);
       assert.equal(calls.count, 1);
     });
 
@@ -1934,14 +1941,15 @@ describe("imagePreview — DEMAND_017", () => {
       assert.equal(read(uiJsPath).includes("api.replicate.com"), false);
     });
 
-    it("38-39. This foundation patch does not modify formatter or transport files", () => {
+    it("38-39. Consent foundation / 017C do not modify transport, runtime, or provider", () => {
+      // PATCH 017C owns formatter presentation rules; transport/runtime/provider stay sealed.
       const dirty = execSync(
-        'git status --porcelain -- "src/ai/formatters" "src/ai/transport" "src/ai/provider" "src/ai/runtime"',
+        'git status --porcelain -- "src/ai/transport" "src/ai/provider" "src/ai/runtime"',
         { encoding: "utf8", cwd: repoRoot }
       ).trim();
       assert.equal(dirty, "");
       const unstaged = execSync(
-        'git diff --name-only HEAD -- "src/ai/formatters" "src/ai/transport" "src/ai/provider" "src/ai/runtime"',
+        'git diff --name-only HEAD -- "src/ai/transport" "src/ai/provider" "src/ai/runtime"',
         { encoding: "utf8", cwd: repoRoot }
       ).trim();
       assert.equal(unstaged, "");
@@ -1959,10 +1967,25 @@ describe("imagePreview — DEMAND_017", () => {
         assert.equal(/src\/ai\/provider\//.test(files), false);
         assert.equal(/src\/ai\/runtime\//.test(files), false);
       }
+      if (msg === "Preserve original presentation in AI OS formatter") {
+        const files = execSync("git show --name-only --pretty=format: HEAD", {
+          encoding: "utf8",
+          cwd: repoRoot,
+        });
+        assert.equal(/src\/ai\/transport\//.test(files), false);
+        assert.equal(/src\/ai\/provider\//.test(files), false);
+        assert.equal(/src\/ai\/runtime\//.test(files), false);
+        assert.equal(/api\/generate-future-you\.js/.test(files), false);
+        assert.equal(/lib\/replicate\.js/.test(files), false);
+      }
       const docs = read(docsPath);
       assert.match(docs, /Patch 017C/);
       assert.match(docs, /Demand 018/);
       assert.match(docs, /Provider limitations/);
+      assert.match(
+        docs,
+        /preserves the user's original presentation|Preserve original presentation/i
+      );
     });
   });
 });
