@@ -39,3 +39,66 @@ export {
   ControlRoomServiceError,
   buildControlRoomFailureShell,
 } from "./ControlRoomService";
+
+export {
+  IMAGE_PREVIEW_ACCEPTED_MIME,
+  IMAGE_PREVIEW_FORBIDDEN_CONTENT_ERROR,
+  IMAGE_PREVIEW_MAX_BYTES,
+  IMAGE_PREVIEW_RULES_VERSION,
+  IMAGE_PREVIEW_SAFETY_STATUS,
+  IMAGE_PREVIEW_SCHEMA_VERSION,
+} from "./ImagePreviewTypes";
+export type {
+  ImagePreviewApiFailure,
+  ImagePreviewApiResponse,
+  ImagePreviewApiSuccess,
+  ImagePreviewFormattedRequestSummary,
+  ImagePreviewMimeType,
+  ImagePreviewProviderSummary,
+  ImagePreviewRequestMetadata,
+  ImagePreviewResult,
+  ImagePreviewSafetyStatus,
+  ImagePreviewScenarioId,
+  ImagePreviewStageView,
+  ImagePreviewValidationSummary,
+} from "./ImagePreviewTypes";
+
+export {
+  ImagePreviewProjectionError,
+  previewStageLabel,
+  projectImagePreviewResult,
+  sanitizeImagePreviewProjection,
+  validateImagePreviewProjection,
+} from "./ImagePreviewProjection";
+
+export {
+  ImagePreviewService,
+  ImagePreviewServiceError,
+  buildProvisionalPreviewEvidence,
+  getImagePreviewSafetyStatus,
+  validatePreviewSourceImage,
+} from "./ImagePreviewService";
+
+export {
+  CONTROL_ROOM_ACCESS_HEADER,
+  CONTROL_ROOM_ACCESS_HEADER_CANONICAL,
+  MIN_CONTROL_ROOM_ACCESS_KEY_LENGTH,
+  buildAccessContextRateKey,
+  digestAccessKey,
+  getConfiguredControlRoomAccessKey,
+  isControlRoomAccessAuthorized,
+  resolveControlRoomAccessHeader,
+  timingSafeStringEqual,
+} from "./ControlRoomAuth";
+
+export {
+  DEFAULT_PREVIEW_MAX_REQUESTS_PER_HOUR,
+  MAX_PREVIEW_MAX_REQUESTS_PER_HOUR,
+  MIN_PREVIEW_MAX_REQUESTS_PER_HOUR,
+  PREVIEW_RATE_WINDOW_MS,
+  consumePreviewRateLimit,
+  createPreviewRateLimitStore,
+  getDefaultPreviewRateLimitStore,
+  parsePreviewMaxRequestsPerHour,
+  resetDefaultPreviewRateLimitStore,
+} from "./ControlRoomRateLimit";

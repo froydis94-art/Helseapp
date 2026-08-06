@@ -84,6 +84,89 @@
         <p id="runMessage" class="message" role="status"></p>
       </section>
 
+      <section class="panel locked-only" id="previewPanel" hidden>
+        <h2>Internal image preview</h2>
+        <p class="panel-copy warn-copy">
+          Warning: Generate creates one paid AI provider request. This is an
+          internal visual-quality laboratory only.
+        </p>
+        <p class="panel-copy" id="previewPrivacyNotice">
+          Privacy: the source photo stays in browser memory until Generate, is
+          not stored in localStorage or sessionStorage, and is cleared on Lock
+          or refresh. HelseApp does not persist the image. The configured AI
+          provider may process it under its own retention terms.
+        </p>
+        <p class="panel-copy">
+          Internal preview only. Not a medical prediction and not yet used by
+          the public HelseApp experience.
+        </p>
+
+        <label class="field">
+          <span>Source photograph</span>
+          <input
+            id="previewFileInput"
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+          />
+        </label>
+        <p id="previewImageMeta" class="scenario-meta"></p>
+        <div class="preview-compare" id="previewCompare" hidden>
+          <div class="preview-frame">
+            <div class="preview-frame-label">SOURCE</div>
+            <img id="previewSourceImg" alt="Source preview" />
+          </div>
+          <div class="preview-frame">
+            <div class="preview-frame-label">AI OS PREVIEW</div>
+            <img id="previewGeneratedImg" alt="Generated preview" hidden />
+            <p id="previewGeneratedPlaceholder" class="scenario-meta">
+              No generated image yet.
+            </p>
+          </div>
+        </div>
+        <p id="previewGeneratedLinkWrap" class="scenario-meta" hidden>
+          <a
+            id="previewGeneratedLink"
+            href="#"
+            target="_blank"
+            rel="noopener noreferrer"
+            >Open generated image</a
+          >
+        </p>
+
+        <label class="checkbox-field">
+          <input id="previewBillingCheckbox" type="checkbox" />
+          <span
+            >I understand that this creates one paid AI provider request.</span
+          >
+        </label>
+
+        <div class="actions">
+          <button type="button" id="previewGenerateButton" class="btn primary" disabled>
+            Generate internal preview
+          </button>
+        </div>
+        <p id="previewMessage" class="message" role="status"></p>
+
+        <article class="subpanel" id="previewResultPanel" hidden>
+          <h3>Preview inspection</h3>
+          <div id="previewProviderSummary" class="kv-grid"></div>
+          <div id="previewValidationSummary" class="kv-grid"></div>
+          <div id="previewStageList" class="stage-list"></div>
+          <ul id="previewSafetyList" class="safety-list"></ul>
+          <details id="previewPromptDetails">
+            <summary>Show formatted prompts</summary>
+            <h4>Positive prompt</h4>
+            <pre id="previewPositivePrompt" class="code-block"></pre>
+            <h4>Negative prompt</h4>
+            <pre id="previewNegativePrompt" class="code-block"></pre>
+          </details>
+          <details>
+            <summary>Show raw safe preview projection</summary>
+            <pre id="previewRawProjection" class="code-block"></pre>
+          </details>
+        </article>
+      </section>
+
       <section class="panel" id="resultPanel" hidden>
         <h2>Dry-run result</h2>
 

@@ -2,10 +2,15 @@
   "use strict";
 
   var API_PATH = "/api/ai-os-control-room";
+  var PREVIEW_API_PATH = "/api/ai-os-image-preview";
   var ACCESS_HEADER = "X-AI-OS-Control-Room-Key";
   var EXPECTED_SERVICE = "ai-os-control-room";
   var EXPECTED_API_VERSION = "1.1";
+  var EXPECTED_PREVIEW_SERVICE = "ai-os-image-preview";
+  var EXPECTED_PREVIEW_API_VERSION = "1.0";
   var UNAUTH_STREAK_LIMIT = 2;
+  var PREVIEW_MAX_LONG_EDGE = 1600;
+  var PREVIEW_JPEG_QUALITY = 0.85;
 
   var accessKey = null;
   var unauthorizedStreak = 0;
@@ -13,6 +18,10 @@
   var scenarios = [];
   var currentResult = null;
   var requestInFlight = false;
+  var previewInFlight = false;
+  var previewSourceDataUri = null;
+  var previewSourceMeta = null;
+  var previewObjectUrl = null;
 
   var accessStatus = document.getElementById("accessStatus");
   var accessKeyInput = document.getElementById("accessKeyInput");
@@ -36,6 +45,37 @@
   var negativePromptView = document.getElementById("negativePromptView");
   var versionMatrix = document.getElementById("versionMatrix");
   var rawProjectionView = document.getElementById("rawProjectionView");
+  var previewPanel = document.getElementById("previewPanel");
+  var previewFileInput = document.getElementById("previewFileInput");
+  var previewImageMeta = document.getElementById("previewImageMeta");
+  var previewCompare = document.getElementById("previewCompare");
+  var previewSourceImg = document.getElementById("previewSourceImg");
+  var previewGeneratedImg = document.getElementById("previewGeneratedImg");
+  var previewGeneratedPlaceholder = document.getElementById(
+    "previewGeneratedPlaceholder"
+  );
+  var previewGeneratedLinkWrap = document.getElementById(
+    "previewGeneratedLinkWrap"
+  );
+  var previewGeneratedLink = document.getElementById("previewGeneratedLink");
+  var previewBillingCheckbox = document.getElementById(
+    "previewBillingCheckbox"
+  );
+  var previewGenerateButton = document.getElementById("previewGenerateButton");
+  var previewMessage = document.getElementById("previewMessage");
+  var previewResultPanel = document.getElementById("previewResultPanel");
+  var previewProviderSummary = document.getElementById(
+    "previewProviderSummary"
+  );
+  var previewValidationSummary = document.getElementById(
+    "previewValidationSummary"
+  );
+  var previewStageList = document.getElementById("previewStageList");
+  var previewSafetyList = document.getElementById("previewSafetyList");
+  var previewPositivePrompt = document.getElementById("previewPositivePrompt");
+  var previewNegativePrompt = document.getElementById("previewNegativePrompt");
+  var previewRawProjection = document.getElementById("previewRawProjection");
+  var previewPromptDetails = document.getElementById("previewPromptDetails");
 
   function setText(el, value) {
     if (!el) return;
@@ -77,6 +117,57 @@
     }
   }
 
+  function clearPreviewState() {
+    previewInFlight = false;
+    previewSourceDataUri = null;
+    previewSourceMeta = null;
+    if (previewObjectUrl) {
+      try {
+        URL.revokeObjectURL(previewObjectUrl);
+      } catch (_err) {
+        /* ignore */
+      }
+      previewObjectUrl = null;
+    }
+    if (previewFileInput) previewFileInput.value = "";
+    if (previewBillingCheckbox) previewBillingCheckbox.checked = false;
+    if (previewCompare) previewCompare.hidden = true;
+    if (previewSourceImg) previewSourceImg.removeAttribute("src");
+    if (previewGeneratedImg) {
+      previewGeneratedImg.hidden = true;
+      previewGeneratedImg.removeAttribute("src");
+    }
+    if (previewGeneratedPlaceholder) {
+      previewGeneratedPlaceholder.hidden = false;
+    }
+    if (previewGeneratedLinkWrap) previewGeneratedLinkWrap.hidden = true;
+    if (previewGeneratedLink) previewGeneratedLink.href = "#";
+    if (previewResultPanel) previewResultPanel.hidden = true;
+    if (previewImageMeta) setText(previewImageMeta, "");
+    if (previewMessage) setMessage(previewMessage, "", null);
+    clearChildren(previewProviderSummary);
+    clearChildren(previewValidationSummary);
+    clearChildren(previewStageList);
+    clearChildren(previewSafetyList);
+    setText(previewPositivePrompt, "");
+    setText(previewNegativePrompt, "");
+    setText(previewRawProjection, "");
+    if (previewPromptDetails) previewPromptDetails.open = false;
+    updatePreviewGenerateEnabled();
+  }
+
+  function updatePreviewGenerateEnabled() {
+    if (!previewGenerateButton) return;
+    var ready =
+      !!accessKey &&
+      !!selectedScenarioId &&
+      !!previewSourceDataUri &&
+      !!(previewBillingCheckbox && previewBillingCheckbox.checked) &&
+      !previewInFlight &&
+      !requestInFlight;
+    previewGenerateButton.disabled = !ready;
+  }
+
   function lockRoom(message, kind) {
     accessKey = null;
     unauthorizedStreak = 0;
@@ -88,9 +179,11 @@
     accessStatus.classList.remove("ok");
     accessStatus.classList.add("warn");
     scenarioPanel.hidden = true;
+    if (previewPanel) previewPanel.hidden = true;
     resultPanel.hidden = true;
     clearChildren(scenarioList);
     clearResultViews();
+    clearPreviewState();
     lockButton.disabled = true;
     runButton.disabled = true;
     unlockButton.disabled = false;
@@ -118,8 +211,10 @@
     accessStatus.classList.remove("warn");
     accessStatus.classList.add("ok");
     scenarioPanel.hidden = false;
+    if (previewPanel) previewPanel.hidden = false;
     lockButton.disabled = false;
     accessKeyInput.value = "";
+    updatePreviewGenerateEnabled();
   }
 
   function apiMessage(payload, fallback) {
@@ -282,11 +377,13 @@
         selectedScenarioId = scenario.id;
         renderScenarios();
         runButton.disabled = !selectedScenarioId || requestInFlight;
+        updatePreviewGenerateEnabled();
       });
 
       scenarioList.appendChild(button);
     });
     runButton.disabled = !selectedScenarioId || requestInFlight;
+    updatePreviewGenerateEnabled();
   }
 
   function renderStages(stages) {
@@ -644,6 +741,415 @@
       });
   }
 
+  function previewMetaMatches(payload) {
+    return (
+      !!payload &&
+      typeof payload === "object" &&
+      payload.meta &&
+      typeof payload.meta === "object" &&
+      payload.meta.service === EXPECTED_PREVIEW_SERVICE &&
+      payload.meta.apiVersion === EXPECTED_PREVIEW_API_VERSION
+    );
+  }
+
+  function previewRequest(body) {
+    var headers = {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    };
+    if (accessKey) {
+      headers[ACCESS_HEADER] = accessKey;
+    }
+    return fetch(PREVIEW_API_PATH, {
+      method: "POST",
+      headers: headers,
+      credentials: "same-origin",
+      body: JSON.stringify(body),
+    }).then(function (response) {
+      return response.text().then(function (text) {
+        var payload = null;
+        var nonJson = false;
+        if (text == null || text === "") {
+          nonJson = response.status !== 204;
+        } else {
+          try {
+            payload = JSON.parse(text);
+            if (payload == null || typeof payload !== "object") {
+              nonJson = true;
+              payload = null;
+            }
+          } catch (_err) {
+            nonJson = true;
+            payload = null;
+          }
+        }
+        return {
+          response: response,
+          payload: payload,
+          nonJson: nonJson,
+        };
+      });
+    });
+  }
+
+  function loadImageElement(file) {
+    return new Promise(function (resolve, reject) {
+      var url = URL.createObjectURL(file);
+      previewObjectUrl = url;
+      var img = new Image();
+      img.onload = function () {
+        resolve(img);
+      };
+      img.onerror = function () {
+        reject(new Error("image_load_failed"));
+      };
+      img.src = url;
+    });
+  }
+
+  function compressSourceThroughCanvas(file) {
+    return loadImageElement(file).then(function (img) {
+      var width = img.naturalWidth || img.width;
+      var height = img.naturalHeight || img.height;
+      if (!width || !height) {
+        throw new Error("invalid_image");
+      }
+      var longEdge = Math.max(width, height);
+      var scale =
+        longEdge > PREVIEW_MAX_LONG_EDGE ? PREVIEW_MAX_LONG_EDGE / longEdge : 1;
+      // Never upscale.
+      if (scale > 1) scale = 1;
+      var targetW = Math.max(1, Math.round(width * scale));
+      var targetH = Math.max(1, Math.round(height * scale));
+      var canvas = document.createElement("canvas");
+      canvas.width = targetW;
+      canvas.height = targetH;
+      var ctx = canvas.getContext("2d");
+      if (!ctx) {
+        throw new Error("canvas_unavailable");
+      }
+      // Canvas redraw strips EXIF / metadata.
+      ctx.drawImage(img, 0, 0, targetW, targetH);
+      var dataUri = canvas.toDataURL("image/jpeg", PREVIEW_JPEG_QUALITY);
+      var approxBytes = Math.ceil(((dataUri.length - 23) * 3) / 4);
+      return {
+        dataUri: dataUri,
+        width: targetW,
+        height: targetH,
+        byteLength: approxBytes,
+      };
+    });
+  }
+
+  function onPreviewFileSelected() {
+    var file =
+      previewFileInput && previewFileInput.files && previewFileInput.files[0];
+    previewSourceDataUri = null;
+    previewSourceMeta = null;
+    if (previewGeneratedImg) {
+      previewGeneratedImg.hidden = true;
+      previewGeneratedImg.removeAttribute("src");
+    }
+    if (previewGeneratedPlaceholder) {
+      previewGeneratedPlaceholder.hidden = false;
+    }
+    if (previewGeneratedLinkWrap) previewGeneratedLinkWrap.hidden = true;
+    if (!file) {
+      if (previewCompare) previewCompare.hidden = true;
+      setText(previewImageMeta, "");
+      updatePreviewGenerateEnabled();
+      return;
+    }
+    var type = String(file.type || "").toLowerCase();
+    if (
+      type !== "image/jpeg" &&
+      type !== "image/jpg" &&
+      type !== "image/png" &&
+      type !== "image/webp"
+    ) {
+      setMessage(
+        previewMessage,
+        "Unsupported image type. Use JPEG, PNG, or WebP.",
+        "error"
+      );
+      previewFileInput.value = "";
+      updatePreviewGenerateEnabled();
+      return;
+    }
+    setMessage(previewMessage, "Preparing source image…", null);
+    compressSourceThroughCanvas(file)
+      .then(function (prepared) {
+        previewSourceDataUri = prepared.dataUri;
+        previewSourceMeta = prepared;
+        if (previewCompare) previewCompare.hidden = false;
+        if (previewSourceImg) previewSourceImg.src = prepared.dataUri;
+        setText(
+          previewImageMeta,
+          String(prepared.width) +
+            "×" +
+            String(prepared.height) +
+            " · ~" +
+            String(Math.round(prepared.byteLength / 1024)) +
+            " KB (JPEG canvas, EXIF stripped)"
+        );
+        setMessage(previewMessage, "Source image ready.", "ok");
+        updatePreviewGenerateEnabled();
+      })
+      .catch(function () {
+        previewSourceDataUri = null;
+        previewSourceMeta = null;
+        setMessage(previewMessage, "Could not prepare source image.", "error");
+        updatePreviewGenerateEnabled();
+      });
+  }
+
+  function renderPreviewStages(stages) {
+    clearChildren(previewStageList);
+    (stages || []).forEach(function (stage) {
+      var row = document.createElement("div");
+      row.className = "stage-item";
+      var icon = document.createElement("span");
+      icon.className = "stage-icon " + (stage.success ? "ok" : "fail");
+      icon.textContent = stage.success ? "OK" : "X";
+      var main = document.createElement("div");
+      var label = document.createElement("strong");
+      label.textContent = stage.label || stage.stage || "";
+      main.appendChild(label);
+      var duration = document.createElement("div");
+      duration.className = "scenario-meta";
+      duration.textContent = String(stage.durationMs || 0) + " ms";
+      row.appendChild(icon);
+      row.appendChild(main);
+      row.appendChild(duration);
+      previewStageList.appendChild(row);
+    });
+  }
+
+  function renderPreviewSafety(safety) {
+    clearChildren(previewSafetyList);
+    var entries = [
+      ["Internal only", safety && safety.internalOnly === true],
+      [
+        "Explicit billing confirmation",
+        safety && safety.explicitBillingConfirmation === true,
+      ],
+      ["Request cap applied", safety && safety.requestCapApplied === true],
+      [
+        "Source image not persisted",
+        safety && safety.sourceImagePersisted === false,
+      ],
+      [
+        "Generated image not persisted by HelseApp",
+        safety && safety.generatedImagePersistedByHelseApp === false,
+      ],
+      [
+        "Legacy production unchanged",
+        safety && safety.legacyProductionChanged === false,
+      ],
+      [
+        "Public cutover disabled",
+        safety && safety.publicCutoverEnabled === false,
+      ],
+    ];
+    entries.forEach(function (entry) {
+      var li = document.createElement("li");
+      li.className = entry[1] ? "ok" : "fail";
+      li.textContent = entry[0];
+      previewSafetyList.appendChild(li);
+    });
+  }
+
+  function renderPreviewResult(result) {
+    if (previewResultPanel) previewResultPanel.hidden = false;
+    clearChildren(previewProviderSummary);
+    clearChildren(previewValidationSummary);
+    var provider = result && result.provider;
+    appendKv(
+      previewProviderSummary,
+      "Provider",
+      provider && provider.providerFamily
+    );
+    appendKv(previewProviderSummary, "Model", provider && provider.model);
+    appendKv(
+      previewProviderSummary,
+      "Prediction",
+      provider && provider.predictionId
+    );
+    appendKv(previewProviderSummary, "Status", provider && provider.status);
+    appendKv(
+      previewProviderSummary,
+      "Duration ms",
+      provider && provider.durationMs
+    );
+
+    var validation = result && result.validation;
+    appendKv(
+      previewValidationSummary,
+      "Accepted",
+      validation && validation.accepted === true ? "yes" : "no"
+    );
+    appendKv(
+      previewValidationSummary,
+      "Decision",
+      validation && validation.decision
+    );
+
+    renderPreviewStages(result.runtime && result.runtime.stages);
+    renderPreviewSafety(result.safety);
+
+    var summary =
+      result.artifacts && result.artifacts.formattedRequestSummary;
+    setText(
+      previewPositivePrompt,
+      summary && summary.positivePrompt ? summary.positivePrompt : ""
+    );
+    setText(
+      previewNegativePrompt,
+      summary && summary.negativePrompt ? summary.negativePrompt : ""
+    );
+    setText(previewRawProjection, pretty(result));
+
+    var url =
+      result.generatedImage && typeof result.generatedImage.url === "string"
+        ? result.generatedImage.url
+        : "";
+    if (url.indexOf("https://") === 0) {
+      if (previewGeneratedImg) {
+        previewGeneratedImg.hidden = false;
+        previewGeneratedImg.src = url;
+      }
+      if (previewGeneratedPlaceholder) {
+        previewGeneratedPlaceholder.hidden = true;
+      }
+      if (previewGeneratedLinkWrap) previewGeneratedLinkWrap.hidden = false;
+      if (previewGeneratedLink) {
+        previewGeneratedLink.href = url;
+      }
+    }
+  }
+
+  var PREVIEW_SAFE_CODES = {
+    preview_disabled: true,
+    unauthorized: true,
+    invalid_request: true,
+    invalid_image: true,
+    image_too_large: true,
+    billing_confirmation_required: true,
+    preview_rate_limited: true,
+    runtime_failure: true,
+    provider_failure: true,
+    validation_rejected: true,
+    unsafe_result: true,
+    network_failure: true,
+    non_json_response: true,
+    unexpected_api_response: true,
+  };
+
+  function formatPreviewFailure(code, httpStatus, message) {
+    var safe =
+      PREVIEW_SAFE_CODES[code] === true ? code : "unexpected_api_response";
+    var lines = [
+      "Unable to generate internal preview.",
+      "Code: " + safe,
+      "HTTP: " + String(httpStatus),
+    ];
+    if (message) lines.push(String(message));
+    return lines.join("\n");
+  }
+
+  function generatePreview() {
+    if (
+      previewInFlight ||
+      requestInFlight ||
+      !accessKey ||
+      !selectedScenarioId ||
+      !previewSourceDataUri ||
+      !(previewBillingCheckbox && previewBillingCheckbox.checked)
+    ) {
+      return;
+    }
+    previewInFlight = true;
+    updatePreviewGenerateEnabled();
+    runButton.disabled = true;
+    unlockButton.disabled = true;
+    setMessage(
+      previewMessage,
+      "Running AI OS v2 and generating one paid internal preview…",
+      null
+    );
+
+    previewRequest({
+      scenarioId: selectedScenarioId,
+      billingConfirmed: true,
+      sourceImageDataUri: previewSourceDataUri,
+    })
+      .then(function (outcome) {
+        var status = outcome.response.status;
+        if (outcome.nonJson || outcome.payload == null) {
+          setMessage(
+            previewMessage,
+            formatPreviewFailure("non_json_response", status),
+            "error"
+          );
+          return;
+        }
+        var payload = outcome.payload;
+        if (!previewMetaMatches(payload) && status !== 404) {
+          setMessage(
+            previewMessage,
+            formatPreviewFailure("unexpected_api_response", status),
+            "error"
+          );
+          return;
+        }
+        if (status === 401 || payload.code === "unauthorized") {
+          handleAuthFailure(payload, status);
+          return;
+        }
+        if (payload.code === "preview_disabled" || status === 404) {
+          setMessage(
+            previewMessage,
+            formatPreviewFailure(
+              "preview_disabled",
+              status,
+              apiMessage(payload, "Image preview is disabled.")
+            ),
+            "error"
+          );
+          return;
+        }
+        if (!outcome.response.ok || payload.ok !== true || !payload.result) {
+          setMessage(
+            previewMessage,
+            formatPreviewFailure(
+              safeCode(payload, "runtime_failure"),
+              status,
+              apiMessage(payload, "Unable to generate internal preview.")
+            ),
+            "error"
+          );
+          return;
+        }
+        unauthorizedStreak = 0;
+        if (previewCompare) previewCompare.hidden = false;
+        renderPreviewResult(payload.result);
+        setMessage(previewMessage, "Internal preview complete.", "ok");
+      })
+      .catch(function () {
+        setMessage(
+          previewMessage,
+          formatPreviewFailure("network_failure", "unavailable"),
+          "error"
+        );
+      })
+      .then(function () {
+        previewInFlight = false;
+        unlockButton.disabled = false;
+        runButton.disabled = !selectedScenarioId || !accessKey;
+        updatePreviewGenerateEnabled();
+      });
+  }
+
   unlockForm.addEventListener("submit", function (event) {
     event.preventDefault();
     unlock();
@@ -656,4 +1162,15 @@
   runButton.addEventListener("click", function () {
     runScenario();
   });
+
+  if (previewFileInput) {
+    previewFileInput.addEventListener("change", onPreviewFileSelected);
+  }
+  if (previewBillingCheckbox) {
+    previewBillingCheckbox.addEventListener("change", updatePreviewGenerateEnabled);
+  }
+  if (previewGenerateButton) {
+    previewGenerateButton.addEventListener("click", generatePreview);
+  }
+  updatePreviewGenerateEnabled();
 })();

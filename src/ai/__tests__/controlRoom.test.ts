@@ -806,12 +806,14 @@ describe("DEMAND_016 Control Room", () => {
     });
 
     it("62. Page contains no localStorage use", () => {
-      assert.equal(js.includes("localStorage"), false);
-      assert.equal(html.includes("localStorage"), false);
+      // Demand 017 privacy notice may mention localStorage; scripts must not call it.
+      assert.equal(/localStorage\s*[.\[]/.test(js), false);
+      assert.equal(/localStorage\s*=/.test(js), false);
     });
 
     it("63. Page contains no sessionStorage use", () => {
-      assert.equal(js.includes("sessionStorage"), false);
+      assert.equal(/sessionStorage\s*[.\[]/.test(js), false);
+      assert.equal(/sessionStorage\s*=/.test(js), false);
     });
 
     it("64. Page contains no document.cookie use", () => {
@@ -872,9 +874,15 @@ describe("DEMAND_016 Control Room", () => {
       assert.equal(html.includes('name="prompt"'), false);
     });
 
-    it("75. UI does not expose image upload", () => {
-      assert.equal(html.includes('type="file"'), false);
-      assert.equal(/upload/i.test(html), false);
+    it("75. Dry-run scenario panel does not expose image upload", () => {
+      // Demand 017 adds internal preview file input below dry-run; dry-run stays fixture-only.
+      assert.match(html, /id="previewFileInput"/);
+      const scenarioStart = html.indexOf('id="scenarioPanel"');
+      const previewStart = html.indexOf('id="previewPanel"');
+      assert.ok(scenarioStart >= 0 && previewStart > scenarioStart);
+      const scenarioSlice = html.slice(scenarioStart, previewStart);
+      assert.equal(scenarioSlice.includes('type="file"'), false);
+      assert.equal(/upload/i.test(scenarioSlice), false);
     });
 
     it("76. UI does not expose custom health input", () => {
@@ -1454,8 +1462,9 @@ describe("DEMAND_016 Control Room", () => {
 
     it("21. UI never logs access key", () => {
       assert.equal(/console\.(log|debug|info|warn|error)/.test(uiSource), false);
-      assert.equal(uiSource.includes("localStorage"), false);
-      assert.equal(uiSource.includes("sessionStorage"), false);
+      // Demand 017 privacy copy may mention storage APIs; scripts must not use them.
+      assert.equal(/localStorage\s*[.\[]/.test(uiSource), false);
+      assert.equal(/sessionStorage\s*[.\[]/.test(uiSource), false);
     });
 
     it("22. Production image route remains unchanged", () => {
