@@ -430,11 +430,23 @@ moderation text. No moderation bypass.
 Legal/onboarding policy text stays out of provider prompts (confirmations remain
 API gates only).
 
+## AI Experiment Lab
+
+Demand 018E names the parent Control Room feature **AI Experiment Lab**.
+Prompt Isolation remains one module inside it. Prompt Isolation variant IDs are
+unchanged (`minimal`, `current_ai_os`, `current_without_preview_context`,
+`pre_017c_baseline`).
+
+The lab is internal-only. It does not affect public production generation, does
+not persist personal images, and never makes automatic paid provider requests.
+
 ## Prompt experiment history
 
-Demand 018D extends the Prompt Isolation Lab with **session-only** experiment
-history in the Control Room browser. Demand 018E extends each record with
-Transformation Rules, formatter metadata, and provider outcome summaries.
+Demand 018D adds **session-only** experiment history. Demand 018E extends each
+record with a full `pipelineInspector` snapshot (Transformation Rules, rule
+provenance, version metadata, formatter, prompts, provider, result, and a
+reserved evaluation placeholder). There is **one** history system — no parallel
+store.
 
 - stored only in current page memory (JavaScript array)
 - maximum **20** records (FIFO — oldest dropped when exceeded)
@@ -442,35 +454,39 @@ Transformation Rules, formatter metadata, and provider outcome summaries.
 - never written to `localStorage`, `sessionStorage`, IndexedDB, or cookies
 - never sent to analytics or a HelseApp persistence API
 - never includes source images, source data URIs, access keys, provider tokens,
-  raw provider responses, or environment values
+  raw provider responses, generated image URLs, or environment values
 - may include formatted positive/negative prompts (authorized internal tool)
-
-Each record captures:
-
-- Transformation Rules (provider-independent projection)
-- formatter metadata (name, version, mode, output lengths / word counts)
-- positive / negative prompts (derived artifacts)
-- provider result summary (outcome, diagnostic, model/family, duration flag)
-- prompt metrics and generation duration
-- whether a generated image URL was available (boolean only — the temporary
-  URL itself is not stored in export)
 
 History is appended only after the owner manually completes an existing
 Prompt Isolation Lab request. One manual click remains one provider request
 maximum. No Run All, queue, auto-retry, or scheduled experiments.
 
-## Transformation Rule Inspector (Demand 018E)
+## AI Pipeline Inspector
 
-The Experiment Lab exposes a **read-only Transformation Rule Inspector**.
-Prompts are **not** the source of truth. Transformation Rules are. Prompts are
-generated artifacts produced by a formatter from those rules.
+Read-only accordion inspector for a selected history record. Order:
+
+1. Goal
+2. Transformation Plan
+3. Transformation Rules (open by default)
+4. Rule Provenance
+5. Formatter
+6. Prompts
+7. Provider
+8. Result
+
+Uses native `<details>` / `<summary>`. Dynamic content uses `textContent` only.
+Compact version badges show AI OS, Pipeline, Transformation Rules, and
+Formatter versions (`Unavailable` when null).
+
+The inspector never edits rules, never regenerates from edited rules, and never
+contacts a provider.
 
 ### Architecture
 
 ```text
 User Goal
   → Transformation Plan
-  → Transformation Rules   ← canonical intent (inspector focus)
+  → Transformation Rules   ← canonical intent
   → Formatter
   → Positive Prompt        ← derived artifact
   → Negative Prompt        ← derived artifact
@@ -490,63 +506,101 @@ flowchart LR
   PV --> GR[Generated Result]
 ```
 
-Rules are projected deterministically from existing AI OS artifacts already
-returned by preview:
+## Transformation Rules
 
+Transformation Rules are the canonical representation of HelseApp intent.
+Prompts are provider-specific generated artifacts.
+
+Rules are projected deterministically from existing structured AI OS artifacts:
+
+- scenario / goal (when available)
 - `TransformationPlan`
 - `VisualDirection`
 - `RenderPlan`
+- typed formatter options (name/version/mode only)
 
-No parallel rule engine is invented. No generation pipeline module is modified
-for inspection. The inspector never contacts a provider.
+Display groups: Identity, Pose, Camera, Background, Lighting, Clothing, Body
+composition, Body region emphasis, Proportions, Realism, Timeline, Priority
+order.
 
-### Structured rule fields
+Unknown fields are `null` — never invented. Prompt text is never parsed to
+reconstruct rules. No parallel rule engine and no generation-pipeline changes.
 
-Preferred fields (JSON, read-only):
+## Rule Provenance
 
-Identity, Pose, Camera, Background, Lighting, Clothing, Body Fat Change,
-Muscle Change, Weight Goal, Timeline, Photographic Realism, Priority Order,
-Scenario, Body Region Emphasis.
+Each displayed rule may carry deterministic provenance:
 
-### Formatter view
+- `rulePath` (e.g. `identity`, `timeline`)
+- `source` (`scenario` | `profile` | `goal` | `transformation_plan` |
+  `visual_direction` | `render_plan` | `formatter_option` | `derived`)
+- `sourcePath` — safe contract path (never a filesystem path, never stacks)
 
-Shows formatter `name`, `version`, `mode` (e.g. prompt-isolation prompt
-source), and output length / word / character metrics (reuses 018D helpers).
+Provenance is omitted when unknown. `derived` is used only for direct
+deterministic projections of multiple structured values.
 
-### Provider independence
+## Version metadata
 
-The same Transformation Rules can be consumed by future provider formatters
-(Replicate, OpenAI, Google, Anthropic, Stability, Fal, local models). Each
-provider produces its own prompt text; the inspector and rule comparison remain
-provider-independent.
+Each `pipelineInspector` snapshot records:
 
-### Developer workflow
+- AI OS version (runtime rules version when available)
+- Pipeline version (`1.0` inspector pipeline)
+- Transformation Rules version
+- Formatter name / version
+- Render plan version
+- Validation version when available
 
-1. Unlock Control Room; select scenario; confirm adult / consent / billing.
-2. Run one Prompt Isolation Lab diagnostic (manual click).
-3. Inspect Transformation Rules for the recorded experiment (rules before
-   prompts).
-4. Optionally select two records — rule diff first, then prompt line diff.
-5. Export a safe local JSON report including rules + formatter metadata.
+Null → UI shows `Unavailable`.
+
+## Accordion pipeline view
+
+Native accessible accordion inside AI Experiment Lab. Transformation Rules open
+by default; other sections collapsed. Formatter section shows name / version /
+mode only. Prompts section shows positive/negative text plus metrics and the
+canonical note that prompts are derived artifacts.
+
+## Rule comparison
+
+When comparing two experiments, Transformation Rules are compared **before**
+prompts via flattened exact-value path diffs:
+
+- added / removed / modified / unchanged
+- no semantic interpretation, no causality, no better/worse labels
+- ignore fields unavailable in both records
+
+UI order: Test conditions → Version differences → Rule differences → Prompt
+metrics → Prompt line differences → Provider outcomes → Cautious interpretation.
+
+Warn when scenario, provider model, pipeline version, Transformation Rules
+version, or formatter version differs.
 
 ## Prompt comparison
 
 The owner may select exactly two completed history records as Comparison A and
-Comparison B. The UI shows:
+Comparison B. After rule diffs, the UI shows prompt metrics, exact
+positive/negative prompt text, and a line-based difference summary (Only in A /
+Only in B / Lines in both). Line comparison normalizes by splitting on newlines,
+trimming, and ignoring empty lines. Comparison does **not** claim that a changed
+line caused the provider outcome.
 
-1. **Transformation Rules difference first** — added / removed / modified /
-   unchanged via deterministic exact-value compare (no semantic interpretation)
-2. variant, scenario, provider model, formatter name/version/mode
-3. outcome, diagnostic, duration
-4. prompt word and character metrics (positive, negative, total)
-5. exact positive/negative prompt text for each side
-6. a line-based prompt difference summary: Only in A / Only in B / Lines in both
+## Provider independence
 
-Line comparison normalizes by splitting on newlines, trimming each line, and
-ignoring empty lines, then comparing exact normalized lines. Original prompt
-display is preserved separately. Comparison does **not** claim that a changed
-line caused the provider outcome. Comparable interpretation requires the same
-scenario and provider model; the UI warns when they differ.
+The same Transformation Rules can be consumed by future provider formatters
+(Replicate, OpenAI, Google, Anthropic, Stability, Fal, local models). Each
+provider produces its own prompt text; the inspector and rule comparison remain
+provider-independent. This demand does not implement speculative provider
+integrations.
+
+## Expected versus actual — reserved future field
+
+Each snapshot reserves:
+
+```text
+evaluation: { expectedResult: null, actualResult: null, deviation: null }
+```
+
+Demand 021 (or a later evaluation milestone) may populate this. This demand
+does not implement visual evaluation, fake scores, AI calls, or extra provider
+requests.
 
 ## Diagnostic interpretation
 
@@ -569,6 +623,8 @@ yields an inconclusive summary. Every interpretation always includes:
 Interpretation never recommends disabling provider moderation, bypassing
 safety, or making legal conclusions.
 
+## Safe export
+
 ## Safe report export
 
 **Export safe report** builds a local JSON download:
@@ -577,15 +633,17 @@ safety, or making legal conclusions.
 
 Shape includes `schemaVersion`, `exportedAt`, service
 `ai-os-prompt-isolation-lab`, environment `internal_control_room`, records
-(with Transformation Rules, formatter metadata, prompt metadata/metrics, and
-provider outcome summaries), selected comparison ids, interpretation text, and
-fixed safety flags (`containsSourceImage: false`, etc.). Before download the
-payload is recursively scanned and **rejected** if any string contains
-`data:image/`, `REPLICATE_API_TOKEN`, `AI_OS_CONTROL_ROOM_ACCESS_KEY`,
-`Authorization:`, Bearer token-like values, `sk_live_`, or raw provider-header
-patterns. Source/generated images, tokens, env values, and secrets are
-excluded. The file is not uploaded to a server. Browser object URLs created for
-export are revoked on Lock.
+(with `pipelineInspector` — versions, Transformation Rules, rule provenance,
+formatter, prompts/metrics, provider outcome, result diagnostic — plus legacy
+`transformationRules`), selected comparison ids, interpretation text, rule
+comparison when A/B are selected, and fixed safety flags
+(`containsSourceImage: false`, etc.). Before download the payload is
+recursively scanned and **rejected** if any string contains `data:image/`,
+`REPLICATE_API_TOKEN`, `AI_OS_CONTROL_ROOM_ACCESS_KEY`, `Authorization:`,
+Bearer token-like values, `sk_live_`, or raw provider-header patterns.
+Source/generated images and URLs, tokens, env values, filesystem paths, stack
+traces, and secrets are excluded. The file is not uploaded to a server. Browser
+object URLs created for export are revoked on Lock.
 
 ## Next milestones
 

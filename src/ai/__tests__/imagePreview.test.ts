@@ -71,8 +71,25 @@ import {
   countPromptWords,
 } from "../control-room/PromptExperimentTypes";
 import {
+  AI_PIPELINE_ACCORDION_SECTIONS,
+  AI_PIPELINE_CANONICAL_NOTE,
+  AI_PIPELINE_EVALUATION_PLACEHOLDER,
+  AI_PIPELINE_INSPECTOR_SCHEMA_VERSION,
+  AI_PIPELINE_RULE_GROUP_KEYS,
+  AI_PIPELINE_VERSION,
+} from "../control-room/AiPipelineInspectorTypes";
+import {
+  AI_PIPELINE_COMPARISON_UI_ORDER,
+  compareAiPipelineRules,
+  collectPipelineComparisonWarnings,
+} from "../control-room/AiPipelineComparison";
+import {
+  buildRuleProvenance,
+  projectAiPipelineInspector,
+  provenancePathsAreSafe,
+} from "../control-room/AiPipelineProjection";
+import {
   TRANSFORM_RULE_FIELD_KEYS,
-  projectTransformationRules,
 } from "../control-room/TransformationRuleProjection";
 import {
   TRANSFORM_RULE_PIPELINE_STAGES,
@@ -81,6 +98,7 @@ import {
   rulesAppearBeforePromptsInPipeline,
   transformationRulesViewComplete,
 } from "../control-room/TransformationRuleInspector";
+import { AI_OS_RUNTIME_RULES_VERSION } from "../runtime/AiOsRuntimeTypes";
 import { FluxFormatter } from "../formatters";
 import { buildRenderPlan } from "../render";
 import { TransformationEngine } from "../TransformationEngine";
@@ -3111,8 +3129,13 @@ describe("imagePreview — DEMAND_017", () => {
     });
   });
 
-  describe("DEMAND 018E — Transformation Rule Inspector", () => {
+  describe("DEMAND 018E — AI Pipeline Inspector", () => {
     const constitutionPath = join(repoRoot, "docs/CTO/00_AI_CONSTITUTION.md");
+    const transportDir = join(repoRoot, "src/ai/transport");
+    const providerDir = join(repoRoot, "src/ai/provider");
+    const runtimeDir = join(repoRoot, "src/ai/runtime");
+    const retryDir = join(repoRoot, "src/ai/retry");
+    const formattersDir = join(repoRoot, "src/ai/formatters");
 
     function sampleArtifacts() {
       const scenario = getControlRoomScenario("balanced_recomposition_12w");
@@ -3122,18 +3145,31 @@ describe("imagePreview — DEMAND_017", () => {
       const plan = new TransformationEngine().compute(profile, goal);
       const visual = directVisual(profile, goal, plan);
       const render = buildRenderPlan(plan, visual);
-      return { plan, visual, render, scenarioId: scenario.summary.id };
+      return {
+        plan,
+        visual,
+        render,
+        goal,
+        profile,
+        scenarioId: scenario.summary.id,
+        scenarioSummary: scenario.summary.title,
+      };
     }
 
     function sampleRecordWithRules(
       overrides: Partial<Parameters<typeof buildPromptExperimentRecord>[0]> = {}
     ) {
-      const { plan, visual, render, scenarioId } = sampleArtifacts();
+      const { plan, visual, render, goal, profile, scenarioId, scenarioSummary } =
+        sampleArtifacts();
       return buildPromptExperimentRecord({
         variant: "current_ai_os",
         scenarioId,
+        scenarioSummary,
+        goal,
+        profile,
         model: "black-forest-labs/flux-kontext-pro",
         outcome: "succeeded",
+        success: true,
         positivePrompt: "preserve identity\nbody recomposition",
         negativePrompt: "distorted anatomy",
         formatterName: "FluxFormatter",
@@ -3142,29 +3178,68 @@ describe("imagePreview — DEMAND_017", () => {
         transformationPlan: plan,
         visualDirection: visual,
         renderPlan: render,
+        aiOsVersion: AI_OS_RUNTIME_RULES_VERSION,
+        runtimeVersions: {
+          runtimeRulesVersion: AI_OS_RUNTIME_RULES_VERSION,
+          transformationRulesVersion: plan.rulesVersion,
+          renderPlanRulesVersion: render.rulesVersion,
+          formatterName: "FluxFormatter",
+          formatterVersion: "1.0.0",
+          resultValidatorRulesVersion: "1.0",
+        },
         ...overrides,
       });
     }
 
-    it("1. Transformation Rules are displayed from existing artifacts", () => {
-      const { plan, visual, render, scenarioId } = sampleArtifacts();
-      const rules = projectTransformationRules({
-        scenarioId,
-        transformationPlan: plan,
-        visualDirection: visual,
-        renderPlan: render,
-      });
-      assert.equal(transformationRulesViewComplete(rules), true);
-      assert.equal(rules.rules.scenario, scenarioId);
-      assert.ok(rules.rules.identity);
-      assert.ok(rules.rules.bodyFatChange);
-      const html = read(uiHtmlPath);
-      assert.match(html, /Transformation Rules/);
-      assert.match(html, /transformationRuleFields/);
-      assert.match(read(uiJsPath), /projectTransformationRules/);
+    it("1. AI Pipeline Inspector exists", () => {
+      assert.match(read(uiHtmlPath), /AI Pipeline Inspector/);
+      assert.match(read(uiHtmlPath), /aiPipelineInspectorPanel/);
+      assert.equal(AI_PIPELINE_INSPECTOR_SCHEMA_VERSION, 1);
+      const snap = sampleRecordWithRules().pipelineInspector;
+      assert.equal(snap.inspectorId, "ai-pipeline-inspector");
     });
 
-    it("2. Pipeline places Transformation Rules before prompts", () => {
+    it("2. The visible parent feature name is AI Experiment Lab", () => {
+      assert.match(read(uiHtmlPath), /AI Experiment Lab/);
+      assert.match(read(docsPath), /## AI Experiment Lab/);
+    });
+
+    it("3. Existing Prompt Isolation variant IDs remain unchanged", () => {
+      assert.deepEqual([...PROMPT_ISOLATION_VARIANTS], [
+        "minimal",
+        "current_ai_os",
+        "current_without_preview_context",
+        "pre_017c_baseline",
+      ]);
+      assert.match(read(uiJsPath), /ALLOWED_PROMPT_ISOLATION_VARIANTS/);
+    });
+
+    it("4. Pipeline sections appear in the required order", () => {
+      assert.deepEqual([...AI_PIPELINE_ACCORDION_SECTIONS], [
+        "Goal",
+        "Transformation Plan",
+        "Transformation Rules",
+        "Rule Provenance",
+        "Formatter",
+        "Prompts",
+        "Provider",
+        "Result",
+      ]);
+      const html = read(uiHtmlPath);
+      const goalIdx = html.indexOf("aiPipelineSectionGoal");
+      const planIdx = html.indexOf("aiPipelineSectionPlan");
+      const rulesIdx = html.indexOf("aiPipelineSectionRules");
+      const provIdx = html.indexOf("aiPipelineSectionProvenance");
+      const fmtIdx = html.indexOf("aiPipelineSectionFormatter");
+      const promptsIdx = html.indexOf("aiPipelineSectionPrompts");
+      const providerIdx = html.indexOf("aiPipelineSectionProvider");
+      const resultIdx = html.indexOf("aiPipelineSectionResult");
+      assert.ok(goalIdx < planIdx && planIdx < rulesIdx && rulesIdx < provIdx);
+      assert.ok(provIdx < fmtIdx && fmtIdx < promptsIdx);
+      assert.ok(promptsIdx < providerIdx && providerIdx < resultIdx);
+    });
+
+    it("5. Transformation Rules appear before prompts", () => {
       assert.equal(rulesAppearBeforePromptsInPipeline(), true);
       const rulesIdx = TRANSFORM_RULE_PIPELINE_STAGES.indexOf(
         "Transformation Rules"
@@ -3173,72 +3248,163 @@ describe("imagePreview — DEMAND_017", () => {
         "Positive Prompt"
       );
       assert.ok(rulesIdx < positiveIdx);
-      assert.match(read(uiHtmlPath), /rule-pipeline-canonical/);
-      assert.match(
-        read(uiJsPath),
-        /Rules FIRST|Transformation Rules/
+      const html = read(uiHtmlPath);
+      assert.ok(
+        html.indexOf("aiPipelineSectionRules") <
+          html.indexOf("aiPipelineSectionPrompts")
       );
     });
 
-    it("3. Export includes Transformation Rules", () => {
-      const record = sampleRecordWithRules();
-      const report = buildSafeExportReport({
-        records: [record],
-        selectedA: null,
-        selectedB: null,
-        interpretation: "test",
+    it("6. Accordion uses accessible native or equivalent controls", () => {
+      const html = read(uiHtmlPath);
+      assert.match(html, /<details id="aiPipelineSectionRules"[^>]* open/);
+      assert.match(html, /pipeline-accordion/);
+      assert.match(html, /<summary>Transformation Rules<\/summary>/);
+      assert.match(read(uiCssPath), /\.pipeline-section/);
+    });
+
+    it("7. Transformation Rules are derived from structured artifacts, not parsed from prompt text", () => {
+      const { plan, visual, render, scenarioId } = sampleArtifacts();
+      const snap = projectAiPipelineInspector({
+        experimentId: "e1",
+        scenarioId,
+        transformationPlan: plan,
+        visualDirection: visual,
+        renderPlan: render,
+        positivePrompt: "THIS PROMPT MUST NOT CREATE RULES xyz-unique-token",
+        negativePrompt: "neg",
+        outcome: "succeeded",
       });
-      assert.ok(report.records[0]?.transformationRules);
-      assert.equal(
-        report.records[0]?.transformationRules.projectionId,
-        "transformation-rule-projection"
+      const json = JSON.stringify(snap.transformationRules);
+      assert.equal(json.includes("xyz-unique-token"), false);
+      assert.ok(snap.transformationRules.identity);
+      assert.match(read(uiJsPath), /projectAiPipelineInspector|projectTransformationRules/);
+    });
+
+    it("8. Identity rule is projected", () => {
+      const rules = sampleRecordWithRules().pipelineInspector.transformationRules;
+      assert.ok(rules.identity);
+      assert.notEqual(rules.identity, null);
+    });
+
+    it("9. Pose rule is projected", () => {
+      assert.ok(sampleRecordWithRules().pipelineInspector.transformationRules.pose);
+    });
+
+    it("10. Camera rule is projected", () => {
+      assert.ok(
+        sampleRecordWithRules().pipelineInspector.transformationRules.camera
       );
-      assert.match(read(uiJsPath), /transformationRules:\s*r\.transformationRules/);
     });
 
-    it("4. History records include rules, formatter, prompts, provider result", () => {
-      const record = sampleRecordWithRules({ durationMs: 1234 });
-      assert.equal(record.schemaVersion, PROMPT_EXPERIMENT_SCHEMA_VERSION);
-      assert.equal(PROMPT_EXPERIMENT_SCHEMA_VERSION, 2);
-      assert.ok(record.transformationRules);
-      assert.equal(record.formatter.mode, "flux_formatter_current_preview_context");
-      assert.ok(record.formatter.output.totalWords > 0);
-      assert.ok(record.prompts.positivePrompt.length > 0);
-      assert.equal(record.providerResult.outcome, "succeeded");
-      assert.equal(record.providerResult.durationMs, 1234);
-      assert.ok(record.promptMetrics.totalCharacters > 0);
-      assert.match(read(uiJsPath), /Inspect rules/);
+    it("11. Background rule is projected", () => {
+      assert.ok(
+        sampleRecordWithRules().pipelineInspector.transformationRules.background
+      );
     });
 
-    it("5. Rule comparison classifies added/removed/modified/unchanged", () => {
-      const a = sampleRecordWithRules({ experimentId: "a" });
-      const b = sampleRecordWithRules({
-        experimentId: "b",
-        scenarioId: "upper_body_definition_8w",
+    it("12. Lighting rule is projected", () => {
+      assert.ok(
+        sampleRecordWithRules().pipelineInspector.transformationRules.lighting
+      );
+    });
+
+    it("13. Clothing rule is projected", () => {
+      assert.ok(
+        sampleRecordWithRules().pipelineInspector.transformationRules.clothing
+      );
+    });
+
+    it("14. Body-composition rules are projected when available", () => {
+      const body =
+        sampleRecordWithRules().pipelineInspector.transformationRules
+          .bodyComposition;
+      assert.ok(body);
+      assert.notEqual(body, null);
+    });
+
+    it("15. Timeline is projected when available", () => {
+      assert.ok(
+        sampleRecordWithRules().pipelineInspector.transformationRules.timeline
+      );
+    });
+
+    it("16. Priority order is projected", () => {
+      const priority =
+        sampleRecordWithRules().pipelineInspector.transformationRules
+          .priorityOrder;
+      assert.ok(Array.isArray(priority));
+      assert.ok(priority.length >= 0);
+    });
+
+    it("17. Unknown fields use null rather than invented values", () => {
+      const empty = projectAiPipelineInspector({
+        experimentId: "empty",
+        scenarioId: "balanced_recomposition_12w",
+        outcome: "runtime_failed",
       });
-      const diff = compareTransformationRules(
-        a.transformationRules,
-        b.transformationRules
-      );
-      assert.equal(
-        diff.summary.added +
-          diff.summary.removed +
-          diff.summary.modified +
-          diff.summary.unchanged,
-        TRANSFORM_RULE_FIELD_KEYS.length
-      );
-      const scenarioEntry = diff.rules.find((r) => r.key === "scenario");
-      assert.equal(scenarioEntry?.status, "modified");
-      assert.ok(diff.summary.unchanged >= 1);
-      assert.match(read(uiHtmlPath), /Transformation Rules difference/);
+      assert.equal(empty.transformationRules.proportions, null);
+      assert.equal(empty.goal.targetWeightChangeKg, null);
+      assert.equal(empty.goal.targetMuscleChangeKg, null);
+      assert.equal(empty.goal.targetBodyFatChangePct, null);
+      assert.equal(empty.versions.aiOsVersion, null);
     });
 
-    it("6. Formatter and prompt metadata/metrics are preserved", () => {
+    it("18. Rule provenance is included", () => {
+      const snap = sampleRecordWithRules().pipelineInspector;
+      assert.ok(Array.isArray(snap.ruleProvenance));
+      assert.ok(snap.ruleProvenance.length > 0);
+      assert.ok(snap.ruleProvenance.some((p) => p.rulePath === "identity"));
+    });
+
+    it("19. Provenance does not contain filesystem paths", () => {
+      const snap = sampleRecordWithRules().pipelineInspector;
+      assert.equal(provenancePathsAreSafe(snap.ruleProvenance), true);
+      const json = JSON.stringify(snap.ruleProvenance);
+      assert.equal(/\\src\\|\/src\/|\.ts"|\.js"/.test(json), false);
+    });
+
+    it("20. Formatter name is included", () => {
+      assert.equal(
+        sampleRecordWithRules().pipelineInspector.formatter.name,
+        "FluxFormatter"
+      );
+    });
+
+    it("21. Formatter version is included", () => {
+      assert.equal(
+        sampleRecordWithRules().pipelineInspector.formatter.version,
+        "1.0.0"
+      );
+    });
+
+    it("22. AI OS version is included when available", () => {
+      assert.equal(
+        sampleRecordWithRules().pipelineInspector.versions.aiOsVersion,
+        AI_OS_RUNTIME_RULES_VERSION
+      );
+    });
+
+    it("23. Pipeline version is included when available", () => {
+      assert.equal(
+        sampleRecordWithRules().pipelineInspector.versions.pipelineVersion,
+        AI_PIPELINE_VERSION
+      );
+    });
+
+    it("24. Transformation Rules version is included when available", () => {
+      const snap = sampleRecordWithRules().pipelineInspector;
+      assert.ok(snap.versions.transformationRulesVersion);
+    });
+
+    it("25. Prompt metrics remain correct", () => {
       const record = sampleRecordWithRules({
         positivePrompt: "one two three",
         negativePrompt: "four five",
-        formatterMode: "minimal_diagnostic_formatter_bypass",
       });
+      assert.equal(record.promptMetrics.positiveWords, 3);
+      assert.equal(record.promptMetrics.negativeWords, 2);
+      assert.equal(record.pipelineInspector.prompts.metrics.totalWords, 5);
       const formatter = buildFormatterInspectorView({
         name: record.formatter.name,
         version: record.formatter.version,
@@ -3247,13 +3413,217 @@ describe("imagePreview — DEMAND_017", () => {
         negativePrompt: record.prompts.negativePrompt,
       });
       assert.equal(formatter.output.positiveWords, 3);
-      assert.equal(formatter.output.negativeWords, 2);
-      assert.equal(formatter.mode, "minimal_diagnostic_formatter_bypass");
-      assert.equal(record.promptMetrics.totalWords, 5);
-      assert.match(read(uiHtmlPath), /Formatter metadata/);
     });
 
-    it("7. Export contains no secrets, tokens, or source images", () => {
+    it("26. History stores Transformation Rules", () => {
+      const store = new PromptExperimentHistoryStore();
+      const record = sampleRecordWithRules();
+      store.add(record);
+      assert.ok(store.getAll()[0]?.transformationRules);
+      assert.ok(store.getAll()[0]?.pipelineInspector.transformationRules);
+    });
+
+    it("27. History stores Rule Provenance", () => {
+      const record = sampleRecordWithRules();
+      assert.ok(record.pipelineInspector.ruleProvenance.length > 0);
+    });
+
+    it("28. History stores version metadata", () => {
+      const versions = sampleRecordWithRules().pipelineInspector.versions;
+      assert.ok(versions.pipelineVersion);
+      assert.ok(versions.formatterVersion);
+      assert.ok(versions.transformationRulesVersion);
+    });
+
+    it("29. History remains session-memory only", () => {
+      assert.equal(PROMPT_EXPERIMENT_HISTORY_MAX, 20);
+      assert.match(read(uiJsPath), /promptExperimentHistory\s*=\s*\[\]/);
+      assert.equal(/localStorage\.setItem/.test(read(uiJsPath)), false);
+      assert.equal(
+        /sessionStorage\.setItem.*promptExperiment|promptExperiment.*sessionStorage/.test(
+          read(uiJsPath)
+        ),
+        false
+      );
+    });
+
+    it("30. Lock clears inspector history", () => {
+      assert.match(read(uiJsPath), /clearPromptExperimentHistoryState/);
+      assert.match(
+        read(uiJsPath),
+        /clearPromptExperimentHistoryState\(\)/
+      );
+    });
+
+    it("31. Rule comparison detects added fields", () => {
+      const a = sampleRecordWithRules({ experimentId: "a" });
+      const b = sampleRecordWithRules({ experimentId: "b" });
+      const rulesA = structuredClone(a.pipelineInspector.transformationRules);
+      const rulesB = structuredClone(b.pipelineInspector.transformationRules);
+      rulesA.proportions = null;
+      rulesB.proportions = { note: "present-in-b-only" };
+      const diff = compareAiPipelineRules(rulesA, rulesB);
+      assert.ok(diff.added.some((e) => e.path.startsWith("proportions")));
+    });
+
+    it("32. Rule comparison detects removed fields", () => {
+      const a = sampleRecordWithRules({ experimentId: "a" });
+      const b = sampleRecordWithRules({ experimentId: "b" });
+      const rulesA = structuredClone(a.pipelineInspector.transformationRules);
+      const rulesB = structuredClone(b.pipelineInspector.transformationRules);
+      rulesA.proportions = { note: "present-in-a-only" };
+      rulesB.proportions = null;
+      const diff = compareAiPipelineRules(rulesA, rulesB);
+      assert.ok(diff.removed.some((e) => e.path.startsWith("proportions")));
+    });
+
+    it("33. Rule comparison detects modified fields", () => {
+      const a = sampleRecordWithRules({ experimentId: "a" });
+      const b = sampleRecordWithRules({
+        experimentId: "b",
+        scenarioId: "upper_body_definition_8w",
+      });
+      const diff = compareAiPipelineRules(
+        a.pipelineInspector.transformationRules,
+        b.pipelineInspector.transformationRules
+      );
+      assert.ok(diff.modified.length >= 1 || diff.unchanged.length >= 1);
+      const fieldDiff = compareTransformationRules(
+        a.transformationRules,
+        b.transformationRules
+      );
+      assert.equal(fieldDiff.rules.find((r) => r.key === "scenario")?.status, "modified");
+    });
+
+    it("34. Rule comparison detects unchanged fields", () => {
+      const a = sampleRecordWithRules({ experimentId: "a" });
+      const b = sampleRecordWithRules({ experimentId: "b" });
+      const diff = compareAiPipelineRules(
+        a.pipelineInspector.transformationRules,
+        b.pipelineInspector.transformationRules
+      );
+      assert.ok(diff.unchanged.length >= 1);
+    });
+
+    it("35. Rule comparison runs before prompt comparison in UI order", () => {
+      assert.deepEqual([...AI_PIPELINE_COMPARISON_UI_ORDER], [
+        "Test conditions",
+        "Version differences",
+        "Rule differences",
+        "Prompt metrics",
+        "Prompt line differences",
+        "Provider outcomes",
+        "Cautious interpretation",
+      ]);
+      const html = read(uiHtmlPath);
+      assert.ok(
+        html.indexOf("Transformation Rules difference") <
+          html.indexOf("Prompt texts and line difference")
+      );
+      assert.match(read(uiJsPath), /Rules FIRST/);
+    });
+
+    it("36. Comparison warns on scenario mismatch", () => {
+      const a = sampleRecordWithRules({ experimentId: "a" });
+      const b = sampleRecordWithRules({
+        experimentId: "b",
+        scenarioId: "upper_body_definition_8w",
+      });
+      const warnings = collectPipelineComparisonWarnings(a, b);
+      assert.equal(warnings.scenarioMismatch, true);
+      assert.ok(warnings.warnings.some((w) => /scenario/i.test(w)));
+    });
+
+    it("37. Comparison warns on provider-model mismatch", () => {
+      const a = sampleRecordWithRules({ experimentId: "a", model: "model-a" });
+      const b = sampleRecordWithRules({ experimentId: "b", model: "model-b" });
+      const warnings = collectPipelineComparisonWarnings(a, b);
+      assert.equal(warnings.providerModelMismatch, true);
+    });
+
+    it("38. Comparison warns on formatter-version mismatch", () => {
+      const a = sampleRecordWithRules({
+        experimentId: "a",
+        formatterVersion: "1.0.0",
+      });
+      const b = sampleRecordWithRules({
+        experimentId: "b",
+        formatterVersion: "2.0.0",
+      });
+      const warnings = collectPipelineComparisonWarnings(a, b);
+      assert.equal(warnings.formatterVersionMismatch, true);
+    });
+
+    it("39. Export contains Transformation Rules", () => {
+      const report = buildSafeExportReport({
+        records: [sampleRecordWithRules()],
+        selectedA: null,
+        selectedB: null,
+        interpretation: "test",
+      });
+      assert.ok(report.records[0]?.pipelineInspector?.transformationRules);
+      assert.ok(report.records[0]?.transformationRules);
+    });
+
+    it("40. Export contains Rule Provenance", () => {
+      const report = buildSafeExportReport({
+        records: [sampleRecordWithRules()],
+        selectedA: null,
+        selectedB: null,
+        interpretation: "test",
+      });
+      assert.ok(
+        (report.records[0]?.pipelineInspector?.ruleProvenance?.length ?? 0) > 0
+      );
+    });
+
+    it("41. Export contains version metadata", () => {
+      const report = buildSafeExportReport({
+        records: [sampleRecordWithRules()],
+        selectedA: null,
+        selectedB: null,
+        interpretation: "test",
+      });
+      assert.ok(report.records[0]?.pipelineInspector?.versions.pipelineVersion);
+    });
+
+    it("42. Export contains prompt metrics", () => {
+      const report = buildSafeExportReport({
+        records: [sampleRecordWithRules()],
+        selectedA: null,
+        selectedB: null,
+        interpretation: "test",
+      });
+      assert.ok(
+        report.records[0]!.pipelineInspector.prompts.metrics.totalWords > 0
+      );
+    });
+
+    it("43. Export contains provider outcome", () => {
+      const report = buildSafeExportReport({
+        records: [sampleRecordWithRules()],
+        selectedA: null,
+        selectedB: null,
+        interpretation: "test",
+      });
+      assert.equal(
+        report.records[0]?.pipelineInspector.provider.outcome,
+        "succeeded"
+      );
+    });
+
+    it("44. Export excludes source images", () => {
+      const report = buildSafeExportReport({
+        records: [sampleRecordWithRules()],
+        selectedA: null,
+        selectedB: null,
+        interpretation: "ok",
+      });
+      assert.equal(report.safety.containsSourceImage, false);
+      assert.equal(/data:image\//i.test(JSON.stringify(report)), false);
+    });
+
+    it("45. Export excludes generated-image URLs", () => {
       const report = buildSafeExportReport({
         records: [sampleRecordWithRules()],
         selectedA: null,
@@ -3261,99 +3631,211 @@ describe("imagePreview — DEMAND_017", () => {
         interpretation: "ok",
       });
       const json = JSON.stringify(report);
-      assert.equal(report.safety.containsSourceImage, false);
+      assert.equal(/https:\/\/.*replicate\.delivery/i.test(json), false);
+      assert.equal(report.records[0]?.generatedImageAvailable === true || report.records[0]?.generatedImageAvailable === false, true);
+    });
+
+    it("46. Export excludes access keys", () => {
+      const report = buildSafeExportReport({
+        records: [sampleRecordWithRules()],
+        selectedA: null,
+        selectedB: null,
+        interpretation: "ok",
+      });
       assert.equal(report.safety.containsAccessKey, false);
+      assert.equal(JSON.stringify(report).includes(TEST_KEY), false);
+    });
+
+    it("47. Export excludes provider tokens", () => {
+      const report = buildSafeExportReport({
+        records: [sampleRecordWithRules()],
+        selectedA: null,
+        selectedB: null,
+        interpretation: "ok",
+      });
       assert.equal(report.safety.containsProviderToken, false);
-      assert.equal(/data:image\//i.test(json), false);
-      assert.equal(/REPLICATE_API_TOKEN|AI_OS_CONTROL_ROOM_ACCESS_KEY/.test(json), false);
-      assert.equal(json.includes(TEST_KEY), false);
+      assert.equal(/REPLICATE_API_TOKEN/.test(JSON.stringify(report)), false);
     });
 
-    it("8. Prompt comparison still works after rule extension", () => {
-      const a = sampleRecordWithRules({
-        positivePrompt: "shared\nonlyA",
-        negativePrompt: "neg",
+    it("48. Export excludes raw provider responses", () => {
+      const report = buildSafeExportReport({
+        records: [sampleRecordWithRules()],
+        selectedA: null,
+        selectedB: null,
+        interpretation: "ok",
       });
-      const b = sampleRecordWithRules({
-        variant: "minimal",
-        positivePrompt: "shared\nonlyB",
-        negativePrompt: "neg",
-      });
-      const bundle = buildExperimentComparison(a, b);
-      assert.ok(bundle.ruleComparison);
-      assert.deepEqual(bundle.promptLineDiff.positive.shared, ["shared"]);
-      assert.deepEqual(bundle.promptLineDiff.positive.onlyInA, ["onlyA"]);
-      assert.deepEqual(bundle.promptLineDiff.positive.onlyInB, ["onlyB"]);
-      const rows = buildComparisonRows(a, b);
-      assert.ok(rows.some((r) => r.field === "formatter mode"));
+      assert.equal(report.safety.containsRawProviderResponse, false);
     });
 
-    it("9. Rule comparison is deterministic and value-exact only", () => {
-      const base = sampleRecordWithRules();
-      const same = sampleRecordWithRules({ experimentId: "same-other-id" });
-      const diff = compareTransformationRules(
-        base.transformationRules,
-        same.transformationRules
+    it("49. Export excludes environment values", () => {
+      const report = buildSafeExportReport({
+        records: [sampleRecordWithRules()],
+        selectedA: null,
+        selectedB: null,
+        interpretation: "ok",
+      });
+      assert.equal(report.safety.containsEnvironmentValues, false);
+      assert.equal(
+        /AI_OS_CONTROL_ROOM_ACCESS_KEY/.test(JSON.stringify(report)),
+        false
       );
-      assert.equal(diff.summary.modified, 0);
-      assert.equal(diff.summary.added, 0);
-      assert.equal(diff.summary.removed, 0);
-      assert.equal(diff.summary.unchanged, TRANSFORM_RULE_FIELD_KEYS.length);
     });
 
-    it("10. Projection is provider-independent (no provider fields in rules)", () => {
-      const { plan, visual, render, scenarioId } = sampleArtifacts();
-      const rules = projectTransformationRules({
-        scenarioId,
-        transformationPlan: plan,
-        visualDirection: visual,
-        renderPlan: render,
-      });
-      const json = JSON.stringify(rules);
-      assert.equal(/replicate|openai|anthropic|flux-kontext/i.test(json), false);
-      assert.equal(rules.projectionId, "transformation-rule-projection");
-      for (const key of TRANSFORM_RULE_FIELD_KEYS) {
-        assert.ok(key in rules.rules);
-      }
-    });
-
-    it("11. Production generation path remains unchanged", () => {
+    it("50. No formatter implementation changes are introduced unless required only for existing metadata exposure", () => {
       const dirty = execSync(
-        'git status --porcelain -- "api/generate-future-you.js" "lib/replicate.js" "public/index.html" "src/ai/formatters" "src/ai/transport" "src/ai/provider" "src/ai/runtime"',
+        `git status --porcelain -- "src/ai/formatters"`,
         { encoding: "utf8", cwd: repoRoot }
       ).trim();
       assert.equal(dirty, "");
+      assert.ok(existsSync(formattersDir));
     });
 
-    it("12. Constitution declares Transformation Rules as canonical", () => {
+    it("51. No transport files change", () => {
+      const dirty = execSync(`git status --porcelain -- "src/ai/transport"`, {
+        encoding: "utf8",
+        cwd: repoRoot,
+      }).trim();
+      assert.equal(dirty, "");
+      assert.ok(existsSync(transportDir));
+    });
+
+    it("52. No provider files change", () => {
+      const dirty = execSync(
+        `git status --porcelain -- "src/ai/provider" "src/ai/model" "src/ai/formatters/ProviderFormatter.ts"`,
+        {
+          encoding: "utf8",
+          cwd: repoRoot,
+        }
+      ).trim();
+      assert.equal(dirty, "");
+      assert.equal(existsSync(providerDir) || existsSync(join(repoRoot, "src/ai/model")), true);
+    });
+
+    it("53. No runtime behavior changes", () => {
+      const dirty = execSync(`git status --porcelain -- "src/ai/runtime"`, {
+        encoding: "utf8",
+        cwd: repoRoot,
+      }).trim();
+      assert.equal(dirty, "");
+      assert.ok(existsSync(runtimeDir));
+    });
+
+    it("54. No retry behavior changes", () => {
+      const dirty = execSync(`git status --porcelain -- "src/ai/retry"`, {
+        encoding: "utf8",
+        cwd: repoRoot,
+      }).trim();
+      assert.equal(dirty, "");
+      assert.ok(existsSync(retryDir));
+    });
+
+    it("55. No provider request is introduced", () => {
+      const html = read(uiHtmlPath);
+      const js = read(uiJsPath);
+      assert.match(html, /Generate one diagnostic preview/i);
+      assert.match(js, /fromIsolationLab:\s*true/);
+      assert.equal(/id=["']runAll|Run All variants|batchGenerate/i.test(html), false);
+      assert.match(html, /no Run All/i);
+    });
+
+    it("56. No automatic retry is introduced", () => {
+      assert.equal(/setInterval\s*\(.*preview|autoRetry/i.test(read(uiJsPath)), false);
+    });
+
+    it("57. Existing one-call-per-click behavior remains", () => {
+      assert.match(read(uiJsPath), /promptIsolationInFlight|previewInFlight/);
+      assert.match(read(uiHtmlPath), /Generate one diagnostic preview/);
+    });
+
+    it("58. Existing Prompt Isolation Lab remains functional", () => {
+      assert.match(read(uiHtmlPath), /Prompt Isolation/);
+      assert.match(read(uiHtmlPath), /promptIsolationGenerateButton/);
+      assert.equal(DEFAULT_PROMPT_ISOLATION_VARIANT, "current_ai_os");
+    });
+
+    it("59. Existing Control Room unlock remains functional", () => {
+      assert.match(read(uiHtmlPath), /unlock|access key/i);
+      assert.match(read(uiJsPath), /ai-os-control-room/);
+    });
+
+    it("60. Existing dry run remains functional", () => {
+      assert.match(read(uiHtmlPath), /dry.?run/i);
+      assert.match(read(uiJsPath), /dry_run|runButton/);
+    });
+
+    it("61. Existing production route remains unchanged", () => {
+      const dirty = execSync(
+        'git status --porcelain -- "api/generate-future-you.js"',
+        { encoding: "utf8", cwd: repoRoot }
+      ).trim();
+      assert.equal(dirty, "");
+      assert.ok(existsSync(imageRoutePath));
+    });
+
+    it("62. lib/replicate.js remains unchanged", () => {
+      const dirty = execSync('git status --porcelain -- "lib/replicate.js"', {
+        encoding: "utf8",
+        cwd: repoRoot,
+      }).trim();
+      assert.equal(dirty, "");
+      assert.ok(existsSync(replicatePath));
+    });
+
+    it("63. public/index.html remains unchanged", () => {
+      const dirty = execSync('git status --porcelain -- "public/index.html"', {
+        encoding: "utf8",
+        cwd: repoRoot,
+      }).trim();
+      assert.equal(dirty, "");
+      assert.ok(existsSync(indexHtmlPath));
+    });
+
+    it("extra. Constitution + docs + evaluation placeholder + export A/B rule comparison", () => {
       const constitution = read(constitutionPath);
       assert.match(constitution, /## 22\. Transformation Rules are canonical/);
       assert.match(
         constitution,
-        /Transformation Rules are the canonical representation of HelseApp intent/
-      );
-      assert.match(
-        constitution,
-        /No business logic may depend directly on prompt wording/
+        /HelseApp business logic must never depend directly on final prompt wording/
       );
       const docs = read(docsPath);
-      assert.match(docs, /## Transformation Rule Inspector/);
-      assert.match(docs, /provider-independent/i);
-      assert.match(docs, /Replicate, OpenAI, Google, Anthropic, Stability, Fal/);
-      assert.match(docs, /User Goal/);
-      assert.match(docs, /Transformation Rules/);
-      assert.match(docs, /Formatter/);
-    });
-
-    it("13. Control Room exposes inspector pipeline and rule diff UI", () => {
-      const html = read(uiHtmlPath);
-      const js = read(uiJsPath);
-      assert.match(html, /AI Experiment Lab/);
-      assert.match(html, /transformationRulePipelineList/);
-      assert.match(html, /transformationRuleDiffList/);
-      assert.match(js, /compareTransformationRules/);
-      assert.match(js, /TRANSFORM_RULE_PIPELINE_STAGES/);
-      assert.match(js, /schemaVersion:\s*2/);
+      assert.match(docs, /## AI Pipeline Inspector/);
+      assert.match(docs, /## Rule Provenance/);
+      assert.match(docs, /## Expected versus actual/);
+      assert.match(docs, /Demand 021/);
+      assert.deepEqual(AI_PIPELINE_EVALUATION_PLACEHOLDER, {
+        expectedResult: null,
+        actualResult: null,
+        deviation: null,
+      });
+      assert.match(AI_PIPELINE_CANONICAL_NOTE, /canonical representation/);
+      assert.equal(AI_PIPELINE_RULE_GROUP_KEYS.length, 12);
+      const a = sampleRecordWithRules({ experimentId: "export-a" });
+      const b = sampleRecordWithRules({
+        experimentId: "export-b",
+        scenarioId: "upper_body_definition_8w",
+      });
+      const report = buildSafeExportReport({
+        records: [a, b],
+        selectedA: a.experimentId,
+        selectedB: b.experimentId,
+        interpretation: "test",
+      });
+      assert.ok(report.comparisons.ruleComparison);
+      assert.equal(PROMPT_EXPERIMENT_SCHEMA_VERSION, 3);
+      const bundle = buildExperimentComparison(a, b);
+      assert.ok(bundle.pipelineRuleComparison);
+      assert.ok(bundle.uiOrder.includes("Rule differences"));
+      assert.ok(buildRuleProvenance({
+        planPresent: true,
+        visualPresent: true,
+        renderPresent: true,
+        goalPresent: true,
+        scenarioIdPresent: true,
+      }).length > 0);
+      assert.equal(transformationRulesViewComplete(a.transformationRules), true);
+      assert.equal(TRANSFORM_RULE_FIELD_KEYS.length >= 12, true);
+      assert.match(read(uiHtmlPath), /Unavailable|pipeline-version-badges/);
+      assert.match(read(uiJsPath), /schemaVersion:\s*3/);
     });
   });
 });

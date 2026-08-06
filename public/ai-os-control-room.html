@@ -269,17 +269,25 @@
 
           <article class="subpanel nested" id="promptExperimentHistoryPanel">
             <h3>AI Experiment Lab</h3>
+            <p class="panel-copy">
+              Internal laboratory for Prompt Isolation diagnostics, AI Pipeline
+              inspection, and session-only experiment history. Transformation
+              Rules are the canonical representation of HelseApp intent. Prompts
+              are provider-specific generated artifacts.
+            </p>
+
+            <h4>Prompt Isolation</h4>
             <h4>Prompt experiment history</h4>
             <p class="panel-copy">
-              Transformation Rules are the source of truth. Prompts are
-              generated artifacts. Session memory only (max 20). Cleared on Lock
-              and page refresh. Never written to localStorage, sessionStorage,
-              IndexedDB, or cookies. No source images, access keys, tokens, or
-              raw provider payloads.
+              Prompt Isolation remains a module inside AI Experiment Lab.
+              Variant identifiers are unchanged. Session history max 20; cleared
+              on Lock and page refresh. Never written to localStorage,
+              sessionStorage, IndexedDB, or cookies. No source images, access
+              keys, tokens, or raw provider payloads.
             </p>
 
             <div id="transformationRulePipelinePanel" class="rule-pipeline">
-              <h4>Transformation Rule Inspector — pipeline</h4>
+              <h4>AI Pipeline Inspector — architecture</h4>
               <p class="panel-copy">
                 Read-only path (rules before prompts; provider-independent):
               </p>
@@ -314,29 +322,85 @@
             </div>
             <p id="promptExperimentHistoryMessage" class="message" role="status"></p>
 
-            <div id="transformationRuleInspectorPanel" class="rule-inspector">
-              <h4>Transformation Rules (selected record)</h4>
+            <div id="aiPipelineInspectorPanel" class="pipeline-inspector">
+              <h4>AI Pipeline Inspector</h4>
               <p class="panel-copy">
-                Structured, read-only projection from TransformationPlan /
-                VisualDirection / RenderPlan. Not prompt text.
+                Read-only accordion for the selected history record. Rules open
+                by default; other stages collapsed. No edit or regenerate.
               </p>
-              <div id="transformationRuleFields" class="kv-grid"></div>
-              <details id="transformationRuleJsonDetails">
-                <summary>Show Transformation Rules JSON</summary>
-                <pre id="transformationRuleJsonView" class="code-block"></pre>
-              </details>
-              <h4>Formatter metadata</h4>
-              <div id="transformationFormatterMeta" class="kv-grid"></div>
+              <div id="aiPipelineVersionBadges" class="pipeline-version-badges" aria-label="Pipeline versions"></div>
+              <div id="aiPipelineAccordion" class="pipeline-accordion">
+                <details id="aiPipelineSectionGoal" class="pipeline-section">
+                  <summary>Goal</summary>
+                  <div id="aiPipelineGoalBody" class="kv-grid"></div>
+                </details>
+                <details id="aiPipelineSectionPlan" class="pipeline-section">
+                  <summary>Transformation Plan</summary>
+                  <pre id="aiPipelinePlanBody" class="code-block"></pre>
+                </details>
+                <details id="aiPipelineSectionRules" class="pipeline-section" open>
+                  <summary>Transformation Rules</summary>
+                  <div id="transformationRuleFields" class="kv-grid"></div>
+                  <details id="transformationRuleJsonDetails">
+                    <summary>Show Transformation Rules JSON</summary>
+                    <pre id="transformationRuleJsonView" class="code-block"></pre>
+                  </details>
+                </details>
+                <details id="aiPipelineSectionProvenance" class="pipeline-section">
+                  <summary>Rule Provenance</summary>
+                  <div id="aiPipelineProvenanceBody" class="kv-grid"></div>
+                </details>
+                <details id="aiPipelineSectionFormatter" class="pipeline-section">
+                  <summary>Formatter</summary>
+                  <div id="transformationFormatterMeta" class="kv-grid"></div>
+                </details>
+                <details id="aiPipelineSectionPrompts" class="pipeline-section">
+                  <summary>Prompts</summary>
+                  <p id="aiPipelineCanonicalNote" class="panel-copy">
+                    Prompts are provider-specific generated artifacts.
+                    Transformation Rules are the canonical representation of
+                    HelseApp intent.
+                  </p>
+                  <div id="aiPipelinePromptMetrics" class="kv-grid"></div>
+                  <h5>Positive prompt</h5>
+                  <pre id="promptExperimentViewPositive" class="code-block"></pre>
+                  <h5>Negative prompt</h5>
+                  <pre id="promptExperimentViewNegative" class="code-block"></pre>
+                </details>
+                <details id="aiPipelineSectionProvider" class="pipeline-section">
+                  <summary>Provider</summary>
+                  <div id="aiPipelineProviderBody" class="kv-grid"></div>
+                </details>
+                <details id="aiPipelineSectionResult" class="pipeline-section">
+                  <summary>Result</summary>
+                  <div id="aiPipelineResultBody" class="kv-grid"></div>
+                </details>
+              </div>
+              <p class="panel-copy pipeline-eval-note">
+                Expected versus actual evaluation is reserved for Demand 021
+                (or a later milestone). No scores are shown here.
+              </p>
+              <div id="aiPipelineEvaluationPlaceholder" class="kv-grid" hidden></div>
             </div>
 
             <div id="promptExperimentComparisonPanel" class="experiment-comparison">
               <h4>Side-by-side comparison</h4>
               <p class="panel-copy">
-                Select exactly two completed records (A and B). Transformation
-                Rules are compared first (exact value: added / removed /
-                modified / unchanged), then prompts. Differences do not prove
-                causation.
+                Select exactly two completed records (A and B). Order: test
+                conditions, version differences, Transformation Rules
+                (added / removed / modified / unchanged), prompt metrics, prompt
+                lines, provider outcomes, then cautious interpretation.
+                Differences do not prove causation.
               </p>
+              <ol id="aiPipelineComparisonOrderList" class="rule-pipeline-list">
+                <li>Test conditions</li>
+                <li>Version differences</li>
+                <li class="rule-pipeline-canonical">Rule differences</li>
+                <li>Prompt metrics</li>
+                <li>Prompt line differences</li>
+                <li>Provider outcomes</li>
+                <li>Cautious interpretation</li>
+              </ol>
               <div class="experiment-compare-grid">
                 <div>
                   <h5>Comparison A</h5>
@@ -347,9 +411,15 @@
                   <div id="promptExperimentComparisonB" class="kv-grid"></div>
                 </div>
               </div>
+              <h5>Test conditions</h5>
+              <div id="aiPipelineCompareConditions" class="kv-grid"></div>
+              <h5>Version differences</h5>
+              <div id="aiPipelineCompareVersions" class="kv-grid"></div>
+              <p id="aiPipelineCompareWarnings" class="panel-copy" role="status"></p>
               <h5>Transformation Rules difference</h5>
               <div id="transformationRuleDiffSummary" class="kv-grid"></div>
               <div id="transformationRuleDiffList" class="kv-grid"></div>
+              <h5>Prompt metrics and outcomes</h5>
               <div id="promptExperimentCompareFields" class="kv-grid"></div>
               <details id="promptExperimentPromptCompareDetails">
                 <summary>Prompt texts and line difference</summary>
@@ -375,12 +445,8 @@
               <p id="promptExperimentInterpretationText" class="panel-copy"></p>
             </div>
 
-            <details id="promptExperimentViewPromptsDetails">
+            <details id="promptExperimentViewPromptsDetails" hidden>
               <summary>View prompts (derived artifacts)</summary>
-              <h5>Positive prompt</h5>
-              <pre id="promptExperimentViewPositive" class="code-block"></pre>
-              <h5>Negative prompt</h5>
-              <pre id="promptExperimentViewNegative" class="code-block"></pre>
             </details>
           </article>
         </article>

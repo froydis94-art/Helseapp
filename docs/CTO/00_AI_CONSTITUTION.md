@@ -387,16 +387,24 @@ Permanent product rules:
 
 Transformation Rules are the canonical representation of HelseApp intent.
 
-Prompts are implementation artifacts produced by a provider-specific formatter
-from those rules. They are not the source of business truth.
+Prompts are provider-specific implementation artifacts generated from
+Transformation Rules. They are not the source of business truth.
 
 Permanent architectural rules:
 
 > Transformation Rules are the canonical representation of HelseApp intent.
 
+> Prompts are provider-specific implementation artifacts generated from
+> Transformation Rules.
+
 > Prompts are generated implementation artifacts, not the source of truth.
 
 > No business logic may depend directly on prompt wording.
+
+> HelseApp business logic must never depend directly on final prompt wording.
+
+> Future provider formatters must consume the same canonical Transformation
+> Rules without changing HelseApp transformation intent.
 
 > Future providers must consume the same Transformation Rules via their own
 > formatter; the inspector and comparison layers remain provider-independent.

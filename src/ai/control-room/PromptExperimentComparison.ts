@@ -3,8 +3,16 @@
  *
  * Deterministic only. No AI calls. No provider contact. No causal certainty claims.
  * Demand 018E: compare Transformation Rules FIRST, then prompts.
+ * Single history/export system — pipelineInspector + path rule diffs included.
  */
 
+import {
+  AI_PIPELINE_COMPARISON_UI_ORDER,
+  compareAiPipelineRules,
+  collectPipelineComparisonWarnings,
+  type AiPipelineComparisonWarnings,
+  type AiPipelineRulePathComparison,
+} from "./AiPipelineComparison";
 import type { PromptIsolationVariant } from "./PromptIsolationVariants";
 import {
   PROMPT_EXPERIMENT_ENVIRONMENT,
@@ -264,6 +272,28 @@ export function buildSafeExportReport(input: {
   exportedAt?: string;
 }): PromptExperimentExportReport {
   const records = input.records.map((r) => structuredClone(r));
+  const recordA =
+    input.selectedA != null
+      ? records.find((r) => r.experimentId === input.selectedA) ?? null
+      : null;
+  const recordB =
+    input.selectedB != null
+      ? records.find((r) => r.experimentId === input.selectedB) ?? null
+      : null;
+
+  let ruleComparison: AiPipelineRulePathComparison | undefined;
+  let comparisonWarnings: string[] | undefined;
+  if (recordA && recordB) {
+    ruleComparison = compareAiPipelineRules(
+      recordA.pipelineInspector?.transformationRules,
+      recordB.pipelineInspector?.transformationRules
+    );
+    comparisonWarnings = collectPipelineComparisonWarnings(
+      recordA,
+      recordB
+    ).warnings;
+  }
+
   const report: PromptExperimentExportReport = {
     schemaVersion: PROMPT_EXPERIMENT_SCHEMA_VERSION,
     exportedAt: input.exportedAt ?? new Date().toISOString(),
@@ -274,6 +304,8 @@ export function buildSafeExportReport(input: {
       selectedA: input.selectedA,
       selectedB: input.selectedB,
       interpretation: input.interpretation,
+      ...(ruleComparison ? { ruleComparison } : {}),
+      ...(comparisonWarnings ? { comparisonWarnings } : {}),
     },
     safety: {
       containsSourceImage: false,
@@ -305,8 +337,13 @@ export interface ComparisonFieldRow {
 }
 
 export interface ExperimentComparisonBundle {
-  /** Transformation Rules comparison — always first. */
+  /** Transformation Rules comparison — always first (legacy field-level). */
   ruleComparison: TransformationRuleComparison;
+  /** Flattened path-based rules comparison (Demand 018E pipeline inspector). */
+  pipelineRuleComparison: AiPipelineRulePathComparison;
+  comparisonWarnings: AiPipelineComparisonWarnings;
+  /** UI section order: conditions → versions → rules → prompts → outcomes. */
+  uiOrder: typeof AI_PIPELINE_COMPARISON_UI_ORDER;
   /** Metadata / formatter / prompt-metric rows (after rules). */
   fieldRows: ComparisonFieldRow[];
   promptLineDiff: {
@@ -402,6 +439,12 @@ export function buildExperimentComparison(
       a.transformationRules,
       b.transformationRules
     ),
+    pipelineRuleComparison: compareAiPipelineRules(
+      a.pipelineInspector?.transformationRules,
+      b.pipelineInspector?.transformationRules
+    ),
+    comparisonWarnings: collectPipelineComparisonWarnings(a, b),
+    uiOrder: AI_PIPELINE_COMPARISON_UI_ORDER,
     fieldRows: buildComparisonRows(a, b),
     promptLineDiff: {
       positive: comparePromptLines(

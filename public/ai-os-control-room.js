@@ -154,6 +154,31 @@
   var transformationRuleDiffList = document.getElementById(
     "transformationRuleDiffList"
   );
+  var aiPipelineVersionBadges = document.getElementById(
+    "aiPipelineVersionBadges"
+  );
+  var aiPipelineGoalBody = document.getElementById("aiPipelineGoalBody");
+  var aiPipelinePlanBody = document.getElementById("aiPipelinePlanBody");
+  var aiPipelineProvenanceBody = document.getElementById(
+    "aiPipelineProvenanceBody"
+  );
+  var aiPipelinePromptMetrics = document.getElementById(
+    "aiPipelinePromptMetrics"
+  );
+  var aiPipelineProviderBody = document.getElementById("aiPipelineProviderBody");
+  var aiPipelineResultBody = document.getElementById("aiPipelineResultBody");
+  var aiPipelineCompareConditions = document.getElementById(
+    "aiPipelineCompareConditions"
+  );
+  var aiPipelineCompareVersions = document.getElementById(
+    "aiPipelineCompareVersions"
+  );
+  var aiPipelineCompareWarnings = document.getElementById(
+    "aiPipelineCompareWarnings"
+  );
+  var aiPipelineSectionRules = document.getElementById(
+    "aiPipelineSectionRules"
+  );
   var ALLOWED_PROMPT_ISOLATION_VARIANTS = {
     minimal: true,
     current_ai_os: true,
@@ -204,6 +229,45 @@
     "Provider",
     "Generated Result",
   ];
+  var AI_PIPELINE_VERSION = "1.0";
+  var AI_PIPELINE_ACCORDION_SECTIONS = [
+    "Goal",
+    "Transformation Plan",
+    "Transformation Rules",
+    "Rule Provenance",
+    "Formatter",
+    "Prompts",
+    "Provider",
+    "Result",
+  ];
+  var AI_PIPELINE_RULE_GROUP_KEYS = [
+    "identity",
+    "pose",
+    "camera",
+    "background",
+    "lighting",
+    "clothing",
+    "bodyComposition",
+    "bodyRegionEmphasis",
+    "proportions",
+    "realism",
+    "timeline",
+    "priorityOrder",
+  ];
+  var AI_PIPELINE_RULE_GROUP_LABELS = {
+    identity: "Identity",
+    pose: "Pose",
+    camera: "Camera",
+    background: "Background",
+    lighting: "Lighting",
+    clothing: "Clothing",
+    bodyComposition: "Body composition",
+    bodyRegionEmphasis: "Body region emphasis",
+    proportions: "Proportions",
+    realism: "Realism",
+    timeline: "Timeline",
+    priorityOrder: "Priority order",
+  };
   var PROMPT_EXPERIMENT_NONDETERMINISM_DISCLAIMER =
     "This is diagnostic evidence, not proof. Provider generation and moderation may be nondeterministic.";
   var promptExperimentHistory = [];
@@ -569,6 +633,320 @@
     return { rules: entries, summary: summary };
   }
 
+  function buildRuleProvenanceBrowser(input) {
+    var entries = [];
+    function push(rulePath, source, sourcePath) {
+      entries.push({
+        rulePath: rulePath,
+        source: source,
+        sourcePath: sourcePath,
+      });
+    }
+    if (input.renderPresent || input.visualPresent) {
+      push(
+        "identity",
+        input.renderPresent ? "render_plan" : "visual_direction",
+        input.renderPresent ? "renderPlan.identity" : "visualDirection.preserve"
+      );
+      push(
+        "pose",
+        input.renderPresent ? "render_plan" : "visual_direction",
+        input.renderPresent
+          ? "renderPlan.scene.preservePose"
+          : "visualDirection.preserve.pose"
+      );
+      push(
+        "camera",
+        input.renderPresent ? "render_plan" : "visual_direction",
+        input.renderPresent
+          ? "renderPlan.scene.preserveCameraPerspective"
+          : "visualDirection.preserve.cameraPerspective"
+      );
+      push(
+        "background",
+        input.renderPresent ? "render_plan" : "visual_direction",
+        input.renderPresent
+          ? "renderPlan.scene.preserveBackground"
+          : "visualDirection.preserve.background"
+      );
+      push(
+        "lighting",
+        input.renderPresent ? "render_plan" : "visual_direction",
+        input.renderPresent
+          ? "renderPlan.scene.preserveLighting"
+          : "visualDirection.preserve.lighting"
+      );
+      push(
+        "clothing",
+        input.renderPresent ? "render_plan" : "visual_direction",
+        input.renderPresent
+          ? "renderPlan.scene.preserveClothing"
+          : "visualDirection.preserve.clothing"
+      );
+      push(
+        "realism",
+        input.renderPresent ? "render_plan" : "visual_direction",
+        input.renderPresent
+          ? "renderPlan.realism"
+          : "visualDirection.presentationStyle"
+      );
+    }
+    if (input.planPresent) {
+      push(
+        "bodyComposition",
+        "transformation_plan",
+        "transformationPlan.estimatedFatLossKg"
+      );
+      push(
+        "timeline",
+        "transformation_plan",
+        "transformationPlan.effectiveTimelineWeeks"
+      );
+      push(
+        "bodyRegionEmphasis",
+        "transformation_plan",
+        "transformationPlan.regionalTargets"
+      );
+      push(
+        "priorityOrder",
+        input.renderPresent ? "render_plan" : "transformation_plan",
+        input.renderPresent
+          ? "renderPlan.transformation.approvedChanges"
+          : "transformationPlan.regionalTargets"
+      );
+    }
+    if (input.goalPresent) {
+      push("goal.timelineWeeks", "goal", "goal.timelineWeeks");
+    }
+    if (input.scenarioIdPresent) {
+      push("scenarioId", "scenario", "scenario.id");
+    }
+    return entries;
+  }
+
+  function projectAiPipelineInspector(input) {
+    var plan =
+      input.transformationPlan && typeof input.transformationPlan === "object"
+        ? input.transformationPlan
+        : null;
+    var visual =
+      input.visualDirection && typeof input.visualDirection === "object"
+        ? input.visualDirection
+        : null;
+    var render =
+      input.renderPlan && typeof input.renderPlan === "object"
+        ? input.renderPlan
+        : null;
+    var rulesView =
+      input.transformationRules ||
+      projectTransformationRules({
+        scenarioId: input.scenarioId || "",
+        transformationPlan: input.transformationPlan,
+        visualDirection: input.visualDirection,
+        renderPlan: input.renderPlan,
+      });
+    var r = (rulesView && rulesView.rules) || {};
+    var priority = Array.isArray(r.priorityOrder) ? r.priorityOrder : [];
+    var positive =
+      typeof input.positivePrompt === "string" ? input.positivePrompt : "";
+    var negative =
+      typeof input.negativePrompt === "string" ? input.negativePrompt : "";
+    var metrics = computePromptMetrics(positive, negative);
+    var runtimeVersions = input.runtimeVersions || {};
+    var transformationRulesVersion =
+      (rulesView &&
+        rulesView.source &&
+        rulesView.source.transformationRulesVersion) ||
+      runtimeVersions.transformationRulesVersion ||
+      null;
+    var formatterName =
+      input.formatterName != null
+        ? input.formatterName
+        : runtimeVersions.formatterName || null;
+    var formatterVersion =
+      input.formatterVersion != null
+        ? input.formatterVersion
+        : runtimeVersions.formatterVersion || null;
+    return {
+      schemaVersion: 1,
+      inspectorId: "ai-pipeline-inspector",
+      experimentId: input.experimentId || "",
+      requestId: typeof input.requestId === "string" ? input.requestId : "",
+      scenarioId: input.scenarioId || "",
+      versions: {
+        aiOsVersion:
+          input.aiOsVersion || runtimeVersions.runtimeRulesVersion || null,
+        pipelineVersion: AI_PIPELINE_VERSION,
+        transformationRulesVersion: transformationRulesVersion,
+        formatterName: formatterName,
+        formatterVersion: formatterVersion,
+        renderPlanVersion:
+          (rulesView &&
+            rulesView.source &&
+            rulesView.source.renderPlanRulesVersion) ||
+          runtimeVersions.renderPlanRulesVersion ||
+          null,
+        validationVersion:
+          runtimeVersions.resultValidatorRulesVersion || null,
+      },
+      goal: {
+        summary:
+          typeof input.scenarioSummary === "string"
+            ? input.scenarioSummary
+            : null,
+        timelineWeeks:
+          plan && typeof plan.effectiveTimelineWeeks === "number"
+            ? plan.effectiveTimelineWeeks
+            : null,
+        targetWeightChangeKg: null,
+        targetBodyFatChangePct: null,
+        targetMuscleChangeKg: null,
+      },
+      transformationPlan: plan,
+      transformationRules: {
+        identity: r.identity != null ? r.identity : null,
+        pose: r.pose != null ? r.pose : null,
+        camera: r.camera != null ? r.camera : null,
+        background: r.background != null ? r.background : null,
+        lighting: r.lighting != null ? r.lighting : null,
+        clothing: r.clothing != null ? r.clothing : null,
+        bodyComposition: {
+          bodyFatChange: r.bodyFatChange != null ? r.bodyFatChange : null,
+          muscleChange: r.muscleChange != null ? r.muscleChange : null,
+          weightGoal: r.weightGoal != null ? r.weightGoal : null,
+        },
+        bodyRegionEmphasis:
+          r.bodyRegionEmphasis != null ? r.bodyRegionEmphasis : null,
+        proportions: null,
+        realism: r.photographicRealism != null ? r.photographicRealism : null,
+        timeline: r.timeline != null ? r.timeline : null,
+        priorityOrder: priority,
+      },
+      ruleProvenance: buildRuleProvenanceBrowser({
+        planPresent: !!plan,
+        visualPresent: !!visual,
+        renderPresent: !!render,
+        goalPresent: !!input.goal,
+        scenarioIdPresent: !!(input.scenarioId && String(input.scenarioId)),
+      }),
+      formatter: {
+        name: formatterName,
+        version: formatterVersion,
+        mode: typeof input.formatterMode === "string" ? input.formatterMode : null,
+      },
+      prompts: {
+        positivePrompt: positive,
+        negativePrompt: negative,
+        metrics: metrics,
+      },
+      provider: {
+        family: input.providerFamily || null,
+        model: typeof input.model === "string" ? input.model : "",
+        predictionId:
+          typeof input.predictionId === "string" ? input.predictionId : null,
+        durationMs:
+          typeof input.durationMs === "number" && isFinite(input.durationMs)
+            ? Math.max(0, input.durationMs)
+            : null,
+        outcome: input.outcome || "runtime_failed",
+      },
+      result: {
+        success: input.success === true || input.outcome === "succeeded",
+        diagnostic:
+          typeof input.diagnostic === "string" ? input.diagnostic : null,
+        validationDecision:
+          typeof input.validationDecision === "string"
+            ? input.validationDecision
+            : null,
+        generatedImageAvailable: input.generatedImageAvailable === true,
+      },
+      evaluation: {
+        expectedResult: null,
+        actualResult: null,
+        deviation: null,
+      },
+    };
+  }
+
+  function flattenRulePaths(value, prefix) {
+    var out = [];
+    if (value == null) {
+      if (prefix) out.push({ path: prefix, value: null });
+      return out;
+    }
+    if (typeof value !== "object") {
+      out.push({ path: prefix, value: value });
+      return out;
+    }
+    if (Array.isArray(value)) {
+      out.push({ path: prefix, value: value });
+      return out;
+    }
+    var keys = Object.keys(value).sort();
+    if (keys.length === 0) {
+      if (prefix) out.push({ path: prefix, value: {} });
+      return out;
+    }
+    keys.forEach(function (key) {
+      var childPath = prefix ? prefix + "." + key : key;
+      var child = value[key];
+      if (child != null && typeof child === "object" && !Array.isArray(child)) {
+        out = out.concat(flattenRulePaths(child, childPath));
+      } else {
+        out.push({ path: childPath, value: child != null ? child : null });
+      }
+    });
+    return out;
+  }
+
+  function compareAiPipelineRules(rulesA, rulesB) {
+    function toMap(rules) {
+      var map = {};
+      if (!rules) return map;
+      AI_PIPELINE_RULE_GROUP_KEYS.forEach(function (key) {
+        flattenRulePaths(rules[key], key).forEach(function (entry) {
+          map[entry.path] = entry.value;
+        });
+      });
+      return map;
+    }
+    var mapA = toMap(rulesA);
+    var mapB = toMap(rulesB);
+    var pathSet = {};
+    Object.keys(mapA).forEach(function (p) {
+      pathSet[p] = true;
+    });
+    Object.keys(mapB).forEach(function (p) {
+      pathSet[p] = true;
+    });
+    var paths = Object.keys(pathSet).sort();
+    var added = [];
+    var removed = [];
+    var modified = [];
+    var unchanged = [];
+    paths.forEach(function (path) {
+      var hasA = Object.prototype.hasOwnProperty.call(mapA, path);
+      var hasB = Object.prototype.hasOwnProperty.call(mapB, path);
+      var valueA = hasA ? mapA[path] : null;
+      var valueB = hasB ? mapB[path] : null;
+      var strA = stableStringifyRuleValue(valueA);
+      var strB = stableStringifyRuleValue(valueB);
+      var emptyA = !hasA || strA === "null";
+      var emptyB = !hasB || strB === "null";
+      if (emptyA && emptyB) return;
+      if (emptyA && !emptyB) added.push({ path: path, value: valueB });
+      else if (!emptyA && emptyB) removed.push({ path: path, value: valueA });
+      else if (strA === strB) unchanged.push({ path: path, value: valueA });
+      else modified.push({ path: path, before: valueA, after: valueB });
+    });
+    return {
+      added: added,
+      removed: removed,
+      modified: modified,
+      unchanged: unchanged,
+    };
+  }
+
   function createExperimentId() {
     var rand =
       typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
@@ -661,11 +1039,17 @@
     setText(promptExperimentViewPositive, "");
     setText(promptExperimentViewNegative, "");
     setText(transformationRuleJsonView, "");
+    setText(aiPipelinePlanBody, "");
+    setText(aiPipelineCompareWarnings, "");
     if (transformationRuleFields) clearChildren(transformationRuleFields);
     if (transformationFormatterMeta) clearChildren(transformationFormatterMeta);
-    if (promptExperimentViewPromptsDetails) {
-      promptExperimentViewPromptsDetails.open = false;
-    }
+    if (aiPipelineVersionBadges) clearChildren(aiPipelineVersionBadges);
+    if (aiPipelineGoalBody) clearChildren(aiPipelineGoalBody);
+    if (aiPipelineProvenanceBody) clearChildren(aiPipelineProvenanceBody);
+    if (aiPipelinePromptMetrics) clearChildren(aiPipelinePromptMetrics);
+    if (aiPipelineProviderBody) clearChildren(aiPipelineProviderBody);
+    if (aiPipelineResultBody) clearChildren(aiPipelineResultBody);
+    if (aiPipelineSectionRules) aiPipelineSectionRules.open = true;
     if (promptExperimentHistoryMessage) {
       setMessage(promptExperimentHistoryMessage, "", null);
     }
@@ -846,6 +1230,7 @@
     var model = typeof input.model === "string" ? input.model : "";
     var outcome = input.outcome || "runtime_failed";
     var generatedImageAvailable = input.generatedImageAvailable === true;
+    var experimentId = createExperimentId();
     var transformationRules =
       input.transformationRules ||
       projectTransformationRules({
@@ -854,9 +1239,40 @@
         visualDirection: input.visualDirection,
         renderPlan: input.renderPlan,
       });
+    var formatterMode =
+      typeof input.formatterMode === "string" ? input.formatterMode : null;
+    var pipelineInspector =
+      input.pipelineInspector ||
+      projectAiPipelineInspector({
+        experimentId: experimentId,
+        requestId: input.requestId,
+        scenarioId: input.scenarioId || "",
+        scenarioSummary: input.scenarioSummary,
+        goal: input.goal,
+        transformationPlan: input.transformationPlan,
+        visualDirection: input.visualDirection,
+        renderPlan: input.renderPlan,
+        transformationRules: transformationRules,
+        formatterName: input.formatterName,
+        formatterVersion: input.formatterVersion,
+        formatterMode: formatterMode,
+        positivePrompt: positive,
+        negativePrompt: negative,
+        providerFamily: family,
+        model: model,
+        predictionId: input.predictionId,
+        durationMs: input.durationMs,
+        outcome: outcome,
+        success: input.success === true || outcome === "succeeded",
+        diagnostic: input.diagnostic,
+        validationDecision: input.validationDecision,
+        generatedImageAvailable: generatedImageAvailable,
+        runtimeVersions: input.runtimeVersions,
+        aiOsVersion: input.aiOsVersion,
+      });
     var record = {
-      schemaVersion: 2,
-      experimentId: createExperimentId(),
+      schemaVersion: 3,
+      experimentId: experimentId,
       createdAt: new Date().toISOString(),
       variant: variant,
       scenarioId: input.scenarioId || "",
@@ -865,6 +1281,7 @@
         model: model,
       },
       transformationRules: transformationRules,
+      pipelineInspector: pipelineInspector,
       promptMetrics: metrics,
       outcome: outcome,
       generatedImageAvailable: generatedImageAvailable,
@@ -872,7 +1289,7 @@
         name: input.formatterName != null ? input.formatterName : null,
         version:
           input.formatterVersion != null ? input.formatterVersion : null,
-        mode: typeof input.formatterMode === "string" ? input.formatterMode : null,
+        mode: formatterMode,
         output: {
           positivePromptLength: metrics.positiveCharacters,
           negativePromptLength: metrics.negativeCharacters,
@@ -911,79 +1328,271 @@
     return record;
   }
 
-  function renderTransformationRuleInspector(record) {
+  function formatDisplayValue(value) {
+    if (value == null) return "Unavailable";
+    if (
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "boolean"
+    ) {
+      return value;
+    }
+    try {
+      return JSON.stringify(value);
+    } catch (_err) {
+      return "—";
+    }
+  }
+
+  function appendVersionBadge(container, label, value) {
+    if (!container) return;
+    var badge = document.createElement("div");
+    badge.className = "pipeline-version-badge";
+    var lab = document.createElement("span");
+    lab.className = "badge-label";
+    lab.textContent = label;
+    var val = document.createElement("span");
+    val.className = "badge-value";
+    val.textContent = value == null || value === "" ? "Unavailable" : String(value);
+    badge.appendChild(lab);
+    badge.appendChild(val);
+    container.appendChild(badge);
+  }
+
+  function renderAiPipelineInspector(record) {
     if (transformationRuleFields) clearChildren(transformationRuleFields);
     if (transformationFormatterMeta) clearChildren(transformationFormatterMeta);
+    if (aiPipelineVersionBadges) clearChildren(aiPipelineVersionBadges);
+    if (aiPipelineGoalBody) clearChildren(aiPipelineGoalBody);
+    if (aiPipelineProvenanceBody) clearChildren(aiPipelineProvenanceBody);
+    if (aiPipelinePromptMetrics) clearChildren(aiPipelinePromptMetrics);
+    if (aiPipelineProviderBody) clearChildren(aiPipelineProviderBody);
+    if (aiPipelineResultBody) clearChildren(aiPipelineResultBody);
     setText(transformationRuleJsonView, "");
+    setText(aiPipelinePlanBody, "");
+    setText(promptExperimentViewPositive, "");
+    setText(promptExperimentViewNegative, "");
+    if (aiPipelineSectionRules) aiPipelineSectionRules.open = true;
     if (!record) {
       if (transformationRuleFields) {
         appendKv(transformationRuleFields, "Rules", "Select a history record");
       }
       return;
     }
-    var rulesView = record.transformationRules;
-    if (rulesView && Array.isArray(rulesView.fields)) {
-      rulesView.fields.forEach(function (field) {
-        var display;
-        try {
-          display =
-            typeof field.value === "string" ||
-            typeof field.value === "number" ||
-            typeof field.value === "boolean" ||
-            field.value == null
-              ? field.value
-              : JSON.stringify(field.value);
-        } catch (_err) {
-          display = "—";
-        }
+    var snap = record.pipelineInspector;
+    var versions = (snap && snap.versions) || {};
+    appendVersionBadge(aiPipelineVersionBadges, "AI OS", versions.aiOsVersion);
+    appendVersionBadge(
+      aiPipelineVersionBadges,
+      "Pipeline",
+      versions.pipelineVersion
+    );
+    appendVersionBadge(
+      aiPipelineVersionBadges,
+      "Rules",
+      versions.transformationRulesVersion
+    );
+    appendVersionBadge(
+      aiPipelineVersionBadges,
+      "Formatter",
+      versions.formatterVersion || (record.formatter && record.formatter.version)
+    );
+
+    if (aiPipelineGoalBody) {
+      var goal = (snap && snap.goal) || {};
+      appendKv(aiPipelineGoalBody, "summary", formatDisplayValue(goal.summary));
+      appendKv(
+        aiPipelineGoalBody,
+        "timelineWeeks",
+        formatDisplayValue(goal.timelineWeeks)
+      );
+      appendKv(
+        aiPipelineGoalBody,
+        "targetWeightChangeKg",
+        formatDisplayValue(goal.targetWeightChangeKg)
+      );
+      appendKv(
+        aiPipelineGoalBody,
+        "targetBodyFatChangePct",
+        formatDisplayValue(goal.targetBodyFatChangePct)
+      );
+      appendKv(
+        aiPipelineGoalBody,
+        "targetMuscleChangeKg",
+        formatDisplayValue(goal.targetMuscleChangeKg)
+      );
+    }
+
+    setText(
+      aiPipelinePlanBody,
+      snap && snap.transformationPlan != null
+        ? pretty(snap.transformationPlan)
+        : "Unavailable"
+    );
+
+    var pipelineRules = snap && snap.transformationRules;
+    if (pipelineRules && transformationRuleFields) {
+      AI_PIPELINE_RULE_GROUP_KEYS.forEach(function (key) {
+        appendKv(
+          transformationRuleFields,
+          AI_PIPELINE_RULE_GROUP_LABELS[key] || key,
+          formatDisplayValue(pipelineRules[key])
+        );
+      });
+      setText(transformationRuleJsonView, pretty(pipelineRules));
+    } else if (record.transformationRules && Array.isArray(record.transformationRules.fields)) {
+      record.transformationRules.fields.forEach(function (field) {
         appendKv(
           transformationRuleFields,
           field.label || field.key,
-          display
+          formatDisplayValue(field.value)
         );
       });
-      setText(transformationRuleJsonView, pretty(rulesView));
+      setText(transformationRuleJsonView, pretty(record.transformationRules));
     } else if (transformationRuleFields) {
       appendKv(transformationRuleFields, "Rules", "Unavailable");
     }
+
+    if (aiPipelineProvenanceBody) {
+      var provenance = (snap && snap.ruleProvenance) || [];
+      if (provenance.length === 0) {
+        appendKv(aiPipelineProvenanceBody, "provenance", "Unavailable");
+      } else {
+        provenance.forEach(function (entry) {
+          appendKv(
+            aiPipelineProvenanceBody,
+            entry.rulePath,
+            entry.source + " → " + entry.sourcePath
+          );
+        });
+      }
+    }
+
     if (transformationFormatterMeta) {
       appendKv(
         transformationFormatterMeta,
         "name",
-        record.formatter && record.formatter.name
+        (snap && snap.formatter && snap.formatter.name) ||
+          (record.formatter && record.formatter.name) ||
+          "Unavailable"
       );
       appendKv(
         transformationFormatterMeta,
         "version",
-        record.formatter && record.formatter.version
+        (snap && snap.formatter && snap.formatter.version) ||
+          (record.formatter && record.formatter.version) ||
+          "Unavailable"
       );
       appendKv(
         transformationFormatterMeta,
         "mode",
-        record.formatter && record.formatter.mode
-      );
-      var output = record.formatter && record.formatter.output;
-      appendKv(
-        transformationFormatterMeta,
-        "positive length",
-        output ? String(output.positivePromptLength) : "—"
-      );
-      appendKv(
-        transformationFormatterMeta,
-        "negative length",
-        output ? String(output.negativePromptLength) : "—"
-      );
-      appendKv(
-        transformationFormatterMeta,
-        "total words",
-        output ? String(output.totalWords) : "—"
-      );
-      appendKv(
-        transformationFormatterMeta,
-        "total characters",
-        output ? String(output.totalCharacters) : "—"
+        (snap && snap.formatter && snap.formatter.mode) ||
+          (record.formatter && record.formatter.mode) ||
+          "Unavailable"
       );
     }
+
+    if (aiPipelinePromptMetrics) {
+      var pMetrics =
+        (snap && snap.prompts && snap.prompts.metrics) || record.promptMetrics;
+      appendKv(
+        aiPipelinePromptMetrics,
+        "positive words",
+        String(pMetrics.positiveWords)
+      );
+      appendKv(
+        aiPipelinePromptMetrics,
+        "negative words",
+        String(pMetrics.negativeWords)
+      );
+      appendKv(
+        aiPipelinePromptMetrics,
+        "total words",
+        String(pMetrics.totalWords)
+      );
+      appendKv(
+        aiPipelinePromptMetrics,
+        "total characters",
+        String(pMetrics.totalCharacters)
+      );
+    }
+    setText(
+      promptExperimentViewPositive,
+      (snap && snap.prompts && snap.prompts.positivePrompt) ||
+        (record.prompts && record.prompts.positivePrompt) ||
+        ""
+    );
+    setText(
+      promptExperimentViewNegative,
+      (snap && snap.prompts && snap.prompts.negativePrompt) ||
+        (record.prompts && record.prompts.negativePrompt) ||
+        ""
+    );
+
+    if (aiPipelineProviderBody) {
+      var provider = (snap && snap.provider) || {};
+      appendKv(
+        aiPipelineProviderBody,
+        "family",
+        formatDisplayValue(provider.family || record.provider.family)
+      );
+      appendKv(
+        aiPipelineProviderBody,
+        "model",
+        formatDisplayValue(provider.model || record.provider.model)
+      );
+      appendKv(
+        aiPipelineProviderBody,
+        "predictionId",
+        formatDisplayValue(provider.predictionId)
+      );
+      appendKv(
+        aiPipelineProviderBody,
+        "durationMs",
+        formatDisplayValue(provider.durationMs != null ? provider.durationMs : record.durationMs)
+      );
+      appendKv(
+        aiPipelineProviderBody,
+        "outcome",
+        formatDisplayValue(provider.outcome || record.outcome)
+      );
+    }
+
+    if (aiPipelineResultBody) {
+      var result = (snap && snap.result) || {};
+      appendKv(
+        aiPipelineResultBody,
+        "success",
+        result.success === true || record.outcome === "succeeded"
+          ? "true"
+          : "false"
+      );
+      appendKv(
+        aiPipelineResultBody,
+        "diagnostic",
+        formatDisplayValue(result.diagnostic || record.diagnostic)
+      );
+      appendKv(
+        aiPipelineResultBody,
+        "validationDecision",
+        formatDisplayValue(result.validationDecision)
+      );
+      appendKv(
+        aiPipelineResultBody,
+        "generatedImageAvailable",
+        result.generatedImageAvailable === true ||
+          record.generatedImageAvailable === true
+          ? "true"
+          : "false"
+      );
+      appendKv(aiPipelineResultBody, "evaluation.expectedResult", "null");
+      appendKv(aiPipelineResultBody, "evaluation.actualResult", "null");
+      appendKv(aiPipelineResultBody, "evaluation.deviation", "null");
+    }
+  }
+
+  function renderTransformationRuleInspector(record) {
+    renderAiPipelineInspector(record);
   }
 
   function addPromptExperimentRecord(record) {
@@ -1059,6 +1668,9 @@
     if (transformationRuleDiffList) {
       clearChildren(transformationRuleDiffList);
     }
+    if (aiPipelineCompareConditions) clearChildren(aiPipelineCompareConditions);
+    if (aiPipelineCompareVersions) clearChildren(aiPipelineCompareVersions);
+    setText(aiPipelineCompareWarnings, "");
     setText(promptExperimentPositiveA, "");
     setText(promptExperimentPositiveB, "");
     setText(promptExperimentNegativeA, "");
@@ -1067,62 +1679,136 @@
     setText(promptExperimentOnlyB, "");
     setText(promptExperimentCommonLines, "");
     if (recordA && recordB) {
-      /* Rules FIRST, then prompts (Demand 018E). */
-      var ruleDiff = compareTransformationRules(
-        recordA.transformationRules,
-        recordB.transformationRules
+      /* Rules FIRST, then prompts (Demand 018E). UI order: conditions, versions, rules, prompts, outcomes. */
+      if (aiPipelineCompareConditions) {
+        appendKv(
+          aiPipelineCompareConditions,
+          "scenario",
+          "A: " + recordA.scenarioId + " | B: " + recordB.scenarioId
+        );
+        appendKv(
+          aiPipelineCompareConditions,
+          "provider model",
+          "A: " +
+            recordA.provider.model +
+            " | B: " +
+            recordB.provider.model
+        );
+        appendKv(
+          aiPipelineCompareConditions,
+          "variant",
+          "A: " + recordA.variant + " | B: " + recordB.variant
+        );
+      }
+      var verA = (recordA.pipelineInspector && recordA.pipelineInspector.versions) || {};
+      var verB = (recordB.pipelineInspector && recordB.pipelineInspector.versions) || {};
+      if (aiPipelineCompareVersions) {
+        appendKv(
+          aiPipelineCompareVersions,
+          "pipeline version",
+          "A: " +
+            (verA.pipelineVersion || "Unavailable") +
+            " | B: " +
+            (verB.pipelineVersion || "Unavailable")
+        );
+        appendKv(
+          aiPipelineCompareVersions,
+          "rules version",
+          "A: " +
+            (verA.transformationRulesVersion || "Unavailable") +
+            " | B: " +
+            (verB.transformationRulesVersion || "Unavailable")
+        );
+        appendKv(
+          aiPipelineCompareVersions,
+          "formatter version",
+          "A: " +
+            (verA.formatterVersion || recordA.formatter.version || "Unavailable") +
+            " | B: " +
+            (verB.formatterVersion || recordB.formatter.version || "Unavailable")
+        );
+      }
+      var warnParts = [];
+      if (recordA.scenarioId !== recordB.scenarioId) {
+        warnParts.push("Scenario differs between comparison A and B.");
+      }
+      if ((recordA.provider.model || "") !== (recordB.provider.model || "")) {
+        warnParts.push("Provider model differs between comparison A and B.");
+      }
+      if ((verA.pipelineVersion || null) !== (verB.pipelineVersion || null)) {
+        warnParts.push("Pipeline version differs between comparison A and B.");
+      }
+      if (
+        (verA.transformationRulesVersion || null) !==
+        (verB.transformationRulesVersion || null)
+      ) {
+        warnParts.push(
+          "Transformation Rules version differs between comparison A and B."
+        );
+      }
+      if (
+        (verA.formatterVersion || recordA.formatter.version || null) !==
+        (verB.formatterVersion || recordB.formatter.version || null)
+      ) {
+        warnParts.push("Formatter version differs between comparison A and B.");
+      }
+      setText(aiPipelineCompareWarnings, warnParts.join(" "));
+
+      var pipelineRuleDiff = compareAiPipelineRules(
+        recordA.pipelineInspector &&
+          recordA.pipelineInspector.transformationRules,
+        recordB.pipelineInspector &&
+          recordB.pipelineInspector.transformationRules
       );
       if (transformationRuleDiffSummary) {
         appendKv(
           transformationRuleDiffSummary,
           "added",
-          String(ruleDiff.summary.added)
+          String(pipelineRuleDiff.added.length)
         );
         appendKv(
           transformationRuleDiffSummary,
           "removed",
-          String(ruleDiff.summary.removed)
+          String(pipelineRuleDiff.removed.length)
         );
         appendKv(
           transformationRuleDiffSummary,
           "modified",
-          String(ruleDiff.summary.modified)
+          String(pipelineRuleDiff.modified.length)
         );
         appendKv(
           transformationRuleDiffSummary,
           "unchanged",
-          String(ruleDiff.summary.unchanged)
+          String(pipelineRuleDiff.unchanged.length)
         );
       }
       if (transformationRuleDiffList) {
-        ruleDiff.rules.forEach(function (entry) {
-          var item = document.createElement("div");
-          item.className = "kv-item rule-diff-" + entry.status;
-          var k = document.createElement("div");
-          k.className = "k";
-          k.textContent = entry.label;
-          var v = document.createElement("div");
-          v.className = "v";
-          v.textContent = entry.status;
-          item.appendChild(k);
-          item.appendChild(v);
-          transformationRuleDiffList.appendChild(item);
-        });
+        function appendDiffRows(list, status) {
+          list.forEach(function (entry) {
+            var item = document.createElement("div");
+            item.className = "kv-item rule-diff-" + status;
+            var k = document.createElement("div");
+            k.className = "k";
+            k.textContent = entry.path;
+            var v = document.createElement("div");
+            v.className = "v";
+            v.textContent = status;
+            item.appendChild(k);
+            item.appendChild(v);
+            transformationRuleDiffList.appendChild(item);
+          });
+        }
+        appendDiffRows(pipelineRuleDiff.added, "added");
+        appendDiffRows(pipelineRuleDiff.removed, "removed");
+        appendDiffRows(pipelineRuleDiff.modified, "modified");
+        appendDiffRows(pipelineRuleDiff.unchanged, "unchanged");
       }
       if (promptExperimentCompareFields) {
         var rows = [
-          ["variant", recordA.variant, recordB.variant],
-          ["scenario", recordA.scenarioId, recordB.scenarioId],
-          ["provider model", recordA.provider.model, recordB.provider.model],
           [
             "formatter name",
             recordA.formatter.name || "—",
             recordB.formatter.name || "—",
-          ],
-          [
-            "formatter version",
-            recordA.formatter.version || "—",
-            recordB.formatter.version || "—",
           ],
           [
             "formatter mode",
@@ -1317,24 +2003,18 @@
         promptExperimentSelectedB = record.experimentId;
         renderPromptExperimentHistory();
       });
-      makeBtn("Inspect rules", function () {
+      makeBtn("Inspect pipeline", function () {
         promptExperimentViewId = record.experimentId;
-        renderTransformationRuleInspector(record);
+        renderAiPipelineInspector(record);
+        var promptsSection = document.getElementById("aiPipelineSectionPrompts");
+        if (promptsSection) promptsSection.open = false;
+        if (aiPipelineSectionRules) aiPipelineSectionRules.open = true;
       });
       makeBtn("View prompts", function () {
         promptExperimentViewId = record.experimentId;
-        renderTransformationRuleInspector(record);
-        setText(
-          promptExperimentViewPositive,
-          record.prompts.positivePrompt || ""
-        );
-        setText(
-          promptExperimentViewNegative,
-          record.prompts.negativePrompt || ""
-        );
-        if (promptExperimentViewPromptsDetails) {
-          promptExperimentViewPromptsDetails.open = true;
-        }
+        renderAiPipelineInspector(record);
+        var promptsSection = document.getElementById("aiPipelineSectionPrompts");
+        if (promptsSection) promptsSection.open = true;
       });
       makeBtn("Remove record", function () {
         removePromptExperimentRecord(record.experimentId);
@@ -1347,8 +2027,35 @@
 
   function exportPromptExperimentReport() {
     var interpretation = interpretPromptExperiments(promptExperimentHistory);
+    var recordA = promptExperimentSelectedA
+      ? findPromptExperimentRecord(promptExperimentSelectedA)
+      : null;
+    var recordB = promptExperimentSelectedB
+      ? findPromptExperimentRecord(promptExperimentSelectedB)
+      : null;
+    var comparisons = {
+      selectedA: promptExperimentSelectedA,
+      selectedB: promptExperimentSelectedB,
+      interpretation: interpretation.text,
+    };
+    if (recordA && recordB) {
+      comparisons.ruleComparison = compareAiPipelineRules(
+        recordA.pipelineInspector &&
+          recordA.pipelineInspector.transformationRules,
+        recordB.pipelineInspector &&
+          recordB.pipelineInspector.transformationRules
+      );
+      var exportWarn = [];
+      if (recordA.scenarioId !== recordB.scenarioId) {
+        exportWarn.push("Scenario differs between comparison A and B.");
+      }
+      if ((recordA.provider.model || "") !== (recordB.provider.model || "")) {
+        exportWarn.push("Provider model differs between comparison A and B.");
+      }
+      comparisons.comparisonWarnings = exportWarn;
+    }
     var report = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       exportedAt: new Date().toISOString(),
       service: "ai-os-prompt-isolation-lab",
       environment: "internal_control_room",
@@ -1374,6 +2081,12 @@
         ) {
           providerResult.durationMs = r.providerResult.durationMs;
         }
+        var exportSnap = r.pipelineInspector
+          ? JSON.parse(JSON.stringify(r.pipelineInspector))
+          : null;
+        if (exportSnap && exportSnap.provider) {
+          exportSnap.provider.predictionId = null;
+        }
         return {
           schemaVersion: r.schemaVersion,
           experimentId: r.experimentId,
@@ -1385,6 +2098,7 @@
             model: r.provider.model,
           },
           transformationRules: r.transformationRules,
+          pipelineInspector: exportSnap,
           promptMetrics: r.promptMetrics,
           outcome: r.outcome,
           diagnostic: r.diagnostic,
@@ -1395,11 +2109,7 @@
           providerResult: providerResult,
         };
       }),
-      comparisons: {
-        selectedA: promptExperimentSelectedA,
-        selectedB: promptExperimentSelectedB,
-        interpretation: interpretation.text,
-      },
+      comparisons: comparisons,
       safety: {
         containsSourceImage: false,
         containsAccessKey: false,
@@ -1491,9 +2201,19 @@
       options.scenarioId ||
       selectedScenarioId ||
       "";
+    var scenarioMeta = null;
+    for (var si = 0; si < scenarios.length; si++) {
+      if (scenarios[si] && scenarios[si].id === scenarioId) {
+        scenarioMeta = scenarios[si];
+        break;
+      }
+    }
     var record = buildPromptExperimentRecordFromLab({
       variant: variant,
       scenarioId: scenarioId,
+      requestId: result && result.requestId ? result.requestId : undefined,
+      scenarioSummary:
+        scenarioMeta && scenarioMeta.title ? scenarioMeta.title : undefined,
       providerFamily:
         (result && result.provider && result.provider.providerFamily) ||
         (summary && summary.providerFamily) ||
@@ -1521,6 +2241,11 @@
         result.generatedImage &&
         result.generatedImage.url
       ),
+      success: result && result.success === true,
+      validationDecision:
+        result && result.validation && result.validation.decision
+          ? result.validation.decision
+          : undefined,
       formatterName:
         (isolation && isolation.formatterName) ||
         (summary && summary.formatterName) ||
@@ -1542,10 +2267,21 @@
       transformationPlan: artifacts && artifacts.transformationPlan,
       visualDirection: artifacts && artifacts.visualDirection,
       renderPlan: artifacts && artifacts.renderPlan,
+      runtimeVersions:
+        result && result.runtime && result.runtime.versions
+          ? result.runtime.versions
+          : null,
+      aiOsVersion:
+        result &&
+        result.runtime &&
+        result.runtime.versions &&
+        result.runtime.versions.runtimeRulesVersion
+          ? result.runtime.versions.runtimeRulesVersion
+          : null,
     });
     addPromptExperimentRecord(record);
     if (!promptExperimentViewId) {
-      renderTransformationRuleInspector(record);
+      renderAiPipelineInspector(record);
     }
   }
 

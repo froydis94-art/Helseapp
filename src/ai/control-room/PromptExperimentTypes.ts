@@ -5,8 +5,11 @@
  * Never source images, access keys, tokens, raw provider payloads, or env values.
  *
  * Demand 018E: Transformation Rules are canonical; prompts are derived artifacts.
+ * Single history system — pipelineInspector extends records (no parallel store).
  */
 
+import type { AiPipelineInspectorSnapshot } from "./AiPipelineInspectorTypes";
+import { projectAiPipelineInspector } from "./AiPipelineProjection";
 import type { PromptIsolationVariant } from "./PromptIsolationVariants";
 import type { TransformationRulesView } from "./TransformationRuleProjection";
 import {
@@ -14,7 +17,7 @@ import {
   type ProjectTransformationRulesInput,
 } from "./TransformationRuleProjection";
 
-export const PROMPT_EXPERIMENT_SCHEMA_VERSION = 2 as const;
+export const PROMPT_EXPERIMENT_SCHEMA_VERSION = 3 as const;
 export const PROMPT_EXPERIMENT_HISTORY_MAX = 20 as const;
 export const PROMPT_EXPERIMENT_SERVICE = "ai-os-prompt-isolation-lab" as const;
 export const PROMPT_EXPERIMENT_ENVIRONMENT = "internal_control_room" as const;
@@ -77,6 +80,8 @@ export interface PromptExperimentRecord {
   };
   /** Canonical Transformation Rules projection (provider-independent). */
   transformationRules: TransformationRulesView;
+  /** Full AI Pipeline Inspector snapshot (Goal → Result + provenance). */
+  pipelineInspector: AiPipelineInspectorSnapshot;
   promptMetrics: PromptExperimentMetrics;
   outcome: PromptExperimentOutcome;
   diagnostic?: string;
@@ -109,6 +114,9 @@ export interface PromptExperimentExportReport {
     selectedA: string | null;
     selectedB: string | null;
     interpretation: string;
+    /** Present when A and B are selected — path-based rule diff. */
+    ruleComparison?: unknown;
+    comparisonWarnings?: string[];
   };
   safety: PromptExperimentExportSafety;
 }
@@ -162,6 +170,8 @@ export interface BuildPromptExperimentRecordInput {
   createdAt?: string;
   variant: PromptIsolationVariant;
   scenarioId: string;
+  requestId?: string | null;
+  scenarioSummary?: string | null;
   providerFamily?: string;
   model?: string;
   predictionId?: string;
@@ -169,6 +179,8 @@ export interface BuildPromptExperimentRecordInput {
   diagnostic?: string;
   durationMs?: number;
   generatedImageAvailable?: boolean;
+  success?: boolean;
+  validationDecision?: string | null;
   formatterName?: string | null;
   formatterVersion?: string | null;
   /** Formatter mode (e.g. promptIsolation promptSource). */
@@ -177,9 +189,14 @@ export interface BuildPromptExperimentRecordInput {
   negativePrompt?: string;
   /** Optional pre-projected rules; otherwise projected from artifacts below. */
   transformationRules?: TransformationRulesView;
+  pipelineInspector?: AiPipelineInspectorSnapshot;
+  goal?: unknown;
+  profile?: unknown;
   transformationPlan?: unknown;
   visualDirection?: unknown;
   renderPlan?: unknown;
+  runtimeVersions?: Record<string, string | null> | null;
+  aiOsVersion?: string | null;
 }
 
 export function buildPromptExperimentRecord(
@@ -199,6 +216,7 @@ export function buildPromptExperimentRecord(
       : "flux";
   const model = typeof input.model === "string" ? input.model : "";
   const generatedImageAvailable = input.generatedImageAvailable === true;
+  const experimentId = input.experimentId ?? createExperimentId();
 
   const projectionInput: ProjectTransformationRulesInput = {
     scenarioId: input.scenarioId,
@@ -215,9 +233,39 @@ export function buildPromptExperimentRecord(
       ? input.formatterMode
       : null;
 
+  const pipelineInspector =
+    input.pipelineInspector ??
+    projectAiPipelineInspector({
+      experimentId,
+      requestId: input.requestId,
+      scenarioId: input.scenarioId,
+      scenarioSummary: input.scenarioSummary,
+      goal: input.goal,
+      profile: input.profile,
+      transformationPlan: input.transformationPlan,
+      visualDirection: input.visualDirection,
+      renderPlan: input.renderPlan,
+      formatterName: input.formatterName,
+      formatterVersion: input.formatterVersion,
+      formatterMode,
+      positivePrompt,
+      negativePrompt,
+      providerFamily: family,
+      model,
+      predictionId: input.predictionId,
+      durationMs: input.durationMs,
+      outcome: input.outcome,
+      success: input.success === true || input.outcome === "succeeded",
+      diagnostic: input.diagnostic,
+      validationDecision: input.validationDecision,
+      generatedImageAvailable,
+      runtimeVersions: input.runtimeVersions,
+      aiOsVersion: input.aiOsVersion,
+    });
+
   const record: PromptExperimentRecord = {
     schemaVersion: PROMPT_EXPERIMENT_SCHEMA_VERSION,
-    experimentId: input.experimentId ?? createExperimentId(),
+    experimentId,
     createdAt,
     variant: input.variant,
     scenarioId: input.scenarioId,
@@ -226,6 +274,7 @@ export function buildPromptExperimentRecord(
       model,
     },
     transformationRules,
+    pipelineInspector,
     promptMetrics,
     outcome: input.outcome,
     generatedImageAvailable,
