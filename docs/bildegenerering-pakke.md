@@ -72,7 +72,7 @@ Alias also recognized: `stability-ai/sdxl` → same version hash.
 - **`isHighE005Risk`** → fat decrease + strong + Δ ≥ 4: if Max-first, **`skipPro`** (same shirtless/strong input often E005s identically on Pro).
 - Cascade labels: `flux-max` / `flux-pro` → `flux-dev` (`promptVariant: "dev"`) → `flux-dev-strong` (`promptVariant: "devStrong"`) → optional `sdxl-emergency` only when not a body transform.
 - Premium E005 on Max/Pro skips the other premium sibling and jumps toward Dev.
-- Budgets: ~35s per attempt, ~155s cascade wall-clock (under Vercel 180s / client ~175s).
+- Budgets: ~35s per attempt, ~130s cascade wall-clock; API soft deadline ~165s returns JSON before Vercel HTML kill (maxDuration 180s / client ~175s).
 
 `REPLICATE_MODEL` env is **ignored** unless `REPLICATE_ALLOW_MODEL_ENV=1`.
 

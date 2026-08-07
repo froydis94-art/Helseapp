@@ -1775,7 +1775,7 @@
           toastPaceCopied: "Motivasjonstekst hentet fra Tempo",
           toastPaceUpdated: "Motivasjonstekst oppdatert",
           needImageGoal: "Velg bilde først.",
-          generating: "Genererer… prøver beste modell først (Max/Pro), reservedrift ved behov.",
+          generating: "Genererer… prøver beste Flux-modell først (Max/Pro), bytter modell ved behov.",
           generatingWait: (sec) => {
             if (sec < 20) {
               return `Genererer… ${sec}s — prøver beste modell. Ikke lukk siden.`;
@@ -1783,10 +1783,12 @@
             if (sec < 45) {
               return `Genererer… ${sec}s — bytter modell ved behov. Ofte ferdig innen ~1 min.`;
             }
-            return `Genererer… ${sec}s — reservedrift kan ta litt lenger. Ikke lukk siden.`;
+            return `Genererer… ${sec}s — flere modellforsøk kan ta litt lenger. Ikke lukk siden.`;
           },
           generateTimeout:
-            "Generering tok for lang tid. Prøv igjen — neste forsøk bytter ofte til raskere reservedrift. Mindre bilde eller lavere innsats kan også hjelpe.",
+            "Generering tok for lang tid. Prøv igjen — systemet prøver flere Flux-modeller automatisk når det er rom i tidsbudsjettet. Mindre bilde eller lavere innsats kan også hjelpe.",
+          generateServerError:
+            "Serveren svarte med en feilside i stedet for bilde (ofte tidsavbrudd). Prøv igjen.",
           generateNetwork:
             "Nettverksfeil under generering. Sjekk tilkobling og prøv igjen.",
           doneFallback: "Ferdig via Flux reservedrift (primærmodellen ble filtrert — bildet er klart).",
@@ -2143,7 +2145,7 @@
           toastPaceCopied: "Motivation text pulled from Pace",
           toastPaceUpdated: "Motivation text updated",
           needImageGoal: "Choose a photo first.",
-          generating: "Generating… trying best model first (Max/Pro), fallback if needed.",
+          generating: "Generating… trying best Flux model first (Max/Pro), switching models if needed.",
           generatingWait: (sec) => {
             if (sec < 20) {
               return `Generating… ${sec}s — trying best model. Don’t close the page.`;
@@ -2151,10 +2153,12 @@
             if (sec < 45) {
               return `Generating… ${sec}s — switching models if needed. Often done within ~1 min.`;
             }
-            return `Generating… ${sec}s — fallback may take a bit longer. Don’t close the page.`;
+            return `Generating… ${sec}s — extra model attempts may take a bit longer. Don’t close the page.`;
           },
           generateTimeout:
-            "Generation timed out. Try again — the next run often switches to a faster fallback. A smaller photo or lower effort can also help.",
+            "Generation timed out. Try again — the system tries several Flux models automatically when time allows. A smaller photo or lower effort can also help.",
+          generateServerError:
+            "The server returned an error page instead of an image (often a timeout). Try again.",
           generateNetwork: "Network error while generating. Check your connection and try again.",
           doneFallback: "Done via Flux fallback (primary was filtered — your image is ready).",
           doneSdxl:
@@ -3939,8 +3943,8 @@
           const sec = Math.round((Date.now() - startedAt) / 1000);
           statusEl.textContent = t("generatingWait", sec);
         }, 1000);
-        // Client waits slightly longer than server cascade (155s) / Vercel (180s)
-        // so reservedrift can finish before the browser aborts.
+        // Client waits slightly longer than API soft deadline (~165s) / Vercel (180s)
+        // so structured JSON timeout can arrive before the browser aborts.
         const timeoutMs = 175000;
         const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -3975,15 +3979,39 @@
               occasionLabel,
             }),
           });
+          // Never call response.json() blindly — Vercel gateway timeouts return HTML.
+          const rawText = await response.text();
+          const trimmed = String(rawText || "").trim();
           let result;
-          try {
-            result = await response.json();
-          } catch {
+          if (!trimmed) {
+            throw new Error(t("generateServerError"));
+          }
+          if (trimmed.startsWith("<") || /<!DOCTYPE/i.test(trimmed)) {
             throw new Error(
-              response.ok ? t("generateNetwork") : `Error ${response.status}`
+              response.status === 504 ||
+                response.status === 502 ||
+                response.status === 503
+                ? t("generateTimeout")
+                : t("generateServerError")
             );
           }
-          if (!response.ok) throw new Error(result.error || `Error ${response.status}`);
+          try {
+            result = JSON.parse(trimmed);
+          } catch {
+            if (/Unexpected token|DOCTYPE|not valid JSON/i.test(trimmed)) {
+              throw new Error(t("generateTimeout"));
+            }
+            throw new Error(
+              response.ok ? t("generateNetwork") : t("generateServerError")
+            );
+          }
+          if (!response.ok) {
+            const apiMsg = String(result.error || "");
+            if (/Unexpected token|DOCTYPE|not valid JSON/i.test(apiMsg)) {
+              throw new Error(t("generateServerError"));
+            }
+            throw new Error(apiMsg || t("generateServerError"));
+          }
           // Never celebrate SDXL nødfallback cartoons as a successful Future You result.
           if (String(result.attempt || "").includes("sdxl")) {
             throw new Error(t("doneSdxl"));

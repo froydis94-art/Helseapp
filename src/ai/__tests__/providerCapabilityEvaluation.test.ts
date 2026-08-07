@@ -152,12 +152,13 @@ describe("providerCapabilityEvaluation — DEMAND_022E_D", () => {
 
     const route = read("api/generate-future-you.js");
     assert.match(route, /No silent legacy fallback/);
-    assert.match(route, /fluxCascade:\s*runFluxKontextAnatomicalCascade/);
+    assert.match(route, /fluxCascade:\s*\(args\)\s*=>/);
+    assert.match(route, /runFluxKontextAnatomicalCascade\(\{/);
     const catchIdx = route.indexOf("catch (liveError)");
-    const legacyIdx = route.lastIndexOf("await generateWithReplicate");
+    const legacyIdx = route.lastIndexOf("generateWithReplicate({");
     assert.ok(catchIdx > 0 && legacyIdx > catchIdx);
     const between = route.slice(catchIdx, legacyIdx);
-    assert.equal(/await\s+generateWithReplicate/.test(between), false);
+    assert.equal(/generateWithReplicate\s*\(/.test(between), false);
 
     const cascade = read("lib/replicate.js");
     const fnStart = cascade.indexOf(

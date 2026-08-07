@@ -571,6 +571,9 @@ Owner fixture (thresholds unchanged): BF 22→12, fat decrease, strong, 12m, Cor
 - Max 3 sequential attempts; stop on first success
 - Eligible failures match legacy (E005/safety, timeout, 5xx, missing model)
 - Success on first attempt = 1 paid request
+- Wall-clock budget ~130s (shrinkable via `cascadeBudgetMs` near API soft deadline ~165s) so Max+Dev fit under Vercel `maxDuration: 180` **after** Body Simulator prep — avoids platform HTML 504 pages
+- Timeout / HTML-gateway failures return structured JSON with Flux-cascade messaging (not legacy “raskere reservedrift”)
+- Provider create/poll responses are parsed safely (`readResponseJson`) so HTML error pages never leak as `Unexpected token '<'`
 
 ### Wiring
 

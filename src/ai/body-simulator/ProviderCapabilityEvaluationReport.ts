@@ -319,7 +319,7 @@ export function buildLegacyGenerationCascadeReport(): LegacyGenerationCascadeRep
     imageBytesChangeBetweenAttempts: false,
     safetyToleranceChangesBetweenAttempts: false,
     requestContractChangesBetweenAttempts: true,
-    cascadeBudgetMs: 155000,
+    cascadeBudgetMs: 130000,
     attemptPollTimeoutMs: 35000,
     safetyToleranceFlux: 2,
     attemptsMildEdit: mild,

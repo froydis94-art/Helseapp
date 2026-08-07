@@ -46,6 +46,18 @@ const replicate = requireFromTest("../../../lib/replicate.js") as {
   }>;
   needsMaxEdit: (args: Record<string, unknown>) => boolean;
   isHighE005Risk: (args: Record<string, unknown>) => boolean;
+  friendlyError: (
+    message: string,
+    opts?: { anatomical?: boolean }
+  ) => string;
+  readResponseJson: (
+    response: { text: () => Promise<string>; status: number },
+    label?: string
+  ) => Promise<unknown>;
+  CASCADE_BUDGET_MS: number;
+  FUNCTION_SOFT_DEADLINE_MS: number;
+  ATTEMPT_POLL_TIMEOUT_MS: number;
+  MIN_ATTEMPT_MS: number;
   DEFAULT_MODEL: string;
   SECONDARY_MODEL: string;
   TERTIARY_MODEL: string;
@@ -397,7 +409,10 @@ describe("PATCH_022E_E Intelligent Flux Routing", () => {
     assert.equal(fluxStage!.values.strategy, "flux_ordered_fallback");
 
     const route = read("api/generate-future-you.js");
-    assert.match(route, /fluxCascade:\s*runFluxKontextAnatomicalCascade/);
+    // Soft-deadline wrapper injects cascadeBudgetMs; still calls anatomical cascade.
+    assert.match(route, /fluxCascade:\s*\(args\)\s*=>/);
+    assert.match(route, /runFluxKontextAnatomicalCascade\(\{/);
+    assert.match(route, /cascadeBudgetMs/);
     assert.equal(/fluxProvider:\s*runFluxKontextProOnce/.test(route), false);
   });
 
@@ -562,5 +577,107 @@ describe("PATCH_022E_E Intelligent Flux Routing", () => {
     const legacyBody = src.slice(legacyStart);
     assert.match(legacyBody, /buildFluxAttemptPlan\s*\(/);
     assert.match(legacyBody, /flux-dev-strong/);
+  });
+
+  it("21. Cascade budget + soft deadline fit under Vercel maxDuration 180s", () => {
+    assert.equal(replicate.CASCADE_BUDGET_MS, 130000);
+    assert.equal(replicate.FUNCTION_SOFT_DEADLINE_MS, 165000);
+    assert.ok(replicate.CASCADE_BUDGET_MS < replicate.FUNCTION_SOFT_DEADLINE_MS);
+    assert.ok(replicate.FUNCTION_SOFT_DEADLINE_MS < 180000);
+    // Max + Dev at full attempt budget must fit inside cascade wall-clock.
+    assert.ok(
+      replicate.ATTEMPT_POLL_TIMEOUT_MS * 2 + replicate.MIN_ATTEMPT_MS <=
+        replicate.CASCADE_BUDGET_MS
+    );
+    const api = read("api/generate-future-you.js");
+    assert.match(api, /maxDuration:\s*180/);
+    assert.match(api, /raceWithSoftDeadline/);
+    assert.match(api, /cascadeBudgetMs/);
+    assert.match(api, /FUNCTION_SOFT_DEADLINE_MS/);
+  });
+
+  it("22. HTML / DOCTYPE responses become structured Norwegian errors (not Unexpected token)", async () => {
+    await assert.rejects(
+      () =>
+        replicate.readResponseJson(
+          {
+            status: 504,
+            text: async () =>
+              "<!DOCTYPE html><html><body>Function Invocation Timeout</body></html>",
+          },
+          "Replicate create"
+        ),
+      (err: unknown) => {
+        const e = err as Error & { status?: number; retriable?: boolean };
+        assert.match(e.message, /for lang tid|Prøv igjen/i);
+        assert.equal(/Unexpected token/i.test(e.message), false);
+        assert.equal(e.status, 504);
+        assert.equal(e.retriable, true);
+        return true;
+      }
+    );
+
+    const htmlMsg = replicate.friendlyError(
+      `Unexpected token '<', "<!DOCTYPE "... is not valid JSON`,
+      { anatomical: true }
+    );
+    assert.match(htmlMsg, /feilside|tidsavbrudd|Flux-modeller/i);
+    assert.equal(/Unexpected token/i.test(htmlMsg), false);
+    assert.equal(/reservedrift/i.test(htmlMsg), false);
+
+    const timeoutMsg = replicate.friendlyError(
+      "Generering tok for lang tid hos bildemodellen.",
+      { anatomical: true }
+    );
+    assert.match(timeoutMsg, /Flux-modeller/i);
+    assert.equal(/raskere reservedrift/i.test(timeoutMsg), false);
+  });
+
+  it("23. Anatomical cascade respects cascadeBudgetMs and stops before next attempt", async () => {
+    const calls: string[] = [];
+    await assert.rejects(
+      () =>
+        replicate.runFluxKontextAnatomicalCascade({
+          imageDataUri: JPEG_DATA_URI,
+          prompt: "anatomical conditioned prompt for timeout budget test",
+          token: "r8_test_not_real",
+          ...OWNER_DEMANDING,
+          cascadeBudgetMs: 1000,
+          runAttempt: async (args: { label: string }) => {
+            calls.push(args.label);
+            await new Promise((r) => setTimeout(r, 50));
+            const err = new Error("Replicate brukte for lang tid. Prøv igjen.") as Error & {
+              status: number;
+              retriable: boolean;
+            };
+            err.status = 504;
+            err.retriable = true;
+            throw err;
+          },
+        }),
+      (err: unknown) => {
+        const e = err as Error & {
+          status?: number;
+          providerAttempts?: Array<{ label: string; outcome: string }>;
+        };
+        assert.match(e.message, /for lang tid|Flux-modeller|Prøv igjen/i);
+        assert.equal(/raskere reservedrift/i.test(e.message), false);
+        assert.equal(/Unexpected token/i.test(e.message), false);
+        // Budget too small for a second attempt after the first failure.
+        assert.ok(calls.length <= 1);
+        return true;
+      }
+    );
+  });
+
+  it("24. Client generate path hardens HTML JSON parse + timeout copy", () => {
+    const html = read("public/index.html");
+    assert.match(html, /trimmed\.startsWith\("<"\)/);
+    assert.match(html, /generateServerError/);
+    assert.match(html, /rom i tidsbudsjettet/);
+    assert.equal(
+      /neste forsøk bytter ofte til raskere reservedrift/i.test(html),
+      false
+    );
   });
 });

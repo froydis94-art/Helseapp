@@ -1,6 +1,10 @@
 const {
   generateWithReplicate,
   runFluxKontextAnatomicalCascade,
+  CASCADE_BUDGET_MS,
+  FUNCTION_SOFT_DEADLINE_MS,
+  MIN_ATTEMPT_MS,
+  friendlyError,
 } = require("../lib/replicate");
 
 function setCors(res) {
@@ -30,16 +34,58 @@ function toDataUri(imageBuffer, mimeType) {
   return `data:${mime};base64,${imageBuffer.toString("base64")}`;
 }
 
+function jsonError(res, status, body) {
+  if (res.headersSent) return res;
+  return res.status(status).json(body);
+}
+
+/**
+ * Race work against a soft deadline so we return JSON before Vercel kills the
+ * function with an HTML 504/502 gateway page (which breaks client response.json()).
+ */
+function raceWithSoftDeadline(workPromise, softMs, makeTimeoutError) {
+  let timer = null;
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      reject(makeTimeoutError());
+    }, Math.max(1000, softMs));
+  });
+  return Promise.race([workPromise, timeoutPromise]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 async function handler(req, res) {
   setCors(res);
+  // Always prefer JSON error bodies — never let an uncaught throw become HTML.
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
 
   if (req.method === "OPTIONS") {
     return res.status(204).end();
   }
 
   if (req.method !== "POST") {
-    return res.status(405).json({ error: "Kun POST er tillatt." });
+    return jsonError(res, 405, { error: "Kun POST er tillatt." });
   }
+
+  const requestStarted = Date.now();
+  const softDeadlineMs = FUNCTION_SOFT_DEADLINE_MS;
+
+  const remainingSoftMs = () =>
+    Math.max(0, softDeadlineMs - (Date.now() - requestStarted));
+
+  const makeSoftTimeoutError = (errorClass = "generate_soft_timeout") => {
+    const err = new Error(
+      friendlyError(
+        "Generering tok for lang tid hos bildemodellen. Prøv igjen.",
+        { anatomical: isBodySimulatorLivePreviewEnabled() }
+      )
+    );
+    err.status = 504;
+    err.errorClass = errorClass;
+    err.retriable = true;
+    return err;
+  };
 
   try {
     const maal = String(req.body?.maal || "").trim() || "visible athletic body transformation";
@@ -79,7 +125,7 @@ async function handler(req, res) {
 
     const imageBase64 = req.body?.imageBase64;
     if (!imageBase64) {
-      return res.status(400).json({
+      return jsonError(res, 400, {
         error: "Mangler bilde. Send imageBase64 fra appen.",
       });
     }
@@ -89,7 +135,7 @@ async function handler(req, res) {
     const mimeType = req.body?.mimeType || "image/jpeg";
 
     if (!imageBuffer.length) {
-      return res.status(400).json({ error: "Tomt bilde." });
+      return jsonError(res, 400, { error: "Tomt bilde." });
     }
 
     // Demand 022E — single live Body Simulator / Anatomical path when flag ON.
@@ -118,15 +164,30 @@ async function handler(req, res) {
       };
 
       try {
-        const live = await runtime.runLiveFuturePreview({
-          payload: publicPayload,
-          sourceImageDataUri: toDataUri(imageBuffer, mimeType),
-          mimeType,
-          env: process.env,
-          // Inject intelligent Flux ordered fallback (022E-E).
-          // Same anatomical prompt across Max/Pro/Dev; no legacy reservedrift.
-          fluxCascade: runFluxKontextAnatomicalCascade,
-        });
+        const live = await raceWithSoftDeadline(
+          runtime.runLiveFuturePreview({
+            payload: publicPayload,
+            sourceImageDataUri: toDataUri(imageBuffer, mimeType),
+            mimeType,
+            env: process.env,
+            // Inject intelligent Flux ordered fallback (022E-E).
+            // Same anatomical prompt across Max/Pro/Dev; no legacy reservedrift.
+            // Shrink cascade wall-clock near soft deadline so Max+Dev fit before
+            // Vercel platform HTML timeout pages.
+            fluxCascade: (args) => {
+              const cascadeBudgetMs = Math.min(
+                CASCADE_BUDGET_MS,
+                Math.max(MIN_ATTEMPT_MS, remainingSoftMs() - 5000)
+              );
+              return runFluxKontextAnatomicalCascade({
+                ...args,
+                cascadeBudgetMs,
+              });
+            },
+          }),
+          remainingSoftMs(),
+          () => makeSoftTimeoutError("live_preview_timeout")
+        );
 
         return res.status(200).json({
           ok: true,
@@ -153,6 +214,10 @@ async function handler(req, res) {
           null;
         const providerSafetyAttribution =
           liveError?.diagnostics?.providerSafetyAttribution || null;
+        const safeMessage = friendlyError(
+          liveError?.message || "Live Future preview failed.",
+          { anatomical: true }
+        );
         console.error(
           "[generate-future-you] live-preview",
           errorClass,
@@ -164,8 +229,8 @@ async function handler(req, res) {
           providerSafetyAttribution?.attribution?.classification || "",
           providerSafetyAttribution?.attribution?.confidence || ""
         );
-        return res.status(status).json({
-          error: liveError?.message || "Live Future preview failed.",
+        return jsonError(res, status, {
+          error: safeMessage,
           errorClass,
           livePreviewTraceId: liveError?.livePreviewTraceId || null,
           livePreviewDiagnostics: liveError?.diagnostics || null,
@@ -188,31 +253,35 @@ async function handler(req, res) {
       }
     }
 
-    const generated = await generateWithReplicate({
-      imageBuffer,
-      mimeType,
-      maal,
-      intensity,
-      horizon,
-      focus,
-      zone,
-      zones: zones.length ? zones : zone ? [zone] : [],
-      fat,
-      muscle,
-      gender,
-      frame,
-      shape,
-      outcomes,
-      bmi,
-      bmiAdjusted,
-      bfNow,
-      bfGoal,
-      medicine,
-      paceLabel,
-      goalTitle,
-      horizonDate,
-      occasionLabel,
-    });
+    const generated = await raceWithSoftDeadline(
+      generateWithReplicate({
+        imageBuffer,
+        mimeType,
+        maal,
+        intensity,
+        horizon,
+        focus,
+        zone,
+        zones: zones.length ? zones : zone ? [zone] : [],
+        fat,
+        muscle,
+        gender,
+        frame,
+        shape,
+        outcomes,
+        bmi,
+        bmiAdjusted,
+        bfNow,
+        bfGoal,
+        medicine,
+        paceLabel,
+        goalTitle,
+        horizonDate,
+        occasionLabel,
+      }),
+      remainingSoftMs(),
+      () => makeSoftTimeoutError("generate_soft_timeout")
+    );
 
     return res.status(200).json({
       ok: true,
@@ -222,8 +291,12 @@ async function handler(req, res) {
     });
   } catch (error) {
     console.error("[generate-future-you]", error);
-    return res.status(error.status || 500).json({
-      error: error.message || "Ukjent serverfeil",
+    const status = error.status || 500;
+    return jsonError(res, status, {
+      error: friendlyError(error.message || "Ukjent serverfeil", {
+        anatomical: isBodySimulatorLivePreviewEnabled(),
+      }),
+      errorClass: error.errorClass || null,
     });
   }
 }
@@ -234,6 +307,8 @@ handler.config = {
       sizeLimit: "10mb",
     },
   },
+  // Pro plan: keep 180s. Soft deadline (~165s) returns JSON before platform HTML kill.
+  // Hobby/lower plans that cap below 180s still need owner to raise maxDuration in Vercel.
   maxDuration: 180,
 };
 

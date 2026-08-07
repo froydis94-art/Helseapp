@@ -390,10 +390,10 @@ describe("providerSafetyAttribution — PATCH_022E_C", () => {
     assert.match(route, /No silent legacy fallback/);
     // Between live catch and the flag-OFF legacy call there must be no recovery call.
     const catchIdx = route.indexOf("catch (liveError)");
-    const legacyIdx = route.lastIndexOf("await generateWithReplicate");
+    const legacyIdx = route.lastIndexOf("generateWithReplicate({");
     assert.ok(catchIdx > 0 && legacyIdx > catchIdx);
     const between = route.slice(catchIdx, legacyIdx);
-    assert.equal(/await\s+generateWithReplicate/.test(between), false);
+    assert.equal(/generateWithReplicate\s*\(/.test(between), false);
   });
 
   it("25–26. Feature flag OFF preserves legacy; ON preserves Body Simulator", () => {
