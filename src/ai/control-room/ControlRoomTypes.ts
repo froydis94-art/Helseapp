@@ -6,6 +6,7 @@
  */
 
 import type { AiOsRuntimeStage } from "../runtime/AiOsRuntimeTypes";
+import type { ControlRoomBodySimulatorView } from "../shadow/BodySimulatorShadowIntegration";
 
 export const CONTROL_ROOM_SCHEMA_VERSION = 1 as const;
 export const CONTROL_ROOM_RULES_VERSION = "1.0" as const;
@@ -27,6 +28,8 @@ export interface ControlRoomScenarioSummary {
 
 export interface ControlRoomRunRequest {
   scenarioId: ControlRoomScenarioId;
+  /** Allowlisted Body Simulator shadow scenario id (optional). */
+  bodySimulatorScenarioId?: string;
 }
 
 export interface ControlRoomStageView {
@@ -84,6 +87,12 @@ export interface ControlRoomRunResult {
   artifacts: ControlRoomArtifactProjection | null;
 
   safety: ControlRoomSafetyStatus;
+
+  /**
+   * Body Simulator shadow inspection (Demand 022A).
+   * Always present; status is "disabled" when flag is off.
+   */
+  bodySimulator: ControlRoomBodySimulatorView;
 
   warnings: string[];
   errors: string[];

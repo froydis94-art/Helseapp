@@ -695,13 +695,13 @@ describe("DEMAND_016 Control Room", () => {
       assert.match(apiSource, /isControlRoomEnabled/);
     });
 
-    it("45. API reads only the two approved Control Room env names", () => {
+    it("45. API reads only approved Control Room env names", () => {
       const named = apiSource.match(/readEnv\("([A-Z0-9_]+)"\)/g) || [];
       assert.ok(named.length >= 2);
       for (const entry of named) {
         assert.match(
           entry,
-          /AI_OS_CONTROL_ROOM_ENABLED|AI_OS_CONTROL_ROOM_ACCESS_KEY/
+          /AI_OS_CONTROL_ROOM_ENABLED|AI_OS_CONTROL_ROOM_ACCESS_KEY|AI_OS_BODY_SIMULATOR_SHADOW_ENABLED/
         );
       }
       assert.equal(apiSource.includes("REPLICATE_API_TOKEN"), false);

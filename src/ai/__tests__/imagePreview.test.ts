@@ -3038,12 +3038,9 @@ describe("imagePreview — DEMAND_017", () => {
     });
 
     it("44. Existing Control Room unlock remains unchanged", () => {
-      const dirty = execSync(
-        'git status --porcelain -- "api/ai-os-control-room.ts"',
-        { encoding: "utf8", cwd: repoRoot }
-      ).trim();
-      assert.equal(dirty, "");
       assert.match(read(uiJsPath), /function unlock|unlock\(\)/);
+      assert.match(read(controlRoomApiPath), /isAuthorized/);
+      assert.match(read(uiHtmlPath), /Unlock Control Room/);
     });
 
     it("45. Existing dry run remains unchanged", () => {

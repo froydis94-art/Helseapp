@@ -16,6 +16,7 @@ import type {
   AiOsRuntimeTerminalOutcome,
 } from "../runtime/AiOsRuntimeTypes";
 import type { ReplicateTransportResult } from "../transport/ReplicateTransportTypes";
+import type { ShadowBodySimulatorResult } from "./BodySimulatorShadowIntegration";
 
 export const SHADOW_RUNTIME_RULES_VERSION = "1.0" as const;
 
@@ -165,6 +166,12 @@ export interface ShadowRuntimeResult {
   warnings: string[];
 
   errors: string[];
+
+  /**
+   * Optional Body Simulator shadow phase (Demand 022A).
+   * Fixture-only; never provider/prompt/image. Absent when not applicable.
+   */
+  bodySimulator?: ShadowBodySimulatorResult;
 }
 
 /**
@@ -175,6 +182,18 @@ export interface ShadowRuntimeInput {
   mode: ShadowMode;
 
   runtimeInput?: AiOsRuntimeInput;
+
+  /**
+   * Explicit Body Simulator shadow enable for this invocation (Demand 022A).
+   * Shadow never reads environment flags — callers pass this after server-side checks.
+   */
+  bodySimulatorEnabled?: boolean;
+
+  /**
+   * Allowlisted Body Simulator shadow scenario id (Demand 022A).
+   * Ignored unless bodySimulatorEnabled is true.
+   */
+  bodySimulatorScenarioId?: string;
 }
 
 export interface ShadowRuntimeInputValidation {

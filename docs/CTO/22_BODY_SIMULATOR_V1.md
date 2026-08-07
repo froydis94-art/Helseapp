@@ -311,11 +311,11 @@ Do not resolve in this demand:
 
 ## Next milestones
 
-**Demand 022A — Body Simulator Integration Adapter**
+**Demand 022A — Body Simulator Shadow Runtime Integration**
 
-- connect Body Simulator rules to existing TransformationPlan/RenderPlan path
-- no public activation initially
-- Shadow Runtime or Control Room only
+- connect Body Simulator rules to Shadow Runtime / Control Room dry-run inspection
+- see [22A — Body Simulator Shadow Integration](./22A_BODY_SIMULATOR_SHADOW_INTEGRATION.md)
+- no public activation; no image generation
 
 **Demand 022B — First End-to-End Simulator Preview**
 

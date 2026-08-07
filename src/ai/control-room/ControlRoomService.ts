@@ -9,6 +9,11 @@ import {
   AiOsRuntime,
   createAiOsRuntimeDependencies,
 } from "../runtime";
+import {
+  buildBodySimulatorShadowPlaceholder,
+  isBodySimulatorShadowEnabled,
+  runBodySimulatorShadowPhase,
+} from "../shadow/BodySimulatorShadowIntegration";
 import { getControlRoomScenario, listControlRoomScenarios } from "./ControlRoomFixtures";
 import {
   ControlRoomProjectionError,
@@ -92,7 +97,8 @@ export class ControlRoomService {
   }
 
   async runScenario(
-    scenarioId: ControlRoomScenarioId
+    scenarioId: ControlRoomScenarioId,
+    options?: { bodySimulatorScenarioId?: string | null }
   ): Promise<ControlRoomRunResult> {
     const resolved = getControlRoomScenario(scenarioId);
     if (!resolved) {
@@ -141,9 +147,40 @@ export class ControlRoomService {
       );
     }
 
+    // Body Simulator shadow phase — isolated; failure must not break dry run.
+    // Flag is read only in this Control Room service (not inside ShadowRuntime).
+    const bodySimEnabled = isBodySimulatorShadowEnabled(process.env);
+    let bodySimulator;
+    try {
+      bodySimulator = runBodySimulatorShadowPhase({
+        enabled: bodySimEnabled,
+        scenarioId: options?.bodySimulatorScenarioId ?? null,
+      }).view;
+    } catch {
+      const placeholder = buildBodySimulatorShadowPlaceholder({
+        enabled: bodySimEnabled,
+        scenarioId: options?.bodySimulatorScenarioId ?? null,
+      });
+      bodySimulator = {
+        ...placeholder,
+        status: placeholder.enabled ? ("failed" as const) : ("disabled" as const),
+        diagnostics: [
+          ...placeholder.diagnostics,
+          "body_simulator_execution_failed",
+        ],
+        errorCode: placeholder.enabled
+          ? ("body_simulator_execution_failed" as const)
+          : ("body_simulator_disabled" as const),
+      };
+    }
+
     let projected: ControlRoomRunResult;
     try {
-      projected = projectControlRoomResult(resolved.summary, runtimeResult);
+      projected = projectControlRoomResult(
+        resolved.summary,
+        runtimeResult,
+        bodySimulator
+      );
     } catch (error) {
       if (error instanceof ControlRoomProjectionError) {
         throw new ControlRoomServiceError(error.code, error.message);
@@ -186,6 +223,7 @@ export function buildControlRoomFailureShell(
     },
     artifacts: null,
     safety: { ...CONTROL_ROOM_SAFETY_STATUS },
+    bodySimulator: buildBodySimulatorShadowPlaceholder(),
     warnings: [],
     errors: [CONTROL_ROOM_FORBIDDEN_CONTENT_ERROR],
   };

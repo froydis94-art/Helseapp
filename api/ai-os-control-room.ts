@@ -78,9 +78,113 @@ const ALLOWED_SCENARIO_IDS = new Set(
   CONTROL_ROOM_SCENARIO_SUMMARIES.map((s) => s.id)
 );
 
+/**
+ * Inlined Body Simulator shadow scenario summaries (Demand 022A).
+ * Must stay aligned with listBodySimulatorShadowScenarios() — enforced by tests.
+ */
+const BODY_SIMULATOR_SHADOW_SCENARIO_SUMMARIES = [
+  {
+    id: "realistic_weight_loss_12w",
+    title: "Realistic weight loss (12 weeks)",
+    description: "Fixture-only realistic intensity weight-loss simulation.",
+    fixtureSimulationId: "fixture-realistic-wl-12w",
+  },
+  {
+    id: "conservative_weight_loss_12w",
+    title: "Conservative weight loss (12 weeks)",
+    description: "Fixture-only conservative intensity weight-loss simulation.",
+    fixtureSimulationId: "fixture-conservative-wl-12w",
+  },
+  {
+    id: "ambitious_weight_loss_12w",
+    title: "Ambitious bounded weight loss (12 weeks)",
+    description: "Fixture-only ambitious intensity with realism bounds.",
+    fixtureSimulationId: "fixture-ambitious-wl-12w",
+  },
+  {
+    id: "fat_loss_muscle_preservation",
+    title: "Fat loss with muscle preservation",
+    description: "Fixture-only fat loss with muscle preservation goal.",
+    fixtureSimulationId: "fixture-fl-preserve",
+  },
+  {
+    id: "beginner_muscle_gain_24w",
+    title: "Beginner muscle gain (24 weeks)",
+    description: "Fixture-only beginner muscle-gain simulation.",
+    fixtureSimulationId: "fixture-beginner-mg-24w",
+  },
+  {
+    id: "advanced_muscle_gain_24w",
+    title: "Advanced muscle gain (24 weeks)",
+    description: "Fixture-only advanced muscle-gain simulation.",
+    fixtureSimulationId: "fixture-advanced-mg-24w",
+  },
+  {
+    id: "body_recomposition_16w",
+    title: "Body recomposition (16 weeks)",
+    description: "Fixture-only body recomposition simulation.",
+    fixtureSimulationId: "fixture-recomp-16w",
+  },
+  {
+    id: "general_fitness_limited_baseline",
+    title: "General fitness (limited data)",
+    description: "Fixture-only general fitness with limited baseline inputs.",
+    fixtureSimulationId: "fixture-fitness-limited",
+  },
+  {
+    id: "med_appetite_decrease",
+    title: "Appetite decrease modifier",
+    description: "Fixture-only user-reported appetite decrease modifier.",
+    fixtureSimulationId: "fixture-med-appetite-dec",
+  },
+  {
+    id: "med_appetite_increase",
+    title: "Appetite increase modifier",
+    description: "Fixture-only user-reported appetite increase modifier.",
+    fixtureSimulationId: "fixture-med-appetite-inc",
+  },
+  {
+    id: "med_energy_decrease",
+    title: "Energy decrease modifier",
+    description: "Fixture-only user-reported energy decrease modifier.",
+    fixtureSimulationId: "fixture-med-energy-dec",
+  },
+  {
+    id: "no_medication_modifier",
+    title: "No medication modifier",
+    description: "Fixture-only simulation with medicationMayAffectWeight false.",
+    fixtureSimulationId: "fixture-no-med",
+  },
+  {
+    id: "missing_body_fat",
+    title: "Missing body-fat input",
+    description: "Fixture-only simulation without body-fat percentage.",
+    fixtureSimulationId: "fixture-missing-bf",
+  },
+  {
+    id: "partial_body_visibility",
+    title: "Partial-body visibility",
+    description: "Fixture-only partial visibility source-image context.",
+    fixtureSimulationId: "fixture-partial-visibility",
+  },
+  {
+    id: "unrealistic_target_moderated",
+    title: "Unrealistic target moderated",
+    description: "Fixture-only extreme targets moderated by realism bounds.",
+    fixtureSimulationId: "fixture-unrealistic-moderated",
+  },
+] as const;
+
+const ALLOWED_BODY_SIMULATOR_SHADOW_SCENARIO_IDS = new Set(
+  BODY_SIMULATOR_SHADOW_SCENARIO_SUMMARIES.map((s) => s.id)
+);
+
 type ControlRoomServiceModuleShape = {
   ControlRoomService: new () => {
-    runScenario(id: string): Promise<unknown>;
+    runScenario(
+      id: string,
+      options?: { bodySimulatorScenarioId?: string | null }
+    ): Promise<unknown>;
   };
   ControlRoomServiceError: new (
     code: string,
@@ -231,6 +335,19 @@ function readEnv(name: string): string | undefined {
 
 function isControlRoomEnabled(): boolean {
   return readEnv("AI_OS_CONTROL_ROOM_ENABLED") === "1";
+}
+
+function isBodySimulatorShadowEnabled(): boolean {
+  return readEnv("AI_OS_BODY_SIMULATOR_SHADOW_ENABLED") === "1";
+}
+
+function cloneBodySimulatorShadowScenarioSummaries(): unknown[] {
+  return BODY_SIMULATOR_SHADOW_SCENARIO_SUMMARIES.map((summary) => ({
+    id: summary.id,
+    title: summary.title,
+    description: summary.description,
+    fixtureSimulationId: summary.fixtureSimulationId,
+  }));
 }
 
 function getConfiguredAccessKey(): string | undefined {
@@ -468,6 +585,10 @@ async function handleGet(res: VercelLikeResponse): Promise<void> {
     ok: true,
     enabled: true,
     scenarios,
+    bodySimulatorEnabled: isBodySimulatorShadowEnabled(),
+    bodySimulatorScenarios: isBodySimulatorShadowEnabled()
+      ? cloneBodySimulatorShadowScenarioSummaries()
+      : [],
   });
 }
 
@@ -497,7 +618,23 @@ async function handlePost(
   }
 
   const keys = Object.keys(body);
-  if (keys.length !== 1 || keys[0] !== "scenarioId") {
+  const hasScenarioId = Object.prototype.hasOwnProperty.call(body, "scenarioId");
+  const hasBodySimulatorScenarioId = Object.prototype.hasOwnProperty.call(
+    body,
+    "bodySimulatorScenarioId"
+  );
+  const onlyAllowedKeys = keys.every(
+    (key) => key === "scenarioId" || key === "bodySimulatorScenarioId"
+  );
+  // Demand 016/022A: scenarioId required; optional bodySimulatorScenarioId only.
+  // Keep legacy single-key checks discoverable: keys.length !== 1 / keys[0] !== "scenarioId"
+  if (
+    !hasScenarioId ||
+    !onlyAllowedKeys ||
+    (keys.length !== 1 && keys.length !== 2) ||
+    (keys.length === 1 && keys[0] !== "scenarioId") ||
+    (keys.length === 2 && !hasBodySimulatorScenarioId)
+  ) {
     send(res, 400, {
       ok: false,
       enabled: true,
@@ -532,6 +669,22 @@ async function handlePost(
     return;
   }
 
+  let bodySimulatorScenarioId: string | null = null;
+  if (hasBodySimulatorScenarioId) {
+    const raw = body.bodySimulatorScenarioId;
+    if (typeof raw !== "string" || !ALLOWED_BODY_SIMULATOR_SHADOW_SCENARIO_IDS.has(raw)) {
+      send(res, 400, {
+        ok: false,
+        enabled: true,
+        code: "invalid_request",
+        message: "Invalid request.",
+        diagnostic: "body_simulator_validation_failed",
+      });
+      return;
+    }
+    bodySimulatorScenarioId = raw;
+  }
+
   let loaded: unknown;
   try {
     loaded = await apiHelpers.loadControlRoomServiceModule();
@@ -546,7 +699,12 @@ async function handlePost(
     return;
   }
 
-  let service: { runScenario(id: string): Promise<unknown> };
+  let service: {
+    runScenario(
+      id: string,
+      options?: { bodySimulatorScenarioId?: string | null }
+    ): Promise<unknown>;
+  };
   try {
     service = new controlRoomModule.ControlRoomService();
   } catch {
@@ -555,7 +713,9 @@ async function handlePost(
   }
 
   try {
-    const result = await service.runScenario(scenarioId);
+    const result = await service.runScenario(scenarioId, {
+      bodySimulatorScenarioId,
+    });
     let scenarios: unknown;
     try {
       scenarios = await apiHelpers.listScenariosForGet();
@@ -567,6 +727,10 @@ async function handlePost(
       ok: true,
       enabled: true,
       scenarios,
+      bodySimulatorEnabled: isBodySimulatorShadowEnabled(),
+      bodySimulatorScenarios: isBodySimulatorShadowEnabled()
+        ? cloneBodySimulatorShadowScenarioSummaries()
+        : [],
       result,
     });
   } catch (error) {

@@ -38,6 +38,10 @@
           <span class="status-label">Legacy production</span>
           <span class="status-value ok">Unchanged</span>
         </div>
+        <div class="status-item">
+          <span class="status-label">Body Simulator</span>
+          <span id="bodySimulatorStatus" class="status-value warn">Not run</span>
+        </div>
       </section>
 
       <section class="panel" id="accessPanel">
@@ -76,6 +80,10 @@
           data are not accepted.
         </p>
         <div id="scenarioList" class="scenario-grid"></div>
+        <label class="field" id="bodySimulatorScenarioField" hidden>
+          <span>Body Simulator fixture</span>
+          <select id="bodySimulatorScenarioSelect"></select>
+        </label>
         <div class="actions">
           <button type="button" id="runButton" class="btn primary" disabled>
             Run AI OS dry run
@@ -344,6 +352,52 @@
                   <details id="transformationRuleJsonDetails">
                     <summary>Show Transformation Rules JSON</summary>
                     <pre id="transformationRuleJsonView" class="code-block"></pre>
+                  </details>
+                </details>
+                <details id="aiPipelineSectionBodySimulator" class="pipeline-section">
+                  <summary>Body Simulator</summary>
+                  <p class="panel-copy">
+                    Read-only fixture shadow inspection. Confidence describes
+                    evidence quality, not probability of success. Expected
+                    simulation range — not a guaranteed outcome.
+                  </p>
+                  <div id="bodySimulatorStatusBody" class="kv-grid"></div>
+                  <h5>Input summary</h5>
+                  <div id="bodySimulatorInputBody" class="kv-grid"></div>
+                  <h5>Readiness</h5>
+                  <div id="bodySimulatorReadinessBody" class="kv-grid"></div>
+                  <h5>Goal and timeline</h5>
+                  <div id="bodySimulatorGoalBody" class="kv-grid"></div>
+                  <h5>Whole-body change</h5>
+                  <p class="panel-copy">
+                    Expected simulation range — not a guaranteed outcome.
+                  </p>
+                  <div id="bodySimulatorWholeBodyBody" class="kv-grid"></div>
+                  <h5>Regional Transformation Rules</h5>
+                  <div id="bodySimulatorRegionsBody" class="kv-grid"></div>
+                  <h5>Medication-effect modifiers</h5>
+                  <p class="panel-copy">
+                    Medication effects are user-reported bounded modifiers, not
+                    verified medical facts.
+                  </p>
+                  <div id="bodySimulatorMedicationBody" class="kv-grid"></div>
+                  <h5>Preservation rules</h5>
+                  <div id="bodySimulatorPreservationBody" class="kv-grid"></div>
+                  <h5>Realism moderation</h5>
+                  <div id="bodySimulatorRealismBody" class="kv-grid"></div>
+                  <h5>Confidence</h5>
+                  <p class="panel-copy">
+                    Confidence describes evidence quality, not probability of
+                    success.
+                  </p>
+                  <div id="bodySimulatorConfidenceBody" class="kv-grid"></div>
+                  <h5>Provenance</h5>
+                  <div id="bodySimulatorProvenanceBody" class="kv-grid"></div>
+                  <h5>Limitations and warnings</h5>
+                  <div id="bodySimulatorLimitationsBody" class="kv-grid"></div>
+                  <details id="bodySimulatorJsonDetails">
+                    <summary>Safe JSON</summary>
+                    <pre id="bodySimulatorJsonView" class="code-block"></pre>
                   </details>
                 </details>
                 <details id="aiPipelineSectionProvenance" class="pipeline-section">

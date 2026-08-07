@@ -16,6 +16,9 @@
   var unauthorizedStreak = 0;
   var selectedScenarioId = null;
   var scenarios = [];
+  var bodySimulatorEnabled = false;
+  var bodySimulatorScenarios = [];
+  var selectedBodySimulatorScenarioId = null;
   var currentResult = null;
   var requestInFlight = false;
   var previewInFlight = false;
@@ -33,6 +36,46 @@
   var scenarioList = document.getElementById("scenarioList");
   var runButton = document.getElementById("runButton");
   var runMessage = document.getElementById("runMessage");
+  var bodySimulatorStatus = document.getElementById("bodySimulatorStatus");
+  var bodySimulatorScenarioField = document.getElementById(
+    "bodySimulatorScenarioField"
+  );
+  var bodySimulatorScenarioSelect = document.getElementById(
+    "bodySimulatorScenarioSelect"
+  );
+  var bodySimulatorStatusBody = document.getElementById(
+    "bodySimulatorStatusBody"
+  );
+  var bodySimulatorInputBody = document.getElementById("bodySimulatorInputBody");
+  var bodySimulatorReadinessBody = document.getElementById(
+    "bodySimulatorReadinessBody"
+  );
+  var bodySimulatorGoalBody = document.getElementById("bodySimulatorGoalBody");
+  var bodySimulatorWholeBodyBody = document.getElementById(
+    "bodySimulatorWholeBodyBody"
+  );
+  var bodySimulatorRegionsBody = document.getElementById(
+    "bodySimulatorRegionsBody"
+  );
+  var bodySimulatorMedicationBody = document.getElementById(
+    "bodySimulatorMedicationBody"
+  );
+  var bodySimulatorPreservationBody = document.getElementById(
+    "bodySimulatorPreservationBody"
+  );
+  var bodySimulatorRealismBody = document.getElementById(
+    "bodySimulatorRealismBody"
+  );
+  var bodySimulatorConfidenceBody = document.getElementById(
+    "bodySimulatorConfidenceBody"
+  );
+  var bodySimulatorProvenanceBody = document.getElementById(
+    "bodySimulatorProvenanceBody"
+  );
+  var bodySimulatorLimitationsBody = document.getElementById(
+    "bodySimulatorLimitationsBody"
+  );
+  var bodySimulatorJsonView = document.getElementById("bodySimulatorJsonView");
   var resultPanel = document.getElementById("resultPanel");
   var stageList = document.getElementById("stageList");
   var transformationPlanView = document.getElementById("transformationPlanView");
@@ -275,6 +318,48 @@
   var promptExperimentSelectedB = null;
   var promptExperimentViewId = null;
   var promptExperimentExportObjectUrl = null;
+
+  var BODY_SIMULATOR_STATUS_LABELS = {
+    disabled: "Disabled",
+    not_run: "Not run",
+    ready: "Ready",
+    ready_with_limitations: "Ready with limitations",
+    insufficient_input: "Insufficient input",
+    succeeded: "Succeeded",
+    failed: "Failed",
+  };
+
+  var BODY_SIMULATOR_MODERATION_LABELS = {
+    timeline_limits_requested_change: "Timeline limits the requested change.",
+    muscle_gain_target_exceeds_v1_boundary:
+      "Muscle-gain target exceeded the v1 simulator boundary.",
+    fat_loss_target_exceeds_v1_boundary:
+      "Fat-loss target exceeded the v1 simulator boundary.",
+    insufficient_baseline_information: "Baseline information is limited.",
+    ambitious_intensity_bounded:
+      "Ambitious intensity was kept inside the v1 realism boundary.",
+    identity_preservation_boundary: "Change was limited to preserve identity.",
+    natural_proportion_boundary:
+      "Change was limited to preserve natural proportions.",
+  };
+
+  var BODY_SIMULATOR_PRESERVATION_KEYS = [
+    ["identity", "identity"],
+    ["originalPresentation", "original presentation"],
+    ["faceGeometry", "face geometry"],
+    ["pose", "pose"],
+    ["cameraFraming", "camera framing"],
+    ["clothing", "clothing"],
+    ["clothingCoverage", "clothing coverage"],
+    ["background", "background"],
+    ["lightingCharacter", "lighting character"],
+    ["ageAppearance", "age appearance"],
+    ["ethnicityAppearance", "ethnicity appearance"],
+    ["personalStyle", "personal style"],
+    ["bodyHeight", "body height"],
+    ["handAndFootScale", "hand and foot scale"],
+    ["skeletalProportions", "broad skeletal proportions"],
+  ];
 
   function setText(el, value) {
     if (!el) return;
@@ -2366,6 +2451,9 @@
     unauthorizedStreak = 0;
     selectedScenarioId = null;
     scenarios = [];
+    bodySimulatorEnabled = false;
+    bodySimulatorScenarios = [];
+    selectedBodySimulatorScenarioId = null;
     currentResult = null;
     requestInFlight = false;
     setText(accessStatus, "Locked");
@@ -2375,6 +2463,7 @@
     if (previewPanel) previewPanel.hidden = true;
     resultPanel.hidden = true;
     clearChildren(scenarioList);
+    if (bodySimulatorScenarioField) bodySimulatorScenarioField.hidden = true;
     clearResultViews();
     clearPreviewState();
     lockButton.disabled = true;
@@ -2396,6 +2485,7 @@
     setText(positivePromptView, "");
     setText(negativePromptView, "");
     setText(rawProjectionView, "");
+    clearBodySimulatorViews();
     if (promptDetails) promptDetails.open = false;
   }
 
@@ -2711,6 +2801,512 @@
     if (promptDetails) promptDetails.open = false;
   }
 
+  function bodySimulatorStatusLabel(status) {
+    if (status == null) return "Not run";
+    return BODY_SIMULATOR_STATUS_LABELS[status] || String(status);
+  }
+
+  function setBodySimulatorStatusChip(status) {
+    if (!bodySimulatorStatus) return;
+    var label = bodySimulatorStatusLabel(status);
+    setText(bodySimulatorStatus, label);
+    bodySimulatorStatus.classList.remove("ok", "warn", "error");
+    if (
+      status === "succeeded" ||
+      status === "ready" ||
+      status === "ready_with_limitations"
+    ) {
+      bodySimulatorStatus.classList.add("ok");
+    } else if (status === "failed" || status === "insufficient_input") {
+      bodySimulatorStatus.classList.add("error");
+    } else {
+      bodySimulatorStatus.classList.add("warn");
+    }
+  }
+
+  function formatYesNo(value) {
+    if (value === true) return "yes";
+    if (value === false) return "no";
+    return "Unknown";
+  }
+
+  function formatEffectDirection(value) {
+    if (value == null || value === "unknown") return "Unknown";
+    return String(value);
+  }
+
+  function formatSimulationRange(range, label) {
+    if (!range || typeof range !== "object") {
+      appendKv(bodySimulatorWholeBodyBody, label, "Unavailable");
+      return;
+    }
+    appendKv(
+      bodySimulatorWholeBodyBody,
+      label + " lower",
+      range.lower == null ? "Unavailable" : String(range.lower)
+    );
+    appendKv(
+      bodySimulatorWholeBodyBody,
+      label + " expected",
+      range.expected == null ? "Unavailable" : String(range.expected)
+    );
+    appendKv(
+      bodySimulatorWholeBodyBody,
+      label + " upper",
+      range.upper == null ? "Unavailable" : String(range.upper)
+    );
+    appendKv(
+      bodySimulatorWholeBodyBody,
+      label + " unit",
+      range.unit == null ? "Unavailable" : String(range.unit)
+    );
+    appendKv(
+      bodySimulatorWholeBodyBody,
+      label + " origin",
+      range.origin == null ? "Unavailable" : String(range.origin)
+    );
+  }
+
+  function clearBodySimulatorViews() {
+    [
+      bodySimulatorStatusBody,
+      bodySimulatorInputBody,
+      bodySimulatorReadinessBody,
+      bodySimulatorGoalBody,
+      bodySimulatorWholeBodyBody,
+      bodySimulatorRegionsBody,
+      bodySimulatorMedicationBody,
+      bodySimulatorPreservationBody,
+      bodySimulatorRealismBody,
+      bodySimulatorConfidenceBody,
+      bodySimulatorProvenanceBody,
+      bodySimulatorLimitationsBody,
+    ].forEach(function (el) {
+      clearChildren(el);
+    });
+    setText(bodySimulatorJsonView, "");
+    setBodySimulatorStatusChip("not_run");
+  }
+
+  function renderBodySimulatorScenarioSelector() {
+    if (!bodySimulatorScenarioSelect || !bodySimulatorScenarioField) return;
+    clearChildren(bodySimulatorScenarioSelect);
+    if (!bodySimulatorEnabled || !bodySimulatorScenarios.length) {
+      bodySimulatorScenarioField.hidden = true;
+      selectedBodySimulatorScenarioId = null;
+      return;
+    }
+    bodySimulatorScenarioField.hidden = false;
+    bodySimulatorScenarios.forEach(function (scenario) {
+      var option = document.createElement("option");
+      option.value = scenario.id;
+      option.textContent = scenario.title || scenario.id;
+      bodySimulatorScenarioSelect.appendChild(option);
+    });
+    if (
+      !selectedBodySimulatorScenarioId ||
+      !bodySimulatorScenarios.some(function (s) {
+        return s.id === selectedBodySimulatorScenarioId;
+      })
+    ) {
+      selectedBodySimulatorScenarioId = bodySimulatorScenarios[0].id;
+    }
+    bodySimulatorScenarioSelect.value = selectedBodySimulatorScenarioId;
+  }
+
+  function renderBodySimulatorInspector(bodySimulator) {
+    clearBodySimulatorViews();
+    if (!bodySimulator || typeof bodySimulator !== "object") {
+      setBodySimulatorStatusChip(bodySimulatorEnabled ? "not_run" : "disabled");
+      appendKv(
+        bodySimulatorStatusBody,
+        "status",
+        bodySimulatorEnabled ? "Not run" : "Disabled"
+      );
+      return;
+    }
+
+    var status = bodySimulator.status || "not_run";
+    setBodySimulatorStatusChip(status);
+    appendKv(bodySimulatorStatusBody, "enabled", formatYesNo(!!bodySimulator.enabled));
+    appendKv(
+      bodySimulatorStatusBody,
+      "status",
+      bodySimulatorStatusLabel(status)
+    );
+    appendKv(
+      bodySimulatorStatusBody,
+      "scenarioId",
+      bodySimulator.scenarioId || "Not provided"
+    );
+    if (Array.isArray(bodySimulator.diagnostics)) {
+      appendKv(
+        bodySimulatorStatusBody,
+        "diagnostics",
+        bodySimulator.diagnostics.join("; ") || "—"
+      );
+    }
+
+    var summary = bodySimulator.inputSummary;
+    if (summary) {
+      appendKv(bodySimulatorInputBody, "goal type", summary.goalType || "Not provided");
+      appendKv(
+        bodySimulatorInputBody,
+        "timeline weeks",
+        summary.timelineWeeks == null ? "Not provided" : String(summary.timelineWeeks)
+      );
+      appendKv(
+        bodySimulatorInputBody,
+        "intensity",
+        summary.intensity || "Not provided"
+      );
+      appendKv(bodySimulatorInputBody, "age available", summary.ageAvailable || "Unknown");
+      appendKv(
+        bodySimulatorInputBody,
+        "height available",
+        summary.heightAvailable || "Unknown"
+      );
+      appendKv(
+        bodySimulatorInputBody,
+        "weight available",
+        summary.weightAvailable || "Unknown"
+      );
+      appendKv(
+        bodySimulatorInputBody,
+        "body-fat basis",
+        summary.bodyFatBasis || "Not provided"
+      );
+      appendKv(
+        bodySimulatorInputBody,
+        "training experience",
+        summary.trainingExperience || "Not provided"
+      );
+      appendKv(
+        bodySimulatorInputBody,
+        "general activity",
+        summary.generalActivity || "Not provided"
+      );
+      appendKv(
+        bodySimulatorInputBody,
+        "resistance sessions",
+        summary.resistanceSessions == null
+          ? "Not provided"
+          : String(summary.resistanceSessions)
+      );
+      appendKv(
+        bodySimulatorInputBody,
+        "cardio sessions",
+        summary.cardioSessions == null
+          ? "Not provided"
+          : String(summary.cardioSessions)
+      );
+      appendKv(
+        bodySimulatorInputBody,
+        "medicationMayAffectWeight",
+        summary.medicationMayAffectWeight == null
+          ? "Unknown"
+          : formatYesNo(summary.medicationMayAffectWeight)
+      );
+      appendKv(
+        bodySimulatorInputBody,
+        "source photo view",
+        summary.sourcePhotoView || "Not provided"
+      );
+      appendKv(
+        bodySimulatorInputBody,
+        "Body Analysis available",
+        formatYesNo(!!summary.bodyAnalysisAvailable)
+      );
+    } else {
+      appendKv(bodySimulatorInputBody, "input", "Not provided");
+    }
+
+    var readiness = bodySimulator.readiness;
+    if (readiness) {
+      appendKv(bodySimulatorReadinessBody, "ready", formatYesNo(!!readiness.ready));
+      appendKv(
+        bodySimulatorReadinessBody,
+        "status",
+        bodySimulatorStatusLabel(readiness.status)
+      );
+      appendKv(
+        bodySimulatorReadinessBody,
+        "missing required",
+        (readiness.missingRequiredInputs || []).join("; ") || "—"
+      );
+      appendKv(
+        bodySimulatorReadinessBody,
+        "optional missing",
+        (readiness.optionalMissingInputs || []).join("; ") || "—"
+      );
+      appendKv(
+        bodySimulatorReadinessBody,
+        "limitations",
+        (readiness.limitations || []).join("; ") || "—"
+      );
+    } else {
+      appendKv(bodySimulatorReadinessBody, "readiness", "Not run");
+    }
+
+    var rules = bodySimulator.rules;
+    if (rules && rules.goal) {
+      appendKv(bodySimulatorGoalBody, "requested type", rules.goal.requestedType);
+      appendKv(bodySimulatorGoalBody, "effective type", rules.goal.effectiveType);
+      appendKv(
+        bodySimulatorGoalBody,
+        "timeline weeks",
+        String(rules.goal.timelineWeeks)
+      );
+      appendKv(bodySimulatorGoalBody, "intensity", rules.goal.intensity);
+    } else {
+      appendKv(bodySimulatorGoalBody, "goal", "Unavailable");
+    }
+
+    if (rules && rules.wholeBodyChange) {
+      formatSimulationRange(rules.wholeBodyChange.weightChangeKg, "Weight change");
+      formatSimulationRange(
+        rules.wholeBodyChange.bodyFatChangePercentagePoints,
+        "Body-fat change"
+      );
+      formatSimulationRange(rules.wholeBodyChange.muscleChangeKg, "Muscle change");
+      appendKv(
+        bodySimulatorWholeBodyBody,
+        "confidence",
+        rules.wholeBodyChange.confidence || "Unknown"
+      );
+      appendKv(
+        bodySimulatorWholeBodyBody,
+        "confidence reasons",
+        (rules.wholeBodyChange.confidenceReasons || []).join("; ") || "—"
+      );
+    } else {
+      appendKv(bodySimulatorWholeBodyBody, "whole-body", "Unavailable");
+    }
+
+    if (rules && Array.isArray(rules.regions)) {
+      rules.regions.forEach(function (region) {
+        var prefix = region.region || "region";
+        appendKv(bodySimulatorRegionsBody, prefix + " fat", region.fatChange);
+        appendKv(bodySimulatorRegionsBody, prefix + " muscle", region.muscleChange);
+        appendKv(
+          bodySimulatorRegionsBody,
+          prefix + " magnitude",
+          region.visualMagnitude
+            ? [
+                region.visualMagnitude.lower,
+                region.visualMagnitude.expected,
+                region.visualMagnitude.upper,
+              ].join(" / ")
+            : "Unavailable"
+        );
+        appendKv(
+          bodySimulatorRegionsBody,
+          prefix + " visibility",
+          region.visibility || "Unknown"
+        );
+        appendKv(
+          bodySimulatorRegionsBody,
+          prefix + " confidence",
+          region.confidence || "Unknown"
+        );
+        appendKv(
+          bodySimulatorRegionsBody,
+          prefix + " confidence reasons",
+          (region.confidenceReasons || []).join("; ") || "—"
+        );
+        appendKv(
+          bodySimulatorRegionsBody,
+          prefix + " provenance",
+          (region.provenanceSourcePaths || []).join("; ") || "—"
+        );
+      });
+    } else {
+      appendKv(bodySimulatorRegionsBody, "regions", "Unavailable");
+    }
+
+    var med = summary && summary.medication ? summary.medication : null;
+    if (med) {
+      appendKv(
+        bodySimulatorMedicationBody,
+        "medication may affect weight",
+        med.medicationMayAffectWeight == null
+          ? "Unknown"
+          : formatYesNo(med.medicationMayAffectWeight)
+      );
+      if (med.medicationMayAffectWeight === false) {
+        appendKv(
+          bodySimulatorMedicationBody,
+          "modifier",
+          "No medication modifier applied."
+        );
+      }
+      appendKv(
+        bodySimulatorMedicationBody,
+        "appetite effect",
+        formatEffectDirection(med.appetite)
+      );
+      appendKv(
+        bodySimulatorMedicationBody,
+        "energy-level effect",
+        formatEffectDirection(med.energyLevel)
+      );
+      appendKv(
+        bodySimulatorMedicationBody,
+        "metabolism tendency",
+        formatEffectDirection(med.metabolismTendency)
+      );
+      appendKv(
+        bodySimulatorMedicationBody,
+        "muscle-building or preservation tendency",
+        formatEffectDirection(med.muscleBuildingOrPreservation)
+      );
+      appendKv(
+        bodySimulatorMedicationBody,
+        "evidence origin",
+        med.evidenceOrigin || "Unknown"
+      );
+      appendKv(
+        bodySimulatorMedicationBody,
+        "evidence confidence",
+        med.evidenceConfidence || "Unknown"
+      );
+    } else {
+      appendKv(bodySimulatorMedicationBody, "medication", "Not provided");
+    }
+
+    var preservation = rules && rules.preservation ? rules.preservation : null;
+    BODY_SIMULATOR_PRESERVATION_KEYS.forEach(function (pair) {
+      var key = pair[0];
+      var label = pair[1];
+      appendKv(
+        bodySimulatorPreservationBody,
+        label,
+        preservation && preservation[key] === "preserve"
+          ? "Preserve"
+          : preservation
+            ? "Preserve"
+            : "Preserve"
+      );
+    });
+
+    if (rules && rules.realism) {
+      appendKv(
+        bodySimulatorRealismBody,
+        "requested target moderated",
+        formatYesNo(!!rules.realism.requestedTargetModerated)
+      );
+      appendKv(
+        bodySimulatorRealismBody,
+        "unrealistic change prevented",
+        formatYesNo(!!rules.realism.unrealisticChangePrevented)
+      );
+      var reasons = rules.realism.moderationReasons || [];
+      if (!reasons.length) {
+        appendKv(bodySimulatorRealismBody, "moderation reasons", "—");
+      } else {
+        reasons.forEach(function (code, index) {
+          appendKv(
+            bodySimulatorRealismBody,
+            "moderation reason " + String(index + 1),
+            BODY_SIMULATOR_MODERATION_LABELS[code] || String(code)
+          );
+        });
+      }
+      appendKv(
+        bodySimulatorRealismBody,
+        "expected visualization disclaimer",
+        rules.realism.expectedVisualizationNotGuarantee
+          ? "Expected visualization is not a guarantee."
+          : "Unavailable"
+      );
+    } else {
+      appendKv(bodySimulatorRealismBody, "realism", "Unavailable");
+    }
+
+    if (rules && rules.confidence) {
+      appendKv(
+        bodySimulatorConfidenceBody,
+        "overall confidence",
+        rules.confidence.overall || "Unknown"
+      );
+      if (rules.wholeBodyChange) {
+        appendKv(
+          bodySimulatorConfidenceBody,
+          "whole-body confidence",
+          rules.wholeBodyChange.confidence || "Unknown"
+        );
+      }
+      if (Array.isArray(rules.regions)) {
+        rules.regions.forEach(function (region) {
+          appendKv(
+            bodySimulatorConfidenceBody,
+            (region.region || "region") + " confidence",
+            region.confidence || "Unknown"
+          );
+        });
+      }
+      appendKv(
+        bodySimulatorConfidenceBody,
+        "confidence reasons",
+        (rules.confidence.reasons || []).join("; ") || "—"
+      );
+    } else {
+      appendKv(bodySimulatorConfidenceBody, "confidence", "Unavailable");
+    }
+
+    if (rules && Array.isArray(rules.provenance) && rules.provenance.length) {
+      rules.provenance.forEach(function (entry, index) {
+        appendKv(
+          bodySimulatorProvenanceBody,
+          "rule path " + String(index + 1),
+          entry.rulePath || "—"
+        );
+        appendKv(
+          bodySimulatorProvenanceBody,
+          "source " + String(index + 1),
+          entry.source || "—"
+        );
+        appendKv(
+          bodySimulatorProvenanceBody,
+          "source path " + String(index + 1),
+          entry.sourcePath || "—"
+        );
+      });
+    } else {
+      appendKv(bodySimulatorProvenanceBody, "provenance", "Unavailable");
+    }
+
+    if (rules) {
+      appendKv(
+        bodySimulatorLimitationsBody,
+        "limitations",
+        (rules.limitations || []).join("; ") || "—"
+      );
+      appendKv(
+        bodySimulatorLimitationsBody,
+        "warnings",
+        (rules.warnings || []).join("; ") || "—"
+      );
+    } else {
+      appendKv(bodySimulatorLimitationsBody, "limitations", "Unavailable");
+    }
+
+    setText(
+      bodySimulatorJsonView,
+      pretty({
+        enabled: bodySimulator.enabled,
+        scenarioId: bodySimulator.scenarioId,
+        status: bodySimulator.status,
+        inputSummary: bodySimulator.inputSummary,
+        readiness: bodySimulator.readiness,
+        rules: bodySimulator.rules,
+        projection: bodySimulator.projection,
+        diagnostics: bodySimulator.diagnostics,
+        errorCode: bodySimulator.errorCode || null,
+      })
+    );
+  }
+
   function renderVersions(versions) {
     clearChildren(versionMatrix);
     var entries = Object.keys(versions || {});
@@ -2738,6 +3334,7 @@
     );
     renderFormatter(result.artifacts && result.artifacts.formattedRequest);
     renderVersions(result.runtime && result.runtime.versions);
+    renderBodySimulatorInspector(result.bodySimulator);
     setText(rawProjectionView, pretty(result));
   }
 
@@ -2819,9 +3416,17 @@
         }
         unauthorizedStreak = 0;
         scenarios = Array.isArray(payload.scenarios) ? payload.scenarios : [];
+        bodySimulatorEnabled = payload.bodySimulatorEnabled === true;
+        bodySimulatorScenarios = Array.isArray(payload.bodySimulatorScenarios)
+          ? payload.bodySimulatorScenarios
+          : [];
         selectedScenarioId = scenarios.length ? scenarios[0].id : null;
         markAuthorized();
         renderScenarios();
+        renderBodySimulatorScenarioSelector();
+        setBodySimulatorStatusChip(
+          bodySimulatorEnabled ? "not_run" : "disabled"
+        );
         setMessage(accessMessage, "Control Room unlocked.", "ok");
       })
       .catch(function () {
@@ -2845,7 +3450,11 @@
     unlockButton.disabled = true;
     setMessage(runMessage, "Running deterministic AI OS pipeline…", null);
 
-    request("POST", { scenarioId: selectedScenarioId })
+    var postBody = { scenarioId: selectedScenarioId };
+    if (bodySimulatorEnabled && selectedBodySimulatorScenarioId) {
+      postBody.bodySimulatorScenarioId = selectedBodySimulatorScenarioId;
+    }
+    request("POST", postBody)
       .then(function (outcome) {
         var status = outcome.response.status;
         if (outcome.nonJson || outcome.payload == null) {
@@ -3487,6 +4096,12 @@
   runButton.addEventListener("click", function () {
     runScenario();
   });
+
+  if (bodySimulatorScenarioSelect) {
+    bodySimulatorScenarioSelect.addEventListener("change", function () {
+      selectedBodySimulatorScenarioId = bodySimulatorScenarioSelect.value || null;
+    });
+  }
 
   if (previewFileInput) {
     previewFileInput.addEventListener("change", onPreviewFileSelected);

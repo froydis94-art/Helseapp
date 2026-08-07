@@ -33,6 +33,9 @@ import {
   cloneShadowReplayRecord,
 } from "./ShadowReplay";
 import {
+  runBodySimulatorShadowPhase,
+} from "./BodySimulatorShadowIntegration";
+import {
   SHADOW_RUNTIME_RULES_VERSION,
   type ShadowExecutionResult,
   type ShadowMode,
@@ -385,7 +388,39 @@ function isTransportKindCompatible(
   return false;
 }
 
-function buildSkippedResult(mode: ShadowMode): ShadowRuntimeResult {
+function attachBodySimulatorPhase(
+  result: ShadowRuntimeResult,
+  input: ShadowRuntimeInput
+): ShadowRuntimeResult {
+  // Body Simulator shadow is observation-only; failures never break Shadow.
+  // Shadow never reads environment flags — enabled must be explicit on input.
+  try {
+    const { shadow } = runBodySimulatorShadowPhase({
+      enabled: input.bodySimulatorEnabled === true,
+      scenarioId: input.bodySimulatorScenarioId ?? null,
+    });
+    return { ...result, bodySimulator: shadow };
+  } catch {
+    return {
+      ...result,
+      bodySimulator: {
+        executed: false,
+        status: "failed",
+        inputSchemaVersion: null,
+        rulesSchemaVersion: null,
+        readiness: null,
+        rules: null,
+        projection: null,
+        diagnostics: ["body_simulator_execution_failed"],
+      },
+    };
+  }
+}
+
+function buildSkippedResult(
+  mode: ShadowMode,
+  input?: ShadowRuntimeInput
+): ShadowRuntimeResult {
   const metrics = emptyShadowMetrics();
   const execution: ShadowExecutionResult = {
     executed: false,
@@ -395,7 +430,7 @@ function buildSkippedResult(mode: ShadowMode): ShadowRuntimeResult {
     success: true,
   };
 
-  return sanitizeShadowRuntimeResult({
+  const base = sanitizeShadowRuntimeResult({
     success: true,
     mode,
     execution,
@@ -404,14 +439,16 @@ function buildSkippedResult(mode: ShadowMode): ShadowRuntimeResult {
     warnings: [],
     errors: [],
   });
+  return attachBodySimulatorPhase(base, input ?? { mode });
 }
 
 function buildInvalidInputResult(
   mode: ShadowMode,
   errors: string[],
-  warnings: string[] = []
+  warnings: string[] = [],
+  input?: ShadowRuntimeInput
 ): ShadowRuntimeResult {
-  return sanitizeShadowRuntimeResult({
+  const base = sanitizeShadowRuntimeResult({
     success: false,
     mode,
     execution: {
@@ -426,6 +463,7 @@ function buildInvalidInputResult(
     warnings: [...warnings],
     errors: [...errors],
   });
+  return attachBodySimulatorPhase(base, input ?? { mode });
 }
 
 /**
@@ -494,27 +532,34 @@ export class ShadowRuntime {
           ? input.mode
           : "disabled",
         [...validation.errors],
-        [...validation.warnings]
+        [...validation.warnings],
+        input
       );
     }
 
     if (input.mode === "disabled") {
-      return buildSkippedResult("disabled");
+      return buildSkippedResult("disabled", input);
     }
 
     const transportKind = this.dependencies.runtime.shadowTransportKind;
     if (!isTransportKindCompatible(input.mode, transportKind)) {
       // Mode/kind mismatch: zero runtime calls, zero transport calls.
-      return buildInvalidInputResult(input.mode, [
-        SHADOW_TRANSPORT_KIND_MISMATCH_ERROR,
-      ]);
+      return buildInvalidInputResult(
+        input.mode,
+        [SHADOW_TRANSPORT_KIND_MISMATCH_ERROR],
+        [],
+        input
+      );
     }
 
     const runtimeMode = mapRuntimeMode(input.mode);
     if (runtimeMode == null || input.runtimeInput == null) {
-      return buildInvalidInputResult(input.mode, [
-        "Unable to map shadow mode to runtime mode.",
-      ]);
+      return buildInvalidInputResult(
+        input.mode,
+        ["Unable to map shadow mode to runtime mode."],
+        [],
+        input
+      );
     }
 
     // Clone caller input so Shadow never mutates production/caller objects.
@@ -540,7 +585,7 @@ export class ShadowRuntime {
       const metrics = emptyShadowMetrics();
       metrics.runtimeDurationMs = durationMs;
       metrics.runtimeMode = runtimeMode;
-      return sanitizeShadowRuntimeResult({
+      const failed = sanitizeShadowRuntimeResult({
         success: false,
         mode: input.mode,
         execution: {
@@ -555,6 +600,7 @@ export class ShadowRuntime {
         warnings: [],
         errors: [message || "Shadow runtime execution failed."],
       });
+      return attachBodySimulatorPhase(failed, input);
     }
 
     const durationMs = Math.max(
@@ -588,7 +634,7 @@ export class ShadowRuntime {
     };
 
     assertNoArtifactLeakage(result);
-    return sanitizeShadowRuntimeResult(result);
+    return sanitizeShadowRuntimeResult(attachBodySimulatorPhase(result, input));
   }
 }
 

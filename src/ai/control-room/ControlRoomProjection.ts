@@ -8,6 +8,10 @@
 import type { AiOsRuntimeResult, AiOsRuntimeStage } from "../runtime/AiOsRuntimeTypes";
 import type { FormattedImageRequest } from "../formatters/ProviderFormatter";
 import {
+  buildBodySimulatorShadowPlaceholder,
+  type ControlRoomBodySimulatorView,
+} from "../shadow/BodySimulatorShadowIntegration";
+import {
   CONTROL_ROOM_FORBIDDEN_CONTENT_ERROR,
   CONTROL_ROOM_RULES_VERSION,
   CONTROL_ROOM_SAFETY_STATUS,
@@ -141,7 +145,8 @@ function projectFormattedRequest(
  */
 export function projectControlRoomResult(
   scenario: ControlRoomScenarioSummary,
-  runtimeResult: AiOsRuntimeResult
+  runtimeResult: AiOsRuntimeResult,
+  bodySimulator?: ControlRoomBodySimulatorView
 ): ControlRoomRunResult {
   if (runtimeResult.mode !== "dry_run") {
     throw new ControlRoomProjectionError(
@@ -207,6 +212,9 @@ export function projectControlRoomResult(
       ),
     },
     safety: { ...CONTROL_ROOM_SAFETY_STATUS },
+    bodySimulator: structuredClone(
+      bodySimulator ?? buildBodySimulatorShadowPlaceholder()
+    ),
     warnings: [...runtimeResult.warnings],
     errors: [...runtimeResult.errors],
   };
@@ -315,6 +323,7 @@ export function sanitizeControlRoomProjection(
     },
     artifacts: null,
     safety: { ...CONTROL_ROOM_SAFETY_STATUS },
+    bodySimulator: buildBodySimulatorShadowPlaceholder(),
     warnings: [],
     errors: [CONTROL_ROOM_FORBIDDEN_CONTENT_ERROR],
   };
