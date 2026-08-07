@@ -6,6 +6,7 @@
  */
 
 import { createEmptyBodyAnalysisEvidence } from "../body-analysis/types";
+import { randomBytes } from "node:crypto";
 import {
   BODY_SIMULATOR_FOCUS_ZONES,
   type BodySimulatorFocusZone,
@@ -335,8 +336,9 @@ function collectOptionalNotes(payload: PublicFuturePayload): string[] {
 }
 
 function createSimulationId(nowMs: number): string {
-  const rand = Math.floor(Math.random() * 1e9).toString(36);
-  return `live-fut-${nowMs.toString(36)}-${rand}`;
+  // Hex-only suffix avoids accidental forbidden-content substring hits in scanners.
+  const rand = randomBytes(8).toString("hex");
+  return `lfp${nowMs.toString(16)}${rand}`;
 }
 
 /**

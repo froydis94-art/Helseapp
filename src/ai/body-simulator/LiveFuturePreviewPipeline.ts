@@ -449,7 +449,12 @@ export function buildLiveFuturePreviewTraceStages(
  */
 export function prepareLiveFuturePreview(
   payload: PublicFuturePayload,
-  options?: { nowMs?: number; livePreviewTraceId?: string; enabled?: boolean }
+  options?: {
+    nowMs?: number;
+    livePreviewTraceId?: string;
+    enabled?: boolean;
+    simulationId?: string;
+  }
 ): LiveFuturePreviewPreparation {
   const nowMs = options?.nowMs ?? Date.now();
   const livePreviewTraceId =
@@ -457,7 +462,10 @@ export function prepareLiveFuturePreview(
   const enabled = options?.enabled ?? true;
   const diagnostics = emptyDiagnostics(livePreviewTraceId, enabled);
 
-  const adapted = adaptPublicFutureToBodySimulator(payload, { nowMs });
+  const adapted = adaptPublicFutureToBodySimulator(payload, {
+    nowMs,
+    simulationId: options?.simulationId ?? `lfp${nowMs.toString(16)}prep`,
+  });
   if (!adapted.ok) {
     throw new LiveFuturePreviewError(
       "live_preview_adapter_failed",

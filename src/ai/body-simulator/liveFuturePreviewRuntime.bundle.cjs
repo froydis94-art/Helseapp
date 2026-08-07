@@ -36,7 +36,7 @@ __export(LiveFuturePreviewPipeline_exports, {
   sha256FileBytes: () => sha256FileBytes
 });
 module.exports = __toCommonJS(LiveFuturePreviewPipeline_exports);
-var import_node_crypto2 = require("node:crypto");
+var import_node_crypto3 = require("node:crypto");
 
 // src/ai/BodyProfile.ts
 var BODY_PROFILE_SCHEMA_VERSION = 1;
@@ -7820,6 +7820,7 @@ var BODY_ANALYSIS_FORBIDDEN_OUTPUTS = Object.freeze([
 ]);
 
 // src/ai/body-simulator/PublicFutureToBodySimulatorAdapter.ts
+var import_node_crypto2 = require("node:crypto");
 var BODY_SIMULATOR_LIVE_PREVIEW_ENV = "BODY_SIMULATOR_LIVE_PREVIEW_ENABLED";
 function isBodySimulatorLivePreviewEnabled(env = process.env) {
   return env[BODY_SIMULATOR_LIVE_PREVIEW_ENV] === "1";
@@ -8005,8 +8006,8 @@ function collectOptionalNotes(payload) {
   return notes;
 }
 function createSimulationId(nowMs) {
-  const rand = Math.floor(Math.random() * 1e9).toString(36);
-  return `live-fut-${nowMs.toString(36)}-${rand}`;
+  const rand = (0, import_node_crypto2.randomBytes)(8).toString("hex");
+  return `lfp${nowMs.toString(16)}${rand}`;
 }
 function adaptPublicFutureToBodySimulator(payload, options) {
   const warnings = [];
@@ -8133,7 +8134,7 @@ var LiveFuturePreviewError = class extends Error {
 };
 function createLivePreviewTraceId(nowMs) {
   const stamp = nowMs.toString(36);
-  const rand = (0, import_node_crypto2.randomBytes)(6).toString("hex");
+  const rand = (0, import_node_crypto3.randomBytes)(6).toString("hex");
   return `lfp_${stamp}_${rand}`;
 }
 function emptyDiagnostics(livePreviewTraceId, enabled) {
@@ -8351,7 +8352,10 @@ function prepareLiveFuturePreview(payload, options) {
   const livePreviewTraceId = options?.livePreviewTraceId ?? createLivePreviewTraceId(nowMs);
   const enabled = options?.enabled ?? true;
   const diagnostics = emptyDiagnostics(livePreviewTraceId, enabled);
-  const adapted = adaptPublicFutureToBodySimulator(payload, { nowMs });
+  const adapted = adaptPublicFutureToBodySimulator(payload, {
+    nowMs,
+    simulationId: options?.simulationId ?? `lfp${nowMs.toString(16)}prep`
+  });
   if (!adapted.ok) {
     throw new LiveFuturePreviewError(
       "live_preview_adapter_failed",
@@ -8633,7 +8637,7 @@ async function runLiveFuturePreview(input) {
   };
 }
 function sha256FileBytes(bytes) {
-  return (0, import_node_crypto2.createHash)("sha256").update(bytes).digest("hex");
+  return (0, import_node_crypto3.createHash)("sha256").update(bytes).digest("hex");
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {

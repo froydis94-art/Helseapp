@@ -67,6 +67,17 @@ function casePayload(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function prepareCase(
+  overrides: Record<string, unknown> = {},
+  simulationId = "lfp022ecasefixed01"
+) {
+  return prepareLiveFuturePreview(casePayload(overrides), {
+    nowMs: 1_700_000_000_000,
+    livePreviewTraceId: "lfp_test_fixed_trace",
+    simulationId,
+  });
+}
+
 function maxAnatMag(rules: {
   anatomicalTransformation?: { rules: { magnitude: string }[] } | null;
 }): number {
@@ -403,15 +414,13 @@ describe("anatomicalLivePreview — DEMAND_022E", () => {
 
   describe("Cases A–E", () => {
     it("Case A: 22→16 / 3mo / Core-abs / Strict", () => {
-      const prep = prepareLiveFuturePreview(
-        casePayload({
-          bfNow: 22,
-          bfGoal: 16,
-          horizon: "12w",
-          zones: ["abs"],
-          intensity: "strong",
-        })
-      );
+      const prep = prepareCase({
+        bfNow: 22,
+        bfGoal: 16,
+        horizon: "12w",
+        zones: ["abs"],
+        intensity: "strong",
+      }, "lfp022ecasea000001");
       assert.equal(prep.diagnostics.bodyFat.delta, -6);
       const features = prep.diagnostics.appliedFeatures;
       assert.ok(features.includes("subcutaneous_fat") || features.length > 0);
@@ -424,31 +433,37 @@ describe("anatomicalLivePreview — DEMAND_022E", () => {
     });
 
     it("Case B: 22→16 / 6mo stronger than A", () => {
-      const a = prepareLiveFuturePreview(
-        casePayload({ horizon: "12w", bfNow: 22, bfGoal: 16, intensity: "strong" })
+      const a = prepareCase(
+        { horizon: "12w", bfNow: 22, bfGoal: 16, intensity: "strong" },
+        "lfp022ecaseb00000a"
       );
-      const b = prepareLiveFuturePreview(
-        casePayload({ horizon: "24w", bfNow: 22, bfGoal: 16, intensity: "strong" })
+      const b = prepareCase(
+        { horizon: "24w", bfNow: 22, bfGoal: 16, intensity: "strong" },
+        "lfp022ecaseb00000b"
       );
       assert.ok(maxAnatMag(b.rules) >= maxAnatMag(a.rules));
     });
 
     it("Case C: 22→16 / 12mo stronger than B", () => {
-      const b = prepareLiveFuturePreview(
-        casePayload({ horizon: "24w", bfNow: 22, bfGoal: 16, intensity: "strong" })
+      const b = prepareCase(
+        { horizon: "24w", bfNow: 22, bfGoal: 16, intensity: "strong" },
+        "lfp022ecasec00000b"
       );
-      const c = prepareLiveFuturePreview(
-        casePayload({ horizon: "12m", bfNow: 22, bfGoal: 16, intensity: "strong" })
+      const c = prepareCase(
+        { horizon: "12m", bfNow: 22, bfGoal: 16, intensity: "strong" },
+        "lfp022ecasec00000c"
       );
       assert.ok(maxAnatMag(c.rules) >= maxAnatMag(b.rules));
     });
 
     it("Case D: 22→10 / 12mo stronger fat-loss than 22→16", () => {
-      const mild = prepareLiveFuturePreview(
-        casePayload({ horizon: "12m", bfNow: 22, bfGoal: 16, intensity: "strong" })
+      const mild = prepareCase(
+        { horizon: "12m", bfNow: 22, bfGoal: 16, intensity: "strong" },
+        "lfp022ecased000mild"
       );
-      const strong = prepareLiveFuturePreview(
-        casePayload({ horizon: "12m", bfNow: 22, bfGoal: 10, intensity: "strong" })
+      const strong = prepareCase(
+        { horizon: "12m", bfNow: 22, bfGoal: 10, intensity: "strong" },
+        "lfp022ecased00strong"
       );
       assert.equal(strong.diagnostics.bodyFat.delta, -12);
       assert.ok(strong.diagnostics.appliedAnatomicalRuleIds.length > 0);
@@ -464,14 +479,15 @@ describe("anatomicalLivePreview — DEMAND_022E", () => {
     });
 
     it("Case E: 26→10 / 12mo / abs+thighs non-noop", () => {
-      const prep = prepareLiveFuturePreview(
-        casePayload({
+      const prep = prepareCase(
+        {
           bfNow: 26,
           bfGoal: 10,
           horizon: "12m",
           zones: ["abs", "thighs"],
           intensity: "strong",
-        })
+        },
+        "lfp022ecasee0000001"
       );
       assert.equal(prep.diagnostics.bodyFat.delta, -16);
       assert.ok(prep.diagnostics.appliedAnatomicalRuleIds.length > 0);
