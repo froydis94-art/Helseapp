@@ -280,9 +280,10 @@ describe("neutralAnatomicalPromptConditioning — PATCH_022E_B", () => {
       ).length;
       assert.ok(preserveHits <= 2);
       const clothingHits = (
-        conditioned.conditionedPrompt.match(/clothing and coverage/gi) || []
+        conditioned.conditionedPrompt.match(/\bclothing\b/gi) || []
       ).length;
-      assert.equal(clothingHits, 1);
+      assert.ok(clothingHits >= 1);
+      assert.equal(/\bcoverage\b/i.test(conditioned.conditionedPrompt), false);
     });
 
     it("9–16. Sensitive lexemes not emitted", async () => {
@@ -345,7 +346,9 @@ describe("neutralAnatomicalPromptConditioning — PATCH_022E_B", () => {
       assert.match(p, /midsection|abdominal/i);
       assert.match(p, /thigh/i);
       assert.match(p, new RegExp(CLOTHING_COVERAGE_PRESERVATION_PHRASE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-      assert.match(p, /identity|same adult person/i);
+      assert.match(p, /identity|same person/i);
+      assert.equal(/\badult\b/i.test(p), false);
+      assert.equal(/\bcoverage\b/i.test(p), false);
       assert.match(p, /pose/i);
       assert.match(p, /lighting/i);
       assert.match(p, /background/i);
@@ -376,7 +379,9 @@ describe("neutralAnatomicalPromptConditioning — PATCH_022E_B", () => {
       const sent = calls.inputs[0]?.formattedRequest?.prompt ?? "";
       assert.match(sent, /abdominal|midsection/i);
       assert.equal(/\b(underwear|sexy|erotic|lingerie)\b/i.test(sent), false);
-      assert.match(sent, /clothing and coverage/i);
+      assert.match(sent, /clothing/i);
+      assert.equal(/\bcoverage\b/i.test(sent), false);
+      assert.equal(/\badult\b/i.test(sent), false);
 
       const pipeline = readFileSync(
         join(repoRoot, "src/ai/body-simulator/LiveFuturePreviewPipeline.ts"),

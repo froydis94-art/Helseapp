@@ -45,6 +45,12 @@ import {
   type OptionalNoteProviderConditioning,
   type ProviderPromptLexemeSuppression,
 } from "./NeutralAnatomicalPromptConditioner";
+import {
+  buildProviderSafetyAttributionDiagnostic,
+  inspectSourceImageDataUriSafe,
+  projectProviderSafetyAttributionForControlRoom,
+  type ProviderSafetyAttributionDiagnostic,
+} from "./ProviderSafetyAttributionDiagnostic";
 
 /** Proven Flux Kontext Pro transport helpers from legacy lib/replicate.js */
 export interface ProvenFluxKontextProHelpers {
@@ -293,6 +299,16 @@ export interface LiveBodySimulatorDiagnostics {
   generationPath: "body_simulator_anatomical_live_preview" | "legacy_reservedrift";
   warnings: string[];
   providerDiagnostics?: LiveProviderDiagnostics | null;
+  /** Patch 022E-C — safe pre-request / E005 attribution (no secrets). */
+  sourceImageMimeType: string | null;
+  sourceImageByteLength: number | null;
+  sourceImageDimensions: string | null;
+  sourceImageDataUriPrefix: string | null;
+  sourceImageFieldName: string | null;
+  sourceImageSerializationMatchesLegacy: boolean | null;
+  conditionedPromptHash: string | null;
+  providerPromptUpsampling: boolean | null;
+  providerSafetyAttribution: ProviderSafetyAttributionDiagnostic | null;
 }
 
 export interface LiveFuturePreviewTraceStage {
@@ -372,7 +388,68 @@ function emptyDiagnostics(
       : "legacy_reservedrift",
     warnings: [],
     providerDiagnostics: null,
+    sourceImageMimeType: null,
+    sourceImageByteLength: null,
+    sourceImageDimensions: null,
+    sourceImageDataUriPrefix: null,
+    sourceImageFieldName: null,
+    sourceImageSerializationMatchesLegacy: null,
+    conditionedPromptHash: null,
+    providerPromptUpsampling: null,
+    providerSafetyAttribution: null,
   };
+}
+
+function attachSourceImageMetrics(
+  diagnostics: LiveBodySimulatorDiagnostics,
+  sourceImageDataUri: string
+): void {
+  const image = inspectSourceImageDataUriSafe(sourceImageDataUri);
+  diagnostics.sourceImageMimeType = image.mimeType;
+  diagnostics.sourceImageByteLength = image.byteLength;
+  diagnostics.sourceImageDimensions = image.dimensions;
+  diagnostics.sourceImageDataUriPrefix = image.dataUriPrefix;
+  diagnostics.sourceImageFieldName = image.fieldName;
+  diagnostics.sourceImageSerializationMatchesLegacy =
+    image.serializationMatchesLegacy;
+}
+
+function buildAttributionForLivePath(args: {
+  diagnostics: LiveBodySimulatorDiagnostics;
+  providerPrompt: string;
+  sourceImageDataUri: string;
+  promptUpsampling?: boolean | null;
+  providerError?: LiveProviderDiagnostics | null;
+}): ProviderSafetyAttributionDiagnostic {
+  const d = args.diagnostics;
+  return buildProviderSafetyAttributionDiagnostic({
+    providerError: args.providerError
+      ? {
+          code: args.providerError.providerErrorCode,
+          category: args.providerError.providerErrorCategory,
+          httpStatus: args.providerError.providerHttpStatus,
+          safeMessage: args.providerError.providerResponseMessageSafe,
+        }
+      : null,
+    sourceImageDataUri: args.sourceImageDataUri,
+    providerPrompt: args.providerPrompt,
+    promptConditioningApplied: d.neutralPromptConditioningApplied,
+    model: d.providerModel || DEFAULT_REPLICATE_TRANSPORT_MODEL,
+    endpointClass: "replicate_official_model_predictions",
+    providerInputFieldNames: d.providerInputFieldNames.length
+      ? d.providerInputFieldNames
+      : [...PROVEN_FLUX_INPUT_FIELDS],
+    aspectRatio: "match_input_image",
+    outputFormat: "png",
+    safetyTolerance: 2,
+    promptUpsampling: args.promptUpsampling ?? d.providerPromptUpsampling,
+    bodyFatDelta: d.bodyFat.delta,
+    timelineWeeks: d.timelineWeeks,
+    focusZones: d.focusZones.canonicalFocusZonesMapped,
+    anatomicalTranslatedChangeCount: d.anatomicalTranslatedChangeCount,
+    imageContractMatchesLegacy:
+      d.sourceImageSerializationMatchesLegacy === true,
+  });
 }
 
 function applyNeutralPromptDiagnostics(
@@ -651,7 +728,31 @@ export function buildLiveFuturePreviewTraceStages(
       values: {
         attempted: diagnostics.providerRequestAttempted,
         count: diagnostics.providerRequestCount,
+        model: diagnostics.providerModel,
+        inputFields: diagnostics.providerInputFieldNames.join(","),
+        imageMime: diagnostics.sourceImageMimeType,
+        imageBytes: diagnostics.sourceImageByteLength,
+        imageDims: diagnostics.sourceImageDimensions,
+        imagePrefix: diagnostics.sourceImageDataUriPrefix,
+        promptUpsampling: diagnostics.providerPromptUpsampling,
+        conditionedPromptHash: diagnostics.conditionedPromptHash,
       },
+      warnings: [],
+    },
+    {
+      id: "provider_safety_attribution",
+      label: "Provider Safety Attribution",
+      status: diagnostics.providerSafetyAttribution
+        ? diagnostics.providerSafetyAttribution.attribution.classification ===
+          "indeterminate"
+          ? "warn"
+          : outcome === "error"
+            ? "error"
+            : "ok"
+        : "pending",
+      values: projectProviderSafetyAttributionForControlRoom(
+        diagnostics.providerSafetyAttribution
+      ),
       warnings: [],
     },
     {
@@ -894,6 +995,9 @@ function throwProviderFailed(
     model?: string | null;
     inputFieldNames?: string[] | null;
     providerCalls?: number;
+    providerPrompt?: string;
+    sourceImageDataUri?: string;
+    promptUpsampling?: boolean | null;
   } = {}
 ): never {
   const providerDiagnostics = buildLiveProviderDiagnostics({
@@ -910,6 +1014,24 @@ function throwProviderFailed(
   prep.diagnostics.providerInputFieldNames =
     providerDiagnostics.providerInputFieldNames;
   prep.diagnostics.providerDiagnostics = providerDiagnostics;
+  if (options.sourceImageDataUri) {
+    attachSourceImageMetrics(prep.diagnostics, options.sourceImageDataUri);
+  }
+  if (typeof options.promptUpsampling === "boolean") {
+    prep.diagnostics.providerPromptUpsampling = options.promptUpsampling;
+  }
+  if (options.providerPrompt != null || options.sourceImageDataUri) {
+    prep.diagnostics.providerSafetyAttribution = buildAttributionForLivePath({
+      diagnostics: prep.diagnostics,
+      providerPrompt: options.providerPrompt || "",
+      sourceImageDataUri: options.sourceImageDataUri || "",
+      promptUpsampling: options.promptUpsampling,
+      providerError: providerDiagnostics,
+    });
+    prep.diagnostics.conditionedPromptHash =
+      prep.diagnostics.providerSafetyAttribution.promptMetrics
+        .conditionedPromptHash;
+  }
 
   throw new LiveFuturePreviewError(
     "live_preview_provider_failed",
@@ -1054,6 +1176,7 @@ export async function runLiveFuturePreview(
   prep.diagnostics.providerContract = "flux_kontext_pro_legacy_parity";
   prep.diagnostics.providerModel = DEFAULT_REPLICATE_TRANSPORT_MODEL;
   prep.diagnostics.providerInputFieldNames = [...PROVEN_FLUX_INPUT_FIELDS];
+  attachSourceImageMetrics(prep.diagnostics, input.sourceImageDataUri);
 
   const horizon =
     typeof input.payload.horizon === "string" && input.payload.horizon.trim()
@@ -1063,6 +1186,39 @@ export async function runLiveFuturePreview(
     typeof input.payload.horizonDate === "string"
       ? input.payload.horizonDate
       : "";
+
+  // Resolve prompt_upsampling the same way as proven Flux helper (no network).
+  let promptUpsampling: boolean | null = null;
+  try {
+    const helpers = loadProvenFluxKontextProHelpers();
+    const built = helpers.buildFluxKontextProInput({
+      prompt: providerPrompt,
+      imageDataUri: input.sourceImageDataUri,
+      bfNow: prep.diagnostics.bodyFat.current,
+      bfGoal: prep.diagnostics.bodyFat.target,
+      horizon,
+      horizonDate,
+    });
+    promptUpsampling =
+      typeof built.prompt_upsampling === "boolean"
+        ? built.prompt_upsampling
+        : null;
+  } catch {
+    promptUpsampling = null;
+  }
+  prep.diagnostics.providerPromptUpsampling = promptUpsampling;
+
+  // Parity metrics on success path too (022E-C).
+  prep.diagnostics.providerSafetyAttribution = buildAttributionForLivePath({
+    diagnostics: prep.diagnostics,
+    providerPrompt,
+    sourceImageDataUri: input.sourceImageDataUri,
+    promptUpsampling,
+    providerError: null,
+  });
+  prep.diagnostics.conditionedPromptHash =
+    prep.diagnostics.providerSafetyAttribution.promptMetrics
+      .conditionedPromptHash;
 
   // Test-only: injected transport adapter (one call, no auto-retry).
   if (input.transportAdapter) {
@@ -1084,6 +1240,9 @@ export async function runLiveFuturePreview(
       throwProviderFailed(prep, error instanceof Error ? error.message : error, {
         status: 502,
         providerCalls: 1,
+        providerPrompt,
+        sourceImageDataUri: input.sourceImageDataUri,
+        promptUpsampling,
       });
     }
 
@@ -1098,6 +1257,9 @@ export async function runLiveFuturePreview(
           code: failure?.error?.code ?? null,
           model: failure?.model ?? DEFAULT_REPLICATE_TRANSPORT_MODEL,
           providerCalls: 1,
+          providerPrompt,
+          sourceImageDataUri: input.sourceImageDataUri,
+          promptUpsampling,
         }
       );
     }
@@ -1109,6 +1271,7 @@ export async function runLiveFuturePreview(
       providerRequestAttempted: true,
       providerRequestCount: 1,
       promptContainsAnatomicalIntent: true,
+      providerModel: model,
     };
 
     return {
@@ -1140,6 +1303,9 @@ export async function runLiveFuturePreview(
       status: 503,
       code: "missing_token",
       providerCalls: 0,
+      providerPrompt,
+      sourceImageDataUri: input.sourceImageDataUri,
+      promptUpsampling,
     });
   }
 
@@ -1179,6 +1345,9 @@ export async function runLiveFuturePreview(
       model: err.providerModel || DEFAULT_REPLICATE_TRANSPORT_MODEL,
       inputFieldNames: err.providerInputFieldNames || [...PROVEN_FLUX_INPUT_FIELDS],
       providerCalls: 1,
+      providerPrompt,
+      sourceImageDataUri: input.sourceImageDataUri,
+      promptUpsampling,
     });
   }
 
@@ -1188,6 +1357,9 @@ export async function runLiveFuturePreview(
       status: 502,
       providerCalls: 1,
       inputFieldNames: generated?.inputFieldNames || [...PROVEN_FLUX_INPUT_FIELDS],
+      providerPrompt,
+      sourceImageDataUri: input.sourceImageDataUri,
+      promptUpsampling,
     });
   }
 

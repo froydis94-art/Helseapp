@@ -132,6 +132,15 @@
   var liveFuturePreviewTraceJsonView = document.getElementById(
     "liveFuturePreviewTraceJsonView"
   );
+  var providerSafetyAttributionStatus = document.getElementById(
+    "providerSafetyAttributionStatus"
+  );
+  var providerSafetyAttributionBody = document.getElementById(
+    "providerSafetyAttributionBody"
+  );
+  var providerSafetyAttributionJsonView = document.getElementById(
+    "providerSafetyAttributionJsonView"
+  );
   var formatterInputReceivedBody = document.getElementById(
     "formatterInputReceivedBody"
   );
@@ -3693,6 +3702,230 @@
     if (liveFuturePreviewTraceStatus) clearChildren(liveFuturePreviewTraceStatus);
     if (liveFuturePreviewTraceStages) clearChildren(liveFuturePreviewTraceStages);
     if (liveFuturePreviewTraceJsonView) setText(liveFuturePreviewTraceJsonView, "");
+    clearProviderSafetyAttributionViews();
+  }
+
+  function clearProviderSafetyAttributionViews() {
+    if (providerSafetyAttributionStatus) {
+      clearChildren(providerSafetyAttributionStatus);
+    }
+    if (providerSafetyAttributionBody) {
+      clearChildren(providerSafetyAttributionBody);
+    }
+    if (providerSafetyAttributionJsonView) {
+      setText(providerSafetyAttributionJsonView, "");
+    }
+  }
+
+  function extractProviderSafetyAttribution(result, trace) {
+    if (
+      result &&
+      result.providerSafetyAttribution &&
+      typeof result.providerSafetyAttribution === "object"
+    ) {
+      return result.providerSafetyAttribution;
+    }
+    if (
+      result &&
+      result.livePreviewDiagnostics &&
+      result.livePreviewDiagnostics.providerSafetyAttribution
+    ) {
+      return result.livePreviewDiagnostics.providerSafetyAttribution;
+    }
+    if (Array.isArray(trace)) {
+      for (var i = 0; i < trace.length; i += 1) {
+        var stage = trace[i];
+        if (
+          stage &&
+          (stage.id === "provider_safety_attribution" ||
+            stage.label === "Provider Safety Attribution") &&
+          stage.values &&
+          typeof stage.values === "object"
+        ) {
+          return stage.values;
+        }
+      }
+    }
+    return null;
+  }
+
+  function renderProviderSafetyAttribution(diagnostic) {
+    clearProviderSafetyAttributionViews();
+    if (!providerSafetyAttributionStatus || !providerSafetyAttributionBody) {
+      return;
+    }
+    appendKv(providerSafetyAttributionStatus, "editable", "no");
+    appendKv(providerSafetyAttributionStatus, "safetyBypass", "none");
+    if (!diagnostic || typeof diagnostic !== "object") {
+      appendKv(providerSafetyAttributionStatus, "available", "false");
+      appendKv(
+        providerSafetyAttributionBody,
+        "note",
+        "No provider safety attribution in this dry-run. Available after a live Future attempt."
+      );
+      return;
+    }
+
+    var attribution = diagnostic.attribution || {};
+    var parity = diagnostic.requestParity || {};
+    var promptMetrics = diagnostic.promptMetrics || {};
+    var imageMetrics = diagnostic.imageMetrics || {};
+
+    appendKv(providerSafetyAttributionStatus, "available", "true");
+    appendKv(
+      providerSafetyAttributionStatus,
+      "schemaVersion",
+      diagnostic.schemaVersion != null ? String(diagnostic.schemaVersion) : "—"
+    );
+
+    appendKv(
+      providerSafetyAttributionBody,
+      "E005 classification",
+      attribution.classification != null
+        ? String(attribution.classification)
+        : diagnostic.classification != null
+          ? String(diagnostic.classification)
+          : "—"
+    );
+    appendKv(
+      providerSafetyAttributionBody,
+      "attribution confidence",
+      attribution.confidence != null
+        ? String(attribution.confidence)
+        : diagnostic.confidence != null
+          ? String(diagnostic.confidence)
+          : "—"
+    );
+    appendKv(
+      providerSafetyAttributionBody,
+      "image contract parity",
+      String(
+        parity.imageContractMatchesLegacy != null
+          ? parity.imageContractMatchesLegacy
+          : diagnostic.imageContractMatchesLegacy != null
+            ? diagnostic.imageContractMatchesLegacy
+            : "—"
+      )
+    );
+    appendKv(
+      providerSafetyAttributionBody,
+      "provider contract parity",
+      String(
+        parity.providerContractMatchesLegacy != null
+          ? parity.providerContractMatchesLegacy
+          : diagnostic.providerContractMatchesLegacy != null
+            ? diagnostic.providerContractMatchesLegacy
+            : "—"
+      )
+    );
+    appendKv(
+      providerSafetyAttributionBody,
+      "prompt conditioning",
+      String(
+        parity.promptConditioningApplied != null
+          ? parity.promptConditioningApplied
+          : diagnostic.promptConditioningApplied != null
+            ? diagnostic.promptConditioningApplied
+            : "—"
+      )
+    );
+    appendKv(
+      providerSafetyAttributionBody,
+      "prompt characters",
+      String(
+        promptMetrics.characters != null
+          ? promptMetrics.characters
+          : diagnostic.promptCharacters != null
+            ? diagnostic.promptCharacters
+            : "—"
+      )
+    );
+    appendKv(
+      providerSafetyAttributionBody,
+      "prompt words",
+      String(
+        promptMetrics.words != null
+          ? promptMetrics.words
+          : diagnostic.promptWords != null
+            ? diagnostic.promptWords
+            : "—"
+      )
+    );
+    appendKv(
+      providerSafetyAttributionBody,
+      "prompt sensitive lexemes",
+      String(
+        promptMetrics.sensitiveLexemes != null
+          ? promptMetrics.sensitiveLexemes
+          : diagnostic.promptSensitiveLexemes != null
+            ? diagnostic.promptSensitiveLexemes
+            : "—"
+      )
+    );
+    appendKv(
+      providerSafetyAttributionBody,
+      "image MIME",
+      String(
+        imageMetrics.mimeType ||
+          diagnostic.imageMimeType ||
+          "—"
+      )
+    );
+    appendKv(
+      providerSafetyAttributionBody,
+      "image bytes",
+      String(
+        imageMetrics.byteLength != null
+          ? imageMetrics.byteLength
+          : diagnostic.imageByteLength != null
+            ? diagnostic.imageByteLength
+            : "—"
+      )
+    );
+    appendKv(
+      providerSafetyAttributionBody,
+      "image dimensions",
+      String(
+        imageMetrics.dimensions ||
+          diagnostic.imageDimensions ||
+          "—"
+      )
+    );
+    var repaired =
+      Array.isArray(diagnostic.repairedDefects)
+        ? diagnostic.repairedDefects.join(" | ")
+        : diagnostic.repairedDefects != null
+          ? String(diagnostic.repairedDefects)
+          : "—";
+    var unresolved =
+      Array.isArray(diagnostic.unresolvedDifferences)
+        ? diagnostic.unresolvedDifferences.join(" | ")
+        : diagnostic.unresolvedDifferences != null
+          ? String(diagnostic.unresolvedDifferences)
+          : "—";
+    appendKv(providerSafetyAttributionBody, "repaired defects", repaired);
+    appendKv(
+      providerSafetyAttributionBody,
+      "unresolved differences",
+      unresolved
+    );
+    if (Array.isArray(attribution.reasons) && attribution.reasons.length) {
+      appendKv(
+        providerSafetyAttributionBody,
+        "reasons",
+        attribution.reasons.join(" | ")
+      );
+    } else if (diagnostic.reasons) {
+      appendKv(
+        providerSafetyAttributionBody,
+        "reasons",
+        String(diagnostic.reasons)
+      );
+    }
+
+    if (providerSafetyAttributionJsonView) {
+      setText(providerSafetyAttributionJsonView, pretty(diagnostic));
+    }
   }
 
   function synthesizeLiveFuturePreviewTrace(bodySimulator) {
@@ -4988,6 +5221,12 @@
     renderLiveFuturePreviewTrace(
       result.liveFuturePreviewTrace,
       result.bodySimulator
+    );
+    renderProviderSafetyAttribution(
+      extractProviderSafetyAttribution(
+        result,
+        result.liveFuturePreviewTrace
+      )
     );
     renderFormatterInputInspector(result.formatterInput);
     renderFormatterPreviewInspector(result.formatterPreview);

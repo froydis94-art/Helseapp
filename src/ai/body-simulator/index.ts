@@ -6,6 +6,7 @@
  * Anatomical Transformation Engine v2 (022D) is the higher-detail canonical intent.
  * Live Future preview bridge (022E) is feature-flagged; default OFF.
  * Neutral anatomical prompt conditioning (022E-B) is provider-facing only.
+ * Provider safety attribution diagnostics (022E-C) are secret-free.
  */
 
 export {
@@ -208,6 +209,26 @@ export type {
   ProviderPromptLexemeSuppression,
   ProviderPromptLexemeSuppressionReason,
 } from "./NeutralAnatomicalPromptConditioner";
+
+export {
+  PROVIDER_SAFETY_ATTRIBUTION_SCHEMA_VERSION,
+  buildProviderSafetyAttributionDiagnostic,
+  countAnatomyInstructionLines,
+  countPreservationSentences,
+  countSemanticSupportMentions,
+  hashProviderPromptSafe,
+  inspectSourceImageDataUriSafe,
+  isE005SensitiveProviderMessage,
+  projectProviderSafetyAttributionForControlRoom,
+  serializeImageDataUriLikeLegacy,
+} from "./ProviderSafetyAttributionDiagnostic";
+export type {
+  BuildProviderSafetyAttributionInput,
+  ProviderSafetyAttributionClassification,
+  ProviderSafetyAttributionConfidence,
+  ProviderSafetyAttributionDiagnostic,
+  SafeSourceImageInspection,
+} from "./ProviderSafetyAttributionDiagnostic";
 
 export {
   BODY_SIMULATOR_FIXTURE_BUILDERS,

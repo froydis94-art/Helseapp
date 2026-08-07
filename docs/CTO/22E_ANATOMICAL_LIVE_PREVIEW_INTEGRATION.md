@@ -435,6 +435,97 @@ If E005 persists: report provider error + prompt diagnostics; do **not** change 
 
 ---
 
+## Patch 022E-C — Provider Safety Attribution
+
+### Why
+
+After 022E-B, live anatomical preview still returned **E005** (provider sensitive-content flag) despite:
+
+- `neutralPromptConditioningApplied = true`
+- `providerPromptSensitiveLexemeCount = 0`
+- Flux Kontext Pro transport parity from 022E-A
+
+Ordinary adult underwear progress photos remain **allowed** by HelseApp product policy. Provider moderation remains external and was not weakened or bypassed.
+
+### Legacy vs live contract comparison (repository inspection; no paid calls)
+
+| Dimension | Legacy (flag OFF) | Live anatomical (flag ON, after 022E-C) |
+| --- | --- | --- |
+| Model | `black-forest-labs/flux-kontext-pro` (cascade may try Max/Dev on E005) | Same Pro model only — **one** request, no cascade |
+| Endpoint | `replicate_official_model_predictions` | Same |
+| Image field | `input_image` data URI via `toDataUri(buffer, mime)` | Same construction (`serializeImageDataUriLikeLegacy` / API `toDataUri`) |
+| Image MIME / bytes | Client buffer + `mimeType` | Same buffer path when flag ON in `api/generate-future-you.js` |
+| Image serialization drift | — | **None proven** (`serializationMatchesLegacy` when URI is legacy-shaped) |
+| `aspect_ratio` | `match_input_image` | Same |
+| `output_format` | `png` | Same |
+| `safety_tolerance` | `2` | Same (not raised) |
+| `prompt_upsampling` | long horizon / large BF delta | Same helper |
+| Prompt | Slim athletic reservedrift (`byggVisuellPrompt`) | Neutral-conditioned anatomical intent |
+| Negative / exclusions | Omitted for Flux | Omitted |
+| E005 recovery | Cascade to alternate models | **None** (by design; no auto-retry / no fallback) |
+
+### Prompt conditioning confirmation
+
+Live path still applies `conditionAnatomicalProviderPrompt` before `runFluxKontextProOnce`.
+
+022E-C bounded repairs to **provider-facing** wording only (canonical rules unchanged):
+
+- Removed unnecessary **adult-status** framing (`same adult person` → `same person`)
+- Removed **clothing coverage** meta (`clothing and coverage` → `clothing`)
+- Compressed conditioned prompt to a single photographic space-joined block
+
+Diagnostics prove:
+
+- `promptConditioningApplied = true`
+- `sensitiveLexemes = 0`
+- conditioned prompt hash recorded (SHA-256 of provider text only)
+
+### Best-supported E005 attribution (no paid isolation probe)
+
+`ProviderSafetyAttributionDiagnostic` (`schemaVersion: 1`):
+
+- **classification:** `likely_prompt_image_combination` when image + provider field parity hold, conditioning is applied, and sensitive lexeme count is zero
+- **confidence:** `medium` (never `high` for E005 without a paid input/output isolation probe)
+- **reasons (machine-readable):** include `e005_api_message_ambiguous_input_or_output`, `image_serialization_matches_legacy_toDataUri`, `provider_request_fields_match_legacy_flux_contract`, `neutral_prompt_conditioning_applied`, `provider_prompt_sensitive_lexeme_count_zero`, `legacy_generateWithReplicate_may_cascade_on_e005`, `live_path_single_request_no_cascade`
+
+Unresolved differences (owner decision — not auto-changed):
+
+- Prompt content still differs from legacy slim athletic framing
+- Legacy path may cascade alternate models on E005; live path does not
+- E005 message does not distinguish input vs output
+- No paid provider attribution probe from Cursor
+
+### Defects repaired
+
+- Missing safe pre-request / E005 attribution diagnostic → `ProviderSafetyAttributionDiagnostic`
+- Unnecessary provider-facing adult/coverage meta from 022E-B conditioner
+- Conditioned prompt multi-paragraph verbosity vs legacy single block
+- Control Room lacked read-only Provider Safety Attribution surface
+
+### Confirmations
+
+- No safety bypass / override button
+- Provider moderation remains external
+- `safety_tolerance` unchanged at `2`
+- Model/provider unchanged
+- Body Simulator physiology / Anatomical coefficients unchanged
+- Ordinary adult underwear remains allowed by HelseApp product policy
+- No clothing-morality or sexual-intent classifier introduced
+
+### Manual retest (owner)
+
+Do **not** run paid calls from Cursor. After deploy, with flag `=1`, retest BF 22→12 / 12 months / core-abs / strict using the same source image. Inspect:
+
+- `providerSafetyAttribution.attribution.classification`
+- `requestParity.*`
+- prompt + image metrics
+- `repairedDefects` / `unresolvedDifferences`
+
+If success: stop prompt/safety churn and evaluate transformation quality.  
+If E005 persists: remaining issue is likely outside authorized HelseApp repair (prompt-image combination under external moderation, and/or legacy cascade asymmetry) — owner decision required.
+
+---
+
 ## Next milestone
 
 If manual retest proves the new pipeline visibly responds to body-fat / timeline / focus:

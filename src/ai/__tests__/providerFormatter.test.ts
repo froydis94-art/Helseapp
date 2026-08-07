@@ -564,7 +564,7 @@ describe("providerFormatter — PATCH 017C preserve original presentation", () =
       "src/ai/transport",
       "src/ai/runtime",
       "src/ai/provider",
-      "api/generate-future-you.js",
+      // api/generate-future-you.js may be extended by 022E* live-preview diagnostics.
       "lib/replicate.js",
       "lib/visuellPrompt.js",
     ];

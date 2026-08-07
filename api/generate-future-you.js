@@ -137,6 +137,8 @@ async function handler(req, res) {
           livePreviewTraceId: live.livePreviewTraceId,
           livePreviewDiagnostics: live.livePreviewDiagnostics,
           liveFuturePreviewTrace: live.liveFuturePreviewTrace,
+          providerSafetyAttribution:
+            live.livePreviewDiagnostics?.providerSafetyAttribution || null,
           bodySimulatorPreviewActive: true,
           disclaimer: live.disclaimer,
         });
@@ -148,6 +150,8 @@ async function handler(req, res) {
           liveError?.providerDiagnostics ||
           liveError?.diagnostics?.providerDiagnostics ||
           null;
+        const providerSafetyAttribution =
+          liveError?.diagnostics?.providerSafetyAttribution || null;
         console.error(
           "[generate-future-you] live-preview",
           errorClass,
@@ -155,7 +159,9 @@ async function handler(req, res) {
           providerDiagnostics?.providerHttpStatus ?? "",
           providerDiagnostics?.providerResponseMessageSafe ||
             liveError?.message ||
-            ""
+            "",
+          providerSafetyAttribution?.attribution?.classification || "",
+          providerSafetyAttribution?.attribution?.confidence || ""
         );
         return res.status(status).json({
           error: liveError?.message || "Live Future preview failed.",
@@ -175,6 +181,8 @@ async function handler(req, res) {
             providerDiagnostics?.providerInputFieldNames ?? null,
           providerResponseMessageSafe:
             providerDiagnostics?.providerResponseMessageSafe ?? null,
+          // Patch 022E-C — E005 attribution (no raw image / no bypass).
+          providerSafetyAttribution,
         });
       }
     }

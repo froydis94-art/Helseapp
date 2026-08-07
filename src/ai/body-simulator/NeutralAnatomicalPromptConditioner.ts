@@ -10,9 +10,13 @@
 import type { AnatomicalTransformationRule } from "./AnatomicalTransformationTypes";
 import type { CanonicalBodyTransformation } from "./BodySimulatorFormatterAdapter";
 
-/** Single clothing preservation phrase for provider prompts (022E-B). */
+/**
+ * Single clothing preservation phrase for provider prompts.
+ * Patch 022E-C: drop "coverage" meta-framing (false-positive risk with
+ * ordinary progress photos). Legacy slim path says "clothing" only.
+ */
 export const CLOTHING_COVERAGE_PRESERVATION_PHRASE =
-  "Preserve the subject's original clothing and coverage." as const;
+  "Preserve the subject's original clothing." as const;
 
 /** Lexemes guarded on provider-facing text only (not user-content moderation). */
 export const PROVIDER_SENSITIVE_LEXEMES = [
@@ -619,8 +623,10 @@ export function conditionAnatomicalProviderPrompt(
   const intensity = input.canonical.goal.intensity;
   const goalType = input.canonical.goal.effectiveType.replace(/_/g, " ");
 
+  // Patch 022E-C: no "adult status" / "coverage" / safety-meta framing.
+  // Keep identity + clothing locks photographic and concise (legacy-like block).
   const sections = [
-    "Preserve the same adult person, identity, face, hairstyle, pose, camera framing, lighting and background.",
+    "Preserve the same person, identity, face, hairstyle, pose, camera framing, lighting and background.",
     CLOTHING_COVERAGE_PRESERVATION_PHRASE,
     `Simulate the requested future ${goalType} body-composition change over ${weeks} weeks at ${intensity} intensity.`,
     ...compressed.lines,
@@ -631,13 +637,31 @@ export function conditionAnatomicalProviderPrompt(
   if (semantic.length > 0) {
     sections.push(
       semantic.length === 1
-        ? `Secondary visual cue: ${semantic[0]}.`
-        : `Secondary visual cues: ${semantic[0]} and ${semantic[1]}.`
+        ? `Look: ${semantic[0]}.`
+        : `Look: ${semantic[0]} and ${semantic[1]}.`
     );
   }
 
-  let conditionedPrompt = sections.filter(Boolean).join("\n\n");
+  // Single photographic block (space-joined) — reduces preservation overload vs
+  // multi-paragraph FluxFormatter / earlier 022E-B newlines.
+  let conditionedPrompt = sections.filter(Boolean).join(" ");
   conditionedPrompt = scrubSensitiveLexemes(conditionedPrompt, suppressions);
+  if (/\badult\b/i.test(conditionedPrompt)) {
+    removedReplacedTokenCategories.push("adult_status_framing");
+    conditionedPrompt = conditionedPrompt
+      .replace(/\bsame adult person\b/gi, "same person")
+      .replace(/\badult\b/gi, "")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+  }
+  if (/\bcoverage\b/i.test(conditionedPrompt)) {
+    removedReplacedTokenCategories.push("clothing_coverage_meta");
+    conditionedPrompt = conditionedPrompt
+      .replace(/\bclothing and coverage\b/gi, "clothing")
+      .replace(/\bcoverage\b/gi, "")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+  }
 
   // Final guard: never emit banned lexemes.
   const remaining = findSensitiveLexemes(conditionedPrompt);

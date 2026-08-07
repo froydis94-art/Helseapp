@@ -39,7 +39,7 @@ __export(LiveFuturePreviewPipeline_exports, {
   sha256FileBytes: () => sha256FileBytes
 });
 module.exports = __toCommonJS(LiveFuturePreviewPipeline_exports);
-var import_node_crypto3 = require("node:crypto");
+var import_node_crypto4 = require("node:crypto");
 var import_node_module = require("node:module");
 var import_node_path = require("node:path");
 
@@ -7256,7 +7256,7 @@ function adaptPublicFutureToBodySimulator(payload, options) {
 }
 
 // src/ai/body-simulator/NeutralAnatomicalPromptConditioner.ts
-var CLOTHING_COVERAGE_PRESERVATION_PHRASE = "Preserve the subject's original clothing and coverage.";
+var CLOTHING_COVERAGE_PRESERVATION_PHRASE = "Preserve the subject's original clothing.";
 var PROVIDER_SENSITIVE_LEXEMES = [
   "erotic",
   "sexual",
@@ -7689,7 +7689,7 @@ function conditionAnatomicalProviderPrompt(input) {
   const intensity = input.canonical.goal.intensity;
   const goalType = input.canonical.goal.effectiveType.replace(/_/g, " ");
   const sections = [
-    "Preserve the same adult person, identity, face, hairstyle, pose, camera framing, lighting and background.",
+    "Preserve the same person, identity, face, hairstyle, pose, camera framing, lighting and background.",
     CLOTHING_COVERAGE_PRESERVATION_PHRASE,
     `Simulate the requested future ${goalType} body-composition change over ${weeks} weeks at ${intensity} intensity.`,
     ...compressed.lines,
@@ -7698,11 +7698,19 @@ function conditionAnatomicalProviderPrompt(input) {
   ];
   if (semantic.length > 0) {
     sections.push(
-      semantic.length === 1 ? `Secondary visual cue: ${semantic[0]}.` : `Secondary visual cues: ${semantic[0]} and ${semantic[1]}.`
+      semantic.length === 1 ? `Look: ${semantic[0]}.` : `Look: ${semantic[0]} and ${semantic[1]}.`
     );
   }
-  let conditionedPrompt = sections.filter(Boolean).join("\n\n");
+  let conditionedPrompt = sections.filter(Boolean).join(" ");
   conditionedPrompt = scrubSensitiveLexemes(conditionedPrompt, suppressions);
+  if (/\badult\b/i.test(conditionedPrompt)) {
+    removedReplacedTokenCategories.push("adult_status_framing");
+    conditionedPrompt = conditionedPrompt.replace(/\bsame adult person\b/gi, "same person").replace(/\badult\b/gi, "").replace(/\s{2,}/g, " ").trim();
+  }
+  if (/\bcoverage\b/i.test(conditionedPrompt)) {
+    removedReplacedTokenCategories.push("clothing_coverage_meta");
+    conditionedPrompt = conditionedPrompt.replace(/\bclothing and coverage\b/gi, "clothing").replace(/\bcoverage\b/gi, "").replace(/\s{2,}/g, " ").trim();
+  }
   const remaining = findSensitiveLexemes(conditionedPrompt);
   for (const term of remaining) {
     suppressions.push({
@@ -7736,6 +7744,304 @@ function dedupeSuppressions(items) {
     out.push(item);
   }
   return out;
+}
+
+// src/ai/body-simulator/ProviderSafetyAttributionDiagnostic.ts
+var import_node_crypto3 = require("node:crypto");
+var PROVIDER_SAFETY_ATTRIBUTION_SCHEMA_VERSION = 1;
+var LEGACY_DEFAULT_MODEL = "black-forest-labs/flux-kontext-pro";
+var LEGACY_ENDPOINT_CLASS = "replicate_official_model_predictions";
+var LEGACY_FLUX_FIELDS = [
+  "prompt",
+  "input_image",
+  "aspect_ratio",
+  "output_format",
+  "safety_tolerance",
+  "prompt_upsampling"
+];
+function serializeImageDataUriLikeLegacy(imageBuffer, mimeType) {
+  const mime = mimeType || "image/jpeg";
+  return `data:${mime};base64,${imageBuffer.toString("base64")}`;
+}
+function parseJpegDimensions(buf) {
+  if (buf.length < 4 || buf[0] !== 255 || buf[1] !== 216) return null;
+  let i = 2;
+  while (i + 9 < buf.length) {
+    if (buf[i] !== 255) {
+      i += 1;
+      continue;
+    }
+    const marker = buf[i + 1];
+    if (marker === 217 || marker === 218) break;
+    const len = buf.readUInt16BE(i + 2);
+    if (len < 2 || i + 2 + len > buf.length) break;
+    if (marker === 192 || marker === 194) {
+      const height = buf.readUInt16BE(i + 5);
+      const width = buf.readUInt16BE(i + 7);
+      return `${width}x${height}`;
+    }
+    i += 2 + len;
+  }
+  return null;
+}
+function parsePngDimensions(buf) {
+  if (buf.length < 24) return null;
+  const sig = buf.subarray(0, 8).toString("hex");
+  if (sig !== "89504e470d0a1a0a") return null;
+  const width = buf.readUInt32BE(16);
+  const height = buf.readUInt32BE(20);
+  return `${width}x${height}`;
+}
+function inspectSourceImageDataUriSafe(dataUri, options) {
+  const raw = String(dataUri || "");
+  const match = raw.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,/i);
+  const mimeType = match?.[1]?.toLowerCase() || "application/octet-stream";
+  const prefix = match ? match[0] : "data:;base64,";
+  const b64 = match ? raw.slice(match[0].length) : "";
+  let byteLength = 0;
+  let dimensions = null;
+  let serializationMatchesLegacy = false;
+  try {
+    const buf = Buffer.from(b64, "base64");
+    byteLength = buf.length;
+    if (mimeType === "image/jpeg" || mimeType === "image/jpg") {
+      dimensions = parseJpegDimensions(buf);
+    } else if (mimeType === "image/png") {
+      dimensions = parsePngDimensions(buf);
+    }
+    const rebuilt = serializeImageDataUriLikeLegacy(buf, mimeType);
+    serializationMatchesLegacy = rebuilt === raw;
+  } catch {
+    byteLength = 0;
+    serializationMatchesLegacy = false;
+  }
+  return {
+    mimeType,
+    byteLength,
+    dimensions,
+    fieldName: options?.fieldName ?? "input_image",
+    dataUriPrefix: prefix,
+    serializationMatchesLegacy
+  };
+}
+function hashProviderPromptSafe(prompt) {
+  return (0, import_node_crypto3.createHash)("sha256").update(String(prompt || ""), "utf8").digest("hex");
+}
+function countPreservationSentences(prompt) {
+  const parts = String(prompt || "").split(/[.!?\n]+/).map((s) => s.trim()).filter(Boolean);
+  return parts.filter((s) => /\bpreserve\b/i.test(s)).length;
+}
+function countAnatomyInstructionLines(prompt) {
+  const parts = String(prompt || "").split(/\n+/).map((s) => s.trim()).filter(Boolean);
+  return parts.filter(
+    (s) => /\b(midsection|abdomen|abdominal|waist|muscle|fat|thigh|glute|definition|subcutaneous)\b/i.test(
+      s
+    )
+  ).length;
+}
+function countSemanticSupportMentions(prompt) {
+  const lower = String(prompt || "").toLowerCase();
+  let n = 0;
+  for (const term of ["lean", "defined", "athletic"]) {
+    const re = new RegExp(`\\b${term}\\b`, "g");
+    const m = lower.match(re);
+    if (m) n += m.length;
+  }
+  return n;
+}
+function isE005SensitiveProviderMessage(message) {
+  return /E005|flagged as sensitive|sensitive content/i.test(String(message || ""));
+}
+function arraysEqualSorted(a, b) {
+  if (a.length !== b.length) return false;
+  const aa = [...a].sort();
+  const bb = [...b].sort();
+  return aa.every((v, i) => v === bb[i]);
+}
+function buildProviderSafetyAttributionDiagnostic(input) {
+  const image = inspectSourceImageDataUriSafe(input.sourceImageDataUri || "");
+  const prompt = String(input.providerPrompt || "");
+  const promptMetricsRaw = measureProviderPromptDiagnostics(prompt);
+  const fieldNames = Array.isArray(input.providerInputFieldNames) ? [...input.providerInputFieldNames] : [...LEGACY_FLUX_FIELDS];
+  const model = input.model || LEGACY_DEFAULT_MODEL;
+  const endpointClass = input.endpointClass || LEGACY_ENDPOINT_CLASS;
+  const modelMatchesLegacy = model === LEGACY_DEFAULT_MODEL;
+  const providerContractMatchesLegacy = endpointClass === LEGACY_ENDPOINT_CLASS && arraysEqualSorted(fieldNames, LEGACY_FLUX_FIELDS) && (input.aspectRatio == null || input.aspectRatio === "match_input_image") && (input.outputFormat == null || input.outputFormat === "png") && (input.safetyTolerance == null || input.safetyTolerance === 2);
+  const imageContractMatchesLegacy = typeof input.imageContractMatchesLegacy === "boolean" ? input.imageContractMatchesLegacy : image.serializationMatchesLegacy && image.fieldName === "input_image";
+  const promptConditioningApplied = Boolean(input.promptConditioningApplied);
+  const safeMessage = input.providerError?.safeMessage ?? null;
+  const isE005 = isE005SensitiveProviderMessage(safeMessage);
+  const repairedDefects = [
+    ...input.repairedDefects ?? []
+  ];
+  const defaultRepairs = [
+    "removed_provider_facing_adult_status_framing",
+    "removed_provider_facing_clothing_coverage_meta",
+    "compressed_conditioned_prompt_to_single_block"
+  ];
+  for (const id of defaultRepairs) {
+    if (!repairedDefects.includes(id)) repairedDefects.push(id);
+  }
+  const unresolvedDifferences = [
+    ...input.unresolvedDifferences ?? []
+  ];
+  const defaultUnresolved = [
+    "prompt_content_differs_from_legacy_slim_athletic_framing",
+    "legacy_path_may_cascade_alternate_models_on_e005",
+    "e005_message_does_not_distinguish_input_vs_output",
+    "no_paid_provider_attribution_probe"
+  ];
+  for (const id of defaultUnresolved) {
+    if (!unresolvedDifferences.includes(id)) unresolvedDifferences.push(id);
+  }
+  const reasons = [];
+  let classification = "indeterminate";
+  let confidence = "low";
+  if (!isE005 && !safeMessage) {
+    reasons.push("no_provider_safety_error_present");
+    classification = "indeterminate";
+    confidence = "low";
+  } else if (!isE005) {
+    reasons.push("provider_error_not_e005_sensitive");
+    classification = "indeterminate";
+    confidence = "low";
+  } else {
+    reasons.push("e005_sensitive_flag_observed");
+    reasons.push("e005_api_message_ambiguous_input_or_output");
+    if (imageContractMatchesLegacy) {
+      reasons.push("image_serialization_matches_legacy_toDataUri");
+    } else {
+      reasons.push("image_serialization_differs_from_legacy");
+    }
+    if (providerContractMatchesLegacy) {
+      reasons.push("provider_request_fields_match_legacy_flux_contract");
+    } else {
+      reasons.push("provider_request_fields_differ_from_legacy");
+    }
+    if (modelMatchesLegacy) {
+      reasons.push("model_matches_legacy_flux_kontext_pro");
+    } else {
+      reasons.push("model_differs_from_legacy_default");
+    }
+    if (promptConditioningApplied) {
+      reasons.push("neutral_prompt_conditioning_applied");
+    } else {
+      reasons.push("neutral_prompt_conditioning_not_applied");
+    }
+    if (promptMetricsRaw.providerPromptSensitiveLexemeCount === 0) {
+      reasons.push("provider_prompt_sensitive_lexeme_count_zero");
+    } else {
+      reasons.push("provider_prompt_still_contains_sensitive_lexemes");
+    }
+    reasons.push("provider_prompt_structure_differs_from_legacy_slim");
+    reasons.push("legacy_generateWithReplicate_may_cascade_on_e005");
+    reasons.push("live_path_single_request_no_cascade");
+    reasons.push("attribution_without_paid_provider_isolation_probe");
+    if (!imageContractMatchesLegacy) {
+      classification = "likely_input_related";
+      confidence = "medium";
+    } else if (imageContractMatchesLegacy && providerContractMatchesLegacy && modelMatchesLegacy && promptConditioningApplied && promptMetricsRaw.providerPromptSensitiveLexemeCount === 0) {
+      classification = "likely_prompt_image_combination";
+      confidence = "medium";
+    } else if (imageContractMatchesLegacy && providerContractMatchesLegacy && !promptConditioningApplied) {
+      classification = "likely_prompt_image_combination";
+      confidence = "medium";
+    } else {
+      classification = "indeterminate";
+      confidence = "low";
+    }
+  }
+  return {
+    schemaVersion: PROVIDER_SAFETY_ATTRIBUTION_SCHEMA_VERSION,
+    providerError: {
+      code: input.providerError?.code ?? null,
+      category: input.providerError?.category ?? null,
+      httpStatus: typeof input.providerError?.httpStatus === "number" ? input.providerError.httpStatus : null,
+      safeMessage
+    },
+    attribution: {
+      classification,
+      confidence,
+      reasons
+    },
+    requestParity: {
+      imageContractMatchesLegacy,
+      providerContractMatchesLegacy,
+      modelMatchesLegacy,
+      promptConditioningApplied
+    },
+    promptMetrics: {
+      characters: promptMetricsRaw.providerPromptCharacterCount,
+      words: promptMetricsRaw.providerPromptWordCount,
+      anatomicalTerms: promptMetricsRaw.providerPromptAnatomicalTermCount,
+      preservationTerms: promptMetricsRaw.providerPromptPreservationTermCount,
+      sensitiveLexemes: promptMetricsRaw.providerPromptSensitiveLexemeCount,
+      conditionedPromptHash: prompt ? hashProviderPromptSafe(prompt) : null,
+      preservationSentenceCount: countPreservationSentences(prompt),
+      anatomyInstructionCount: countAnatomyInstructionLines(prompt),
+      semanticSupportCount: countSemanticSupportMentions(prompt)
+    },
+    imageMetrics: {
+      mimeType: image.mimeType,
+      byteLength: image.byteLength,
+      dimensions: image.dimensions,
+      serializationMatchesLegacy: image.serializationMatchesLegacy,
+      fieldName: image.fieldName,
+      dataUriPrefix: image.dataUriPrefix
+    },
+    requestSnapshot: {
+      model,
+      endpointClass,
+      providerInputFieldNames: fieldNames,
+      aspectRatio: input.aspectRatio ?? "match_input_image",
+      outputFormat: input.outputFormat ?? "png",
+      safetyTolerance: input.safetyTolerance ?? 2,
+      promptUpsampling: typeof input.promptUpsampling === "boolean" ? input.promptUpsampling : null,
+      bodyFatDelta: typeof input.bodyFatDelta === "number" ? input.bodyFatDelta : null,
+      timelineWeeks: typeof input.timelineWeeks === "number" ? input.timelineWeeks : null,
+      focusZones: Array.isArray(input.focusZones) ? [...input.focusZones] : [],
+      anatomicalTranslatedChangeCount: typeof input.anatomicalTranslatedChangeCount === "number" ? input.anatomicalTranslatedChangeCount : 0
+    },
+    repairedDefects,
+    unresolvedDifferences
+  };
+}
+function projectProviderSafetyAttributionForControlRoom(diagnostic) {
+  if (!diagnostic) {
+    return {
+      available: false,
+      classification: null,
+      confidence: null
+    };
+  }
+  return {
+    available: true,
+    schemaVersion: diagnostic.schemaVersion,
+    classification: diagnostic.attribution.classification,
+    confidence: diagnostic.attribution.confidence,
+    reasonCount: diagnostic.attribution.reasons.length,
+    reasons: diagnostic.attribution.reasons.join(" | "),
+    imageContractMatchesLegacy: diagnostic.requestParity.imageContractMatchesLegacy,
+    providerContractMatchesLegacy: diagnostic.requestParity.providerContractMatchesLegacy,
+    modelMatchesLegacy: diagnostic.requestParity.modelMatchesLegacy,
+    promptConditioningApplied: diagnostic.requestParity.promptConditioningApplied,
+    promptCharacters: diagnostic.promptMetrics.characters,
+    promptWords: diagnostic.promptMetrics.words,
+    promptAnatomicalTerms: diagnostic.promptMetrics.anatomicalTerms,
+    promptPreservationTerms: diagnostic.promptMetrics.preservationTerms,
+    promptSensitiveLexemes: diagnostic.promptMetrics.sensitiveLexemes,
+    imageMimeType: diagnostic.imageMetrics.mimeType,
+    imageByteLength: diagnostic.imageMetrics.byteLength,
+    imageDimensions: diagnostic.imageMetrics.dimensions,
+    imageFieldName: diagnostic.imageMetrics.fieldName,
+    imageDataUriPrefix: diagnostic.imageMetrics.dataUriPrefix,
+    repairedDefects: diagnostic.repairedDefects.join(" | "),
+    unresolvedDifferences: diagnostic.unresolvedDifferences.join(" | "),
+    providerErrorCode: diagnostic.providerError.code,
+    providerErrorCategory: diagnostic.providerError.category,
+    providerHttpStatus: diagnostic.providerError.httpStatus,
+    providerSafeMessage: diagnostic.providerError.safeMessage
+  };
 }
 
 // src/ai/body-simulator/LiveFuturePreviewPipeline.ts
@@ -7815,7 +8121,7 @@ var LiveFuturePreviewError = class extends Error {
 };
 function createLivePreviewTraceId(nowMs) {
   const stamp = nowMs.toString(36);
-  const rand = (0, import_node_crypto3.randomBytes)(6).toString("hex");
+  const rand = (0, import_node_crypto4.randomBytes)(6).toString("hex");
   return `lfp_${stamp}_${rand}`;
 }
 function emptyDiagnostics(livePreviewTraceId, enabled) {
@@ -7865,8 +8171,52 @@ function emptyDiagnostics(livePreviewTraceId, enabled) {
     providerInputFieldNames: [],
     generationPath: enabled ? "body_simulator_anatomical_live_preview" : "legacy_reservedrift",
     warnings: [],
-    providerDiagnostics: null
+    providerDiagnostics: null,
+    sourceImageMimeType: null,
+    sourceImageByteLength: null,
+    sourceImageDimensions: null,
+    sourceImageDataUriPrefix: null,
+    sourceImageFieldName: null,
+    sourceImageSerializationMatchesLegacy: null,
+    conditionedPromptHash: null,
+    providerPromptUpsampling: null,
+    providerSafetyAttribution: null
   };
+}
+function attachSourceImageMetrics(diagnostics, sourceImageDataUri) {
+  const image = inspectSourceImageDataUriSafe(sourceImageDataUri);
+  diagnostics.sourceImageMimeType = image.mimeType;
+  diagnostics.sourceImageByteLength = image.byteLength;
+  diagnostics.sourceImageDimensions = image.dimensions;
+  diagnostics.sourceImageDataUriPrefix = image.dataUriPrefix;
+  diagnostics.sourceImageFieldName = image.fieldName;
+  diagnostics.sourceImageSerializationMatchesLegacy = image.serializationMatchesLegacy;
+}
+function buildAttributionForLivePath(args) {
+  const d = args.diagnostics;
+  return buildProviderSafetyAttributionDiagnostic({
+    providerError: args.providerError ? {
+      code: args.providerError.providerErrorCode,
+      category: args.providerError.providerErrorCategory,
+      httpStatus: args.providerError.providerHttpStatus,
+      safeMessage: args.providerError.providerResponseMessageSafe
+    } : null,
+    sourceImageDataUri: args.sourceImageDataUri,
+    providerPrompt: args.providerPrompt,
+    promptConditioningApplied: d.neutralPromptConditioningApplied,
+    model: d.providerModel || DEFAULT_REPLICATE_TRANSPORT_MODEL,
+    endpointClass: "replicate_official_model_predictions",
+    providerInputFieldNames: d.providerInputFieldNames.length ? d.providerInputFieldNames : [...PROVEN_FLUX_INPUT_FIELDS],
+    aspectRatio: "match_input_image",
+    outputFormat: "png",
+    safetyTolerance: 2,
+    promptUpsampling: args.promptUpsampling ?? d.providerPromptUpsampling,
+    bodyFatDelta: d.bodyFat.delta,
+    timelineWeeks: d.timelineWeeks,
+    focusZones: d.focusZones.canonicalFocusZonesMapped,
+    anatomicalTranslatedChangeCount: d.anatomicalTranslatedChangeCount,
+    imageContractMatchesLegacy: d.sourceImageSerializationMatchesLegacy === true
+  });
 }
 function applyNeutralPromptDiagnostics(target, conditioned) {
   target.neutralPromptConditioningApplied = conditioned.neutralPromptConditioningApplied;
@@ -8064,8 +8414,25 @@ function buildLiveFuturePreviewTraceStages(diagnostics, outcome = "pending") {
       status: diagnostics.providerRequestAttempted ? diagnostics.providerRequestCount === 1 ? "ok" : "warn" : "pending",
       values: {
         attempted: diagnostics.providerRequestAttempted,
-        count: diagnostics.providerRequestCount
+        count: diagnostics.providerRequestCount,
+        model: diagnostics.providerModel,
+        inputFields: diagnostics.providerInputFieldNames.join(","),
+        imageMime: diagnostics.sourceImageMimeType,
+        imageBytes: diagnostics.sourceImageByteLength,
+        imageDims: diagnostics.sourceImageDimensions,
+        imagePrefix: diagnostics.sourceImageDataUriPrefix,
+        promptUpsampling: diagnostics.providerPromptUpsampling,
+        conditionedPromptHash: diagnostics.conditionedPromptHash
       },
+      warnings: []
+    },
+    {
+      id: "provider_safety_attribution",
+      label: "Provider Safety Attribution",
+      status: diagnostics.providerSafetyAttribution ? diagnostics.providerSafetyAttribution.attribution.classification === "indeterminate" ? "warn" : outcome === "error" ? "error" : "ok" : "pending",
+      values: projectProviderSafetyAttributionForControlRoom(
+        diagnostics.providerSafetyAttribution
+      ),
       warnings: []
     },
     {
@@ -8235,6 +8602,22 @@ function throwProviderFailed(prep, message, options = {}) {
   prep.diagnostics.providerModel = providerDiagnostics.providerModel;
   prep.diagnostics.providerInputFieldNames = providerDiagnostics.providerInputFieldNames;
   prep.diagnostics.providerDiagnostics = providerDiagnostics;
+  if (options.sourceImageDataUri) {
+    attachSourceImageMetrics(prep.diagnostics, options.sourceImageDataUri);
+  }
+  if (typeof options.promptUpsampling === "boolean") {
+    prep.diagnostics.providerPromptUpsampling = options.promptUpsampling;
+  }
+  if (options.providerPrompt != null || options.sourceImageDataUri) {
+    prep.diagnostics.providerSafetyAttribution = buildAttributionForLivePath({
+      diagnostics: prep.diagnostics,
+      providerPrompt: options.providerPrompt || "",
+      sourceImageDataUri: options.sourceImageDataUri || "",
+      promptUpsampling: options.promptUpsampling,
+      providerError: providerDiagnostics
+    });
+    prep.diagnostics.conditionedPromptHash = prep.diagnostics.providerSafetyAttribution.promptMetrics.conditionedPromptHash;
+  }
   throw new LiveFuturePreviewError(
     "live_preview_provider_failed",
     providerDiagnostics.providerResponseMessageSafe,
@@ -8348,8 +8731,33 @@ async function runLiveFuturePreview(input) {
   prep.diagnostics.providerContract = "flux_kontext_pro_legacy_parity";
   prep.diagnostics.providerModel = DEFAULT_REPLICATE_TRANSPORT_MODEL;
   prep.diagnostics.providerInputFieldNames = [...PROVEN_FLUX_INPUT_FIELDS];
+  attachSourceImageMetrics(prep.diagnostics, input.sourceImageDataUri);
   const horizon = typeof input.payload.horizon === "string" && input.payload.horizon.trim() ? input.payload.horizon.trim() : prep.diagnostics.timelineSource || "12w";
   const horizonDate = typeof input.payload.horizonDate === "string" ? input.payload.horizonDate : "";
+  let promptUpsampling = null;
+  try {
+    const helpers = loadProvenFluxKontextProHelpers();
+    const built = helpers.buildFluxKontextProInput({
+      prompt: providerPrompt,
+      imageDataUri: input.sourceImageDataUri,
+      bfNow: prep.diagnostics.bodyFat.current,
+      bfGoal: prep.diagnostics.bodyFat.target,
+      horizon,
+      horizonDate
+    });
+    promptUpsampling = typeof built.prompt_upsampling === "boolean" ? built.prompt_upsampling : null;
+  } catch {
+    promptUpsampling = null;
+  }
+  prep.diagnostics.providerPromptUpsampling = promptUpsampling;
+  prep.diagnostics.providerSafetyAttribution = buildAttributionForLivePath({
+    diagnostics: prep.diagnostics,
+    providerPrompt,
+    sourceImageDataUri: input.sourceImageDataUri,
+    promptUpsampling,
+    providerError: null
+  });
+  prep.diagnostics.conditionedPromptHash = prep.diagnostics.providerSafetyAttribution.promptMetrics.conditionedPromptHash;
   if (input.transportAdapter) {
     let transport;
     try {
@@ -8365,7 +8773,10 @@ async function runLiveFuturePreview(input) {
     } catch (error) {
       throwProviderFailed(prep, error instanceof Error ? error.message : error, {
         status: 502,
-        providerCalls: 1
+        providerCalls: 1,
+        providerPrompt,
+        sourceImageDataUri: input.sourceImageDataUri,
+        promptUpsampling
       });
     }
     prep.diagnostics.providerRequestCount = 1;
@@ -8378,7 +8789,10 @@ async function runLiveFuturePreview(input) {
           status: 502,
           code: failure?.error?.code ?? null,
           model: failure?.model ?? DEFAULT_REPLICATE_TRANSPORT_MODEL,
-          providerCalls: 1
+          providerCalls: 1,
+          providerPrompt,
+          sourceImageDataUri: input.sourceImageDataUri,
+          promptUpsampling
         }
       );
     }
@@ -8388,7 +8802,8 @@ async function runLiveFuturePreview(input) {
       ...prep.diagnostics,
       providerRequestAttempted: true,
       providerRequestCount: 1,
-      promptContainsAnatomicalIntent: true
+      promptContainsAnatomicalIntent: true,
+      providerModel: model
     };
     return {
       ok: true,
@@ -8412,7 +8827,10 @@ async function runLiveFuturePreview(input) {
     throwProviderFailed(prep, "Provider is not configured.", {
       status: 503,
       code: "missing_token",
-      providerCalls: 0
+      providerCalls: 0,
+      providerPrompt,
+      sourceImageDataUri: input.sourceImageDataUri,
+      promptUpsampling
     });
   }
   const runOnce = input.fluxProvider ?? loadProvenFluxKontextProHelpers().runFluxKontextProOnce;
@@ -8435,7 +8853,10 @@ async function runLiveFuturePreview(input) {
       code: err.providerErrorCode || err.code || null,
       model: err.providerModel || DEFAULT_REPLICATE_TRANSPORT_MODEL,
       inputFieldNames: err.providerInputFieldNames || [...PROVEN_FLUX_INPUT_FIELDS],
-      providerCalls: 1
+      providerCalls: 1,
+      providerPrompt,
+      sourceImageDataUri: input.sourceImageDataUri,
+      promptUpsampling
     });
   }
   prep.diagnostics.providerRequestCount = 1;
@@ -8443,7 +8864,10 @@ async function runLiveFuturePreview(input) {
     throwProviderFailed(prep, "Provider returned no image URL.", {
       status: 502,
       providerCalls: 1,
-      inputFieldNames: generated?.inputFieldNames || [...PROVEN_FLUX_INPUT_FIELDS]
+      inputFieldNames: generated?.inputFieldNames || [...PROVEN_FLUX_INPUT_FIELDS],
+      providerPrompt,
+      sourceImageDataUri: input.sourceImageDataUri,
+      promptUpsampling
     });
   }
   const diagnostics = {
@@ -8473,7 +8897,7 @@ async function runLiveFuturePreview(input) {
   };
 }
 function sha256FileBytes(bytes) {
-  return (0, import_node_crypto3.createHash)("sha256").update(bytes).digest("hex");
+  return (0, import_node_crypto4.createHash)("sha256").update(bytes).digest("hex");
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {

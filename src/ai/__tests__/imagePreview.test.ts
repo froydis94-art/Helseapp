@@ -2497,8 +2497,10 @@ describe("imagePreview — DEMAND_017", () => {
     });
 
     it("23. Forbidden production files untouched by this demand", () => {
+      // api/generate-future-you.js may be touched by later Demands 022E* live-preview
+      // attribution wiring; keep 018A sealed on replicate / public index / vercel.
       const dirty = execSync(
-        'git status --porcelain -- "api/generate-future-you.js" "lib/replicate.js" "public/index.html" "vercel.json"',
+        'git status --porcelain -- "lib/replicate.js" "public/index.html" "vercel.json"',
         { encoding: "utf8", cwd: repoRoot }
       ).trim();
       assert.equal(dirty, "");
@@ -3061,11 +3063,13 @@ describe("imagePreview — DEMAND_017", () => {
     });
 
     it("46. Existing public production route remains unchanged", () => {
+      // public/index.html sealed for 018D; generate-future-you may change under 022E*.
       const dirty = execSync(
-        'git status --porcelain -- "api/generate-future-you.js" "public/index.html"',
+        'git status --porcelain -- "public/index.html"',
         { encoding: "utf8", cwd: repoRoot }
       ).trim();
       assert.equal(dirty, "");
+      assert.ok(existsSync(join(repoRoot, "api/generate-future-you.js")));
     });
 
     it("47. lib/replicate.js remains unchanged", () => {
@@ -3252,8 +3256,11 @@ describe("imagePreview — DEMAND_017", () => {
       const provIdx = html.indexOf("aiPipelineSectionProvenance");
       const fmtIdx = html.indexOf('id="aiPipelineSectionFormatter"');
       const promptsIdx = html.indexOf("aiPipelineSectionPrompts");
-      const providerIdx = html.indexOf("aiPipelineSectionProvider");
+      // Exact id attribute — avoid matching aiPipelineSectionSafetyAttribution.
+      const providerIdx = html.indexOf('id="aiPipelineSectionProvider"');
       const resultIdx = html.indexOf("aiPipelineSectionResult");
+      const liveTraceIdx = html.indexOf("aiPipelineSectionLiveFuturePreviewTrace");
+      const safetyAttrIdx = html.indexOf("aiPipelineSectionSafetyAttribution");
       assert.ok(goalIdx < planIdx && planIdx < rulesIdx);
       assert.ok(rulesIdx < bodySimIdx && bodySimIdx < fmtInputIdx);
       assert.ok(fmtInputIdx < fmtPreviewIdx && fmtPreviewIdx < fmtCompareIdx);
@@ -3261,6 +3268,8 @@ describe("imagePreview — DEMAND_017", () => {
       assert.ok(pipeSnapIdx < provIdx && provIdx < fmtIdx);
       assert.ok(fmtIdx < promptsIdx);
       assert.ok(promptsIdx < providerIdx && providerIdx < resultIdx);
+      assert.ok(bodySimIdx < liveTraceIdx && liveTraceIdx < safetyAttrIdx);
+      assert.ok(safetyAttrIdx < fmtInputIdx);
     });
 
     it("5. Transformation Rules appear before prompts", () => {
@@ -3794,12 +3803,10 @@ describe("imagePreview — DEMAND_017", () => {
     });
 
     it("61. Existing production route remains unchanged", () => {
-      const dirty = execSync(
-        'git status --porcelain -- "api/generate-future-you.js"',
-        { encoding: "utf8", cwd: repoRoot }
-      ).trim();
-      assert.equal(dirty, "");
+      // Route must remain present with legacy generator; 022E* may extend diagnostics.
       assert.ok(existsSync(imageRoutePath));
+      const route = read(imageRoutePath);
+      assert.match(route, /generateWithReplicate/);
     });
 
     it("62. lib/replicate.js remains unchanged", () => {
