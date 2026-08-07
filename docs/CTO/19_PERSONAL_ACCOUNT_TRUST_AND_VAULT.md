@@ -250,20 +250,7 @@ Future rule: every participant has their own account and private identity; no sh
 
 ## Next milestones
 
-Demand 020 — Guided Progress Photo Capture
-
-Future button:
-
-“How to take the perfect progress photo”
-
-It will contain:
-
-- one neutral illustration
-- five short capture rules
-- one good-light example
-- one poor-light example
-- no long legal text
-- guidance only, not a judgment of the user
+Demand 020 — Guided Progress Photo Capture — **implemented** on web `public/index.html` (see [20_GUIDED_PROGRESS_PHOTO_CAPTURE.md](./20_GUIDED_PROGRESS_PHOTO_CAPTURE.md)). Expo native upload remains follow-up.
 
 Demand 021 — Personal Progress Timeline and Comparison  
 (after private storage is secure; Timeline query contract is reserved only)
