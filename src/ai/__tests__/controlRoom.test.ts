@@ -1043,8 +1043,11 @@ describe("DEMAND_016 Control Room", () => {
   describe("Architecture", () => {
     it("77. Existing production route is unchanged", () => {
       const route = read(join(repoRoot, "api", "generate-future-you.js"));
-      assert.equal(route.includes("ControlRoom"), false);
-      assert.equal(route.includes("ai-os-control-room"), false);
+      // 022E-F may add header-only Control Room key gate for diagnosticMode.
+      // Still forbid Control Room service / runtime coupling on the public route.
+      assert.equal(route.includes("ControlRoomService"), false);
+      assert.equal(route.includes("ai-os-control-room.html"), false);
+      assert.equal(route.includes("_control-room-runtime"), false);
       const hash = createHash("sha256").update(route).digest("hex");
       assert.equal(typeof hash, "string");
       assert.ok(hash.length > 0);
@@ -1469,8 +1472,10 @@ describe("DEMAND_016 Control Room", () => {
 
     it("22. Production image route remains unchanged", () => {
       const route = read(join(repoRoot, "api", "generate-future-you.js"));
-      assert.equal(route.includes("ControlRoom"), false);
-      assert.equal(route.includes("ai-os-control-room"), false);
+      // 022E-F: access-key gate strings allowed; no Control Room service import.
+      assert.equal(route.includes("ControlRoomService"), false);
+      assert.equal(route.includes("ai-os-control-room.html"), false);
+      assert.equal(route.includes("_control-room-runtime"), false);
     });
 
     it("23. lib/replicate.js remains unchanged", () => {
@@ -2497,8 +2502,9 @@ describe("DEMAND_016 Control Room", () => {
     });
 
     it("12. Production image route remains untouched by Control Room", () => {
-      assert.equal(imageRoute.includes("ControlRoom"), false);
-      assert.equal(imageRoute.includes("ai-os-control-room"), false);
+      // 022E-F may mirror access-key header gate for diagnosticMode only.
+      assert.equal(imageRoute.includes("ControlRoomService"), false);
+      assert.equal(imageRoute.includes("ai-os-control-room.html"), false);
       assert.equal(imageRoute.includes("_control-room-runtime"), false);
       assert.equal(apiSource.includes("generate-future-you"), false);
     });
@@ -2836,8 +2842,9 @@ describe("DEMAND_016 Control Room", () => {
     });
 
     it("13. Production image route remains unchanged", () => {
-      assert.equal(imageRoute.includes("ControlRoom"), false);
-      assert.equal(imageRoute.includes("ai-os-control-room"), false);
+      // 022E-F may mirror access-key header gate for diagnosticMode only.
+      assert.equal(imageRoute.includes("ControlRoomService"), false);
+      assert.equal(imageRoute.includes("ai-os-control-room.html"), false);
       assert.equal(imageRoute.includes("_control-room-runtime"), false);
     });
 

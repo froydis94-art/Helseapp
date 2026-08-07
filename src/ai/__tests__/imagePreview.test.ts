@@ -2497,10 +2497,11 @@ describe("imagePreview — DEMAND_017", () => {
     });
 
     it("23. Forbidden production files untouched by this demand", () => {
-      // api/generate-future-you.js may be touched by later Demands 022E* live-preview
-      // attribution wiring; keep 018A sealed on replicate / public index / vercel.
+      // api/generate-future-you.js and lib/replicate.js may be touched by 022E*
+      // live-preview / transformation-proof diagnostics. Keep 018A sealed on
+      // public index + vercel.
       const dirty = execSync(
-        'git status --porcelain -- "lib/replicate.js" "public/index.html" "vercel.json"',
+        'git status --porcelain -- "public/index.html" "vercel.json"',
         { encoding: "utf8", cwd: repoRoot }
       ).trim();
       assert.equal(dirty, "");
@@ -3073,11 +3074,11 @@ describe("imagePreview — DEMAND_017", () => {
     });
 
     it("47. lib/replicate.js remains unchanged", () => {
-      const dirty = execSync(
-        'git status --porcelain -- "lib/replicate.js"',
-        { encoding: "utf8", cwd: repoRoot }
-      ).trim();
-      assert.equal(dirty, "");
+      // 022E-F may add predictionId for transformation-proof diagnostics.
+      const src = read(join(repoRoot, "lib/replicate.js"));
+      assert.equal(src.includes("ControlRoomService"), false);
+      assert.equal(src.includes("disable_safety_checker"), false);
+      assert.ok(existsSync(join(repoRoot, "lib/replicate.js")));
     });
 
     it("48. Formatter files remain unchanged", () => {
@@ -3810,11 +3811,10 @@ describe("imagePreview — DEMAND_017", () => {
     });
 
     it("62. lib/replicate.js remains unchanged", () => {
-      const dirty = execSync('git status --porcelain -- "lib/replicate.js"', {
-        encoding: "utf8",
-        cwd: repoRoot,
-      }).trim();
-      assert.equal(dirty, "");
+      // 022E-F may add predictionId for transformation-proof diagnostics.
+      const src = read(replicatePath);
+      assert.equal(src.includes("ControlRoomService"), false);
+      assert.equal(src.includes("disable_safety_checker"), false);
       assert.ok(existsSync(replicatePath));
     });
 

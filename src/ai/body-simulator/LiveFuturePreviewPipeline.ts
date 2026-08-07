@@ -51,6 +51,18 @@ import {
   projectProviderSafetyAttributionForControlRoom,
   type ProviderSafetyAttributionDiagnostic,
 } from "./ProviderSafetyAttributionDiagnostic";
+import {
+  TRANSFORM_PROOF_DIAGNOSTIC_MODE,
+  buildTransformationProofDiagnosticPrompt,
+  buildTransformationProofReport,
+  decodeDataUriToBytes,
+  downloadProviderImageBytes,
+  inspectFluxStrengthParams,
+  isTransformProofDiagnosticAllowed,
+  isTransformProofDiagnosticRequested,
+  projectTransformationProofForControlRoom,
+  type TransformationProofReport,
+} from "./ImageTransformationProof";
 
 /** Flux routing attempt record (Patch 022E-E — Control Room / diagnostics). */
 export interface ProviderFluxAttemptRecord {
@@ -58,6 +70,7 @@ export interface ProviderFluxAttemptRecord {
   label: string;
   outcome: "success" | "failed" | "skipped_sibling_premium";
   promptHash?: string | null;
+  predictionId?: string | null;
   eligibleFailure?: boolean;
   errorCategory?: string | null;
   safeMessage?: string | null;
@@ -381,6 +394,11 @@ export interface LiveBodySimulatorDiagnostics {
   providerSuccessfulModel: string | null;
   providerInitialModel: string | null;
   providerFinalOutcome: string | null;
+  /** Patch 022E-F — input vs output transformation proof (hashes / deltas). */
+  transformationProof: TransformationProofReport | null;
+  diagnosticMode: typeof TRANSFORM_PROOF_DIAGNOSTIC_MODE | null;
+  diagnosticPromptInjected: boolean;
+  predictionIds: string[];
 }
 
 export interface LiveFuturePreviewTraceStage {
@@ -477,6 +495,10 @@ function emptyDiagnostics(
     providerSuccessfulModel: null,
     providerInitialModel: null,
     providerFinalOutcome: null,
+    transformationProof: null,
+    diagnosticMode: null,
+    diagnosticPromptInjected: false,
+    predictionIds: [],
   };
 }
 
@@ -872,6 +894,22 @@ export function buildLiveFuturePreviewTraceStages(
       warnings: [],
     },
     {
+      id: "transformation_proof",
+      label: "Transformation Proof",
+      status: diagnostics.transformationProof
+        ? diagnostics.transformationProof.delta?.verdict === "identical_bytes" ||
+          diagnostics.transformationProof.delta?.verdict === "near_identical"
+          ? "warn"
+          : diagnostics.transformationProof.paidProviderCallCompleted
+            ? "ok"
+            : "warn"
+        : "pending",
+      values: projectTransformationProofForControlRoom(
+        diagnostics.transformationProof
+      ) as Record<string, string | number | boolean | null>,
+      warnings: [],
+    },
+    {
       id: "outcome",
       label: "Outcome",
       status: outcome === "ok" ? "ok" : outcome === "error" ? "error" : "pending",
@@ -1091,6 +1129,17 @@ export interface LiveFuturePreviewRunInput {
   fluxCascade?: ProvenFluxKontextProHelpers["runFluxKontextAnatomicalCascade"];
   /** When true, stop after formatter — zero provider calls. */
   dryRun?: boolean;
+  /**
+   * Demand 022E-F — internal diagnostic only. Requires Control Room auth at API
+   * boundary; never enabled by public Future UI.
+   */
+  diagnosticMode?: typeof TRANSFORM_PROOF_DIAGNOSTIC_MODE | null;
+  /** Set true only after API verified Control Room access key. */
+  controlRoomAuthorized?: boolean;
+  /** Test/API injectable download for server-side output compare. */
+  downloadImageBytes?: (
+    imageUrl: string
+  ) => Promise<{ bytes: Buffer; host: string | null } | null>;
 }
 
 export interface LiveFuturePreviewSuccess {
@@ -1167,6 +1216,49 @@ function throwProviderFailed(
   );
 }
 
+async function attachTransformationProof(args: {
+  diagnostics: LiveBodySimulatorDiagnostics;
+  sourceImageDataUri: string;
+  imageUrl: string | null;
+  strengthInput: Record<string, unknown> | null;
+  diagnosticMode: boolean;
+  diagnosticPromptInjected: boolean;
+  paidAttempted: boolean;
+  paidCompleted: boolean;
+  downloadImageBytes?: LiveFuturePreviewRunInput["downloadImageBytes"];
+}): Promise<void> {
+  const decoded = decodeDataUriToBytes(args.sourceImageDataUri);
+  let outputBytes: Buffer | null = null;
+  if (args.imageUrl && args.paidCompleted) {
+    const downloader = args.downloadImageBytes ?? downloadProviderImageBytes;
+    const downloaded = await downloader(args.imageUrl);
+    if (downloaded?.bytes?.length) outputBytes = downloaded.bytes;
+  }
+  const predictionIds = [
+    ...args.diagnostics.predictionIds,
+    ...args.diagnostics.providerAttempts
+      .map((a) => a.predictionId)
+      .filter((id): id is string => typeof id === "string" && Boolean(id)),
+  ];
+  args.diagnostics.predictionIds = [...new Set(predictionIds)];
+  args.diagnostics.transformationProof = buildTransformationProofReport({
+    diagnosticMode: args.diagnosticMode,
+    diagnosticPromptInjected: args.diagnosticPromptInjected,
+    paidProviderCallAttempted: args.paidAttempted,
+    paidProviderCallCompleted: args.paidCompleted,
+    providerModel: args.diagnostics.providerModel,
+    providerRoutingStrategy: args.diagnostics.providerRoutingStrategy,
+    providerRoutingReason: args.diagnostics.providerRoutingReason,
+    providerFallbackUsed: args.diagnostics.providerFallbackUsed,
+    providerRequestCount: args.diagnostics.providerRequestCount,
+    predictionIds: args.diagnostics.predictionIds,
+    inputBytes: decoded?.bytes ?? null,
+    outputBytes,
+    outputImageUrl: args.imageUrl,
+    strengthInput: args.strengthInput,
+  });
+}
+
 /**
  * Full live Future preview path.
  * Provider transport: intelligent Flux ordered fallback (Max/Pro/Dev) via
@@ -1180,7 +1272,19 @@ export async function runLiveFuturePreview(
   input: LiveFuturePreviewRunInput
 ): Promise<LiveFuturePreviewSuccess> {
   const env = input.env ?? process.env;
-  if (!isBodySimulatorLivePreviewEnabled(env) && input.dryRun !== true) {
+  const diagnosticRequested = isTransformProofDiagnosticRequested(
+    input.diagnosticMode
+  );
+  const diagnosticAllowed = isTransformProofDiagnosticAllowed({
+    requested: diagnosticRequested,
+    controlRoomAuthorized: input.controlRoomAuthorized === true,
+    env,
+  });
+  if (
+    !isBodySimulatorLivePreviewEnabled(env) &&
+    input.dryRun !== true &&
+    !diagnosticAllowed
+  ) {
     // Caller should not reach here when flag is off; fail closed for safety.
     throw new LiveFuturePreviewError(
       "live_preview_adapter_failed",
@@ -1197,8 +1301,61 @@ export async function runLiveFuturePreview(
     nowMs: input.nowMs,
     enabled: true,
   });
+  prep.diagnostics.diagnosticMode = diagnosticAllowed
+    ? TRANSFORM_PROOF_DIAGNOSTIC_MODE
+    : null;
 
   if (input.dryRun) {
+    // Offline parameter snapshot (no network) for Control Room / tests.
+    let strengthInput: Record<string, unknown> | null = null;
+    try {
+      const helpers = loadProvenFluxKontextProHelpers();
+      strengthInput = helpers.buildFluxKontextProInput({
+        prompt: "dry-run-transform-proof",
+        imageDataUri: input.sourceImageDataUri || "data:image/jpeg;base64,AA==",
+        bfNow: prep.diagnostics.bodyFat.current,
+        bfGoal: prep.diagnostics.bodyFat.target,
+        horizon:
+          typeof input.payload.horizon === "string"
+            ? input.payload.horizon
+            : "12w",
+        horizonDate:
+          typeof input.payload.horizonDate === "string"
+            ? input.payload.horizonDate
+            : "",
+      });
+    } catch {
+      strengthInput = null;
+    }
+    await attachTransformationProof({
+      diagnostics: prep.diagnostics,
+      sourceImageDataUri: input.sourceImageDataUri,
+      imageUrl: null,
+      strengthInput,
+      diagnosticMode: diagnosticAllowed,
+      diagnosticPromptInjected: false,
+      paidAttempted: false,
+      paidCompleted: false,
+      downloadImageBytes: input.downloadImageBytes,
+    });
+    // Ensure code-proven Flux strength absence is visible even without helpers.
+    if (!prep.diagnostics.transformationProof?.strengthParams) {
+      prep.diagnostics.transformationProof = buildTransformationProofReport({
+        diagnosticMode: diagnosticAllowed,
+        diagnosticPromptInjected: false,
+        paidProviderCallAttempted: false,
+        paidProviderCallCompleted: false,
+        strengthInput: {
+          prompt: "x",
+          input_image: "[redacted]",
+          aspect_ratio: "match_input_image",
+          output_format: "png",
+          safety_tolerance: 2,
+          prompt_upsampling: false,
+        },
+        inputBytes: decodeDataUriToBytes(input.sourceImageDataUri)?.bytes ?? null,
+      });
+    }
     return {
       ok: true,
       imageUrl: null,
@@ -1286,7 +1443,12 @@ export async function runLiveFuturePreview(
     anatomicalRules: prep.rules.anatomicalTransformation?.rules ?? [],
     optionalNotes: prep.adapter.input.optionalNotes ?? [],
   });
-  const providerPrompt = conditioned.conditionedPrompt;
+  // Demand 022E-F: diagnostic-only prompt injection (gated; not production calibration).
+  let providerPrompt = conditioned.conditionedPrompt;
+  if (diagnosticAllowed) {
+    providerPrompt = buildTransformationProofDiagnosticPrompt(providerPrompt);
+    prep.diagnostics.diagnosticPromptInjected = true;
+  }
   formatted.prompt = providerPrompt;
   // Avoid appending sensitive denial stacks via transport EXCLUSIONS appendix.
   if (typeof formatted.negativePrompt === "string") {
@@ -1312,6 +1474,7 @@ export async function runLiveFuturePreview(
 
   // Resolve prompt_upsampling the same way as proven Flux helper (no network).
   let promptUpsampling: boolean | null = null;
+  let strengthInputSnapshot: Record<string, unknown> | null = null;
   try {
     const helpers = loadProvenFluxKontextProHelpers();
     const built = helpers.buildFluxKontextProInput({
@@ -1322,14 +1485,25 @@ export async function runLiveFuturePreview(
       horizon,
       horizonDate,
     });
+    strengthInputSnapshot = { ...built, input_image: "[redacted]" };
     promptUpsampling =
       typeof built.prompt_upsampling === "boolean"
         ? built.prompt_upsampling
         : null;
   } catch {
     promptUpsampling = null;
+    strengthInputSnapshot = {
+      prompt: "[redacted]",
+      input_image: "[redacted]",
+      aspect_ratio: "match_input_image",
+      output_format: "png",
+      safety_tolerance: 2,
+      prompt_upsampling: null,
+    };
   }
   prep.diagnostics.providerPromptUpsampling = promptUpsampling;
+  // Touch inspect helper so strength absence is always measurable offline.
+  void inspectFluxStrengthParams(strengthInputSnapshot);
 
   // Parity metrics on success path too (022E-C).
   prep.diagnostics.providerSafetyAttribution = buildAttributionForLivePath({
@@ -1389,6 +1563,18 @@ export async function runLiveFuturePreview(
 
     const imageUrl = transport.imageUrl;
     const model = transport.model ?? DEFAULT_REPLICATE_TRANSPORT_MODEL;
+    prep.diagnostics.providerModel = model;
+    await attachTransformationProof({
+      diagnostics: prep.diagnostics,
+      sourceImageDataUri: input.sourceImageDataUri,
+      imageUrl,
+      strengthInput: strengthInputSnapshot,
+      diagnosticMode: diagnosticAllowed,
+      diagnosticPromptInjected: prep.diagnostics.diagnosticPromptInjected,
+      paidAttempted: true,
+      paidCompleted: true,
+      downloadImageBytes: input.downloadImageBytes,
+    });
     const diagnostics: LiveBodySimulatorDiagnostics = {
       ...prep.diagnostics,
       providerRequestAttempted: true,
@@ -1518,6 +1704,17 @@ export async function runLiveFuturePreview(
       });
     }
 
+    await attachTransformationProof({
+      diagnostics: prep.diagnostics,
+      sourceImageDataUri: input.sourceImageDataUri,
+      imageUrl: generatedOnce.imageUrl,
+      strengthInput: strengthInputSnapshot,
+      diagnosticMode: diagnosticAllowed,
+      diagnosticPromptInjected: prep.diagnostics.diagnosticPromptInjected,
+      paidAttempted: true,
+      paidCompleted: true,
+      downloadImageBytes: input.downloadImageBytes,
+    });
     const diagnostics: LiveBodySimulatorDiagnostics = {
       ...prep.diagnostics,
       providerRequestAttempted: true,
@@ -1678,6 +1875,27 @@ export async function runLiveFuturePreview(
     promptUpsampling,
     providerError: null,
     logicalSuccessViaFallback: prep.diagnostics.providerFallbackUsed,
+  });
+
+  const cascadePredictionIds = (generated.providerAttempts || [])
+    .map((a) => a.predictionId)
+    .filter((id): id is string => typeof id === "string" && Boolean(id));
+  if (cascadePredictionIds.length) {
+    prep.diagnostics.predictionIds = [
+      ...new Set([...prep.diagnostics.predictionIds, ...cascadePredictionIds]),
+    ];
+  }
+
+  await attachTransformationProof({
+    diagnostics: prep.diagnostics,
+    sourceImageDataUri: input.sourceImageDataUri,
+    imageUrl: generated.imageUrl,
+    strengthInput: strengthInputSnapshot,
+    diagnosticMode: diagnosticAllowed,
+    diagnosticPromptInjected: prep.diagnostics.diagnosticPromptInjected,
+    paidAttempted: true,
+    paidCompleted: true,
+    downloadImageBytes: input.downloadImageBytes,
   });
 
   const diagnostics: LiveBodySimulatorDiagnostics = {

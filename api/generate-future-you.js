@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const {
   generateWithReplicate,
   runFluxKontextAnatomicalCascade,
@@ -7,10 +8,43 @@ const {
   friendlyError,
 } = require("../lib/replicate");
 
+const CONTROL_ROOM_ACCESS_HEADER = "x-ai-os-control-room-key";
+const TRANSFORM_PROOF_DIAGNOSTIC_MODE = "transformation_proof";
+
 function setCors(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, X-AI-OS-Control-Room-Key"
+  );
+}
+
+function readHeader(req, name) {
+  const headers = req?.headers || {};
+  const lower = name.toLowerCase();
+  const direct = headers[lower] ?? headers[name];
+  if (typeof direct === "string") return direct;
+  if (Array.isArray(direct) && typeof direct[0] === "string") return direct[0];
+  return "";
+}
+
+/** Mirror Control Room access-key gate (header only; never accept body key). */
+function verifyControlRoomAccessKey(req) {
+  const expected = String(process.env.AI_OS_CONTROL_ROOM_ACCESS_KEY || "").trim();
+  const presented = String(readHeader(req, CONTROL_ROOM_ACCESS_HEADER) || "").trim();
+  if (!expected || expected.length < 16 || !presented) return false;
+  const a = Buffer.from(expected, "utf8");
+  const b = Buffer.from(presented, "utf8");
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
+function isTransformProofDiagnosticEnvEnabled() {
+  return (
+    process.env.BODY_SIMULATOR_TRANSFORM_PROOF_DIAGNOSTIC === "1" ||
+    process.env.AI_OS_CONTROL_ROOM_ENABLED === "1"
+  );
 }
 
 /**
@@ -138,9 +172,34 @@ async function handler(req, res) {
       return jsonError(res, 400, { error: "Tomt bilde." });
     }
 
-    // Demand 022E — single live Body Simulator / Anatomical path when flag ON.
+    // Demand 022E-F — gated transformation-proof diagnostic (Control Room key).
+    // Never enabled by public Future UI; not a production prompt calibration path.
+    const diagnosticModeRaw = req.body?.diagnosticMode;
+    const diagnosticRequested =
+      diagnosticModeRaw === TRANSFORM_PROOF_DIAGNOSTIC_MODE;
+    if (diagnosticRequested) {
+      if (
+        Object.prototype.hasOwnProperty.call(req.body || {}, "accessKey") ||
+        Object.prototype.hasOwnProperty.call(req.body || {}, "key") ||
+        Object.prototype.hasOwnProperty.call(req.body || {}, "token")
+      ) {
+        return jsonError(res, 400, {
+          error: "Invalid request.",
+          errorClass: "invalid_request",
+        });
+      }
+      if (!verifyControlRoomAccessKey(req) || !isTransformProofDiagnosticEnvEnabled()) {
+        return jsonError(res, 401, {
+          error: "Unauthorized.",
+          errorClass: "transform_proof_unauthorized",
+        });
+      }
+    }
+
+    // Demand 022E — single live Body Simulator / Anatomical path when flag ON
+    // (or when authorized transformation-proof diagnostic is requested).
     // No dual provider requests. No silent legacy fallback on failure.
-    if (isBodySimulatorLivePreviewEnabled()) {
+    if (isBodySimulatorLivePreviewEnabled() || diagnosticRequested) {
       const runtime = loadLiveFuturePreviewRuntime();
       const publicPayload = {
         maal,
@@ -170,6 +229,12 @@ async function handler(req, res) {
             sourceImageDataUri: toDataUri(imageBuffer, mimeType),
             mimeType,
             env: process.env,
+            diagnosticMode: diagnosticRequested
+              ? TRANSFORM_PROOF_DIAGNOSTIC_MODE
+              : null,
+            controlRoomAuthorized: diagnosticRequested
+              ? verifyControlRoomAccessKey(req)
+              : false,
             // Inject intelligent Flux ordered fallback (022E-E).
             // Same anatomical prompt across Max/Pro/Dev; no legacy reservedrift.
             // Shrink cascade wall-clock near soft deadline so Max+Dev fit before
@@ -201,6 +266,8 @@ async function handler(req, res) {
           liveFuturePreviewTrace: live.liveFuturePreviewTrace,
           providerSafetyAttribution:
             live.livePreviewDiagnostics?.providerSafetyAttribution || null,
+          transformationProof:
+            live.livePreviewDiagnostics?.transformationProof || null,
           bodySimulatorPreviewActive: true,
           disclaimer: live.disclaimer,
         });
@@ -249,6 +316,8 @@ async function handler(req, res) {
             providerDiagnostics?.providerResponseMessageSafe ?? null,
           // Patch 022E-C — E005 attribution (no raw image / no bypass).
           providerSafetyAttribution,
+          transformationProof:
+            liveError?.diagnostics?.transformationProof || null,
         });
       }
     }

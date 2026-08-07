@@ -132,6 +132,15 @@
   var liveFuturePreviewTraceJsonView = document.getElementById(
     "liveFuturePreviewTraceJsonView"
   );
+  var transformationProofStatus = document.getElementById(
+    "transformationProofStatus"
+  );
+  var transformationProofBody = document.getElementById(
+    "transformationProofBody"
+  );
+  var transformationProofJsonView = document.getElementById(
+    "transformationProofJsonView"
+  );
   var providerSafetyAttributionStatus = document.getElementById(
     "providerSafetyAttributionStatus"
   );
@@ -3698,11 +3707,103 @@
     setBodySimulatorStatusChip("not_run");
   }
 
+  function clearTransformationProofViews() {
+    if (transformationProofStatus) clearChildren(transformationProofStatus);
+    if (transformationProofBody) clearChildren(transformationProofBody);
+    if (transformationProofJsonView) setText(transformationProofJsonView, "");
+  }
+
   function clearLiveFuturePreviewTraceViews() {
     if (liveFuturePreviewTraceStatus) clearChildren(liveFuturePreviewTraceStatus);
     if (liveFuturePreviewTraceStages) clearChildren(liveFuturePreviewTraceStages);
     if (liveFuturePreviewTraceJsonView) setText(liveFuturePreviewTraceJsonView, "");
+    clearTransformationProofViews();
     clearProviderSafetyAttributionViews();
+  }
+
+  function extractTransformationProof(result, trace) {
+    if (
+      result &&
+      result.transformationProof &&
+      typeof result.transformationProof === "object"
+    ) {
+      return result.transformationProof;
+    }
+    if (
+      result &&
+      result.livePreviewDiagnostics &&
+      result.livePreviewDiagnostics.transformationProof
+    ) {
+      return result.livePreviewDiagnostics.transformationProof;
+    }
+    if (Array.isArray(trace)) {
+      for (var ti = 0; ti < trace.length; ti += 1) {
+        var tstage = trace[ti];
+        if (
+          tstage &&
+          (tstage.id === "transformation_proof" ||
+            tstage.label === "Transformation Proof") &&
+          tstage.values &&
+          typeof tstage.values === "object"
+        ) {
+          return tstage.values;
+        }
+      }
+    }
+    return null;
+  }
+
+  function renderTransformationProof(proof) {
+    clearTransformationProofViews();
+    if (!transformationProofStatus || !transformationProofBody) return;
+    appendKv(transformationProofStatus, "editable", "no");
+    appendKv(transformationProofStatus, "secrets", "redacted");
+    if (!proof || typeof proof !== "object") {
+      appendKv(transformationProofStatus, "available", "false");
+      appendKv(
+        transformationProofBody,
+        "note",
+        "No transformation proof yet. Owner: POST /api/generate-future-you with diagnosticMode=transformation_proof and X-AI-OS-Control-Room-Key after REPLICATE_API_TOKEN is configured."
+      );
+      return;
+    }
+    appendKv(transformationProofStatus, "available", "true");
+    var keys = Object.keys(proof);
+    for (var ki = 0; ki < keys.length; ki += 1) {
+      var k = keys[ki];
+      var v = proof[k];
+      if (v != null && typeof v === "object" && !Array.isArray(v)) {
+        var nested = Object.keys(v);
+        for (var ni = 0; ni < nested.length; ni += 1) {
+          var nk = nested[ni];
+          var nv = v[nk];
+          if (nv != null && typeof nv === "object") {
+            appendKv(
+              transformationProofBody,
+              k + "." + nk,
+              Array.isArray(nv) ? nv.join(",") : pretty(nv)
+            );
+          } else {
+            appendKv(
+              transformationProofBody,
+              k + "." + nk,
+              nv == null || nv === "" ? "—" : String(nv)
+            );
+          }
+        }
+      } else if (Array.isArray(v)) {
+        appendKv(transformationProofBody, k, v.join(",") || "—");
+      } else {
+        appendKv(
+          transformationProofBody,
+          k,
+          v == null || v === "" ? "—" : String(v)
+        );
+      }
+    }
+    if (transformationProofJsonView) {
+      setText(transformationProofJsonView, pretty(proof));
+    }
   }
 
   function clearProviderSafetyAttributionViews() {
@@ -5221,6 +5322,9 @@
     renderLiveFuturePreviewTrace(
       result.liveFuturePreviewTrace,
       result.bodySimulator
+    );
+    renderTransformationProof(
+      extractTransformationProof(result, result.liveFuturePreviewTrace)
     );
     renderProviderSafetyAttribution(
       extractProviderSafetyAttribution(

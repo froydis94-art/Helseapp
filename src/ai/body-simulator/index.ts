@@ -195,6 +195,45 @@ export type {
 } from "./LiveFuturePreviewPipeline";
 
 export {
+  CONTROL_ROOM_ACCESS_HEADER,
+  CONTROL_ROOM_ACCESS_KEY_ENV,
+  CONTROL_ROOM_ENABLED_ENV,
+  IMAGE_TRANSFORMATION_PROOF_SCHEMA_VERSION,
+  TRANSFORM_PROOF_DIAGNOSTIC_ENV,
+  TRANSFORM_PROOF_DIAGNOSTIC_MODE,
+  TRANSFORM_PROOF_PROMPT_MARKER,
+  averageHashFromRgba,
+  averageHashFromRawBytes,
+  buildTransformationProofDiagnosticPrompt,
+  buildTransformationProofReport,
+  compareImageBytes,
+  decodeDataUriToBytes,
+  decodePngRgba,
+  downloadProviderImageBytes,
+  encodeSolidPngRgba,
+  fingerprintImageBytes,
+  hammingHex64,
+  inspectFluxStrengthParams,
+  isTransformProofDiagnosticAllowed,
+  isTransformProofDiagnosticEnvEnabled,
+  isTransformProofDiagnosticRequested,
+  outputUrlHostOnly,
+  parseImageDimensions,
+  projectTransformationProofForControlRoom,
+  sha256ImageBytes,
+  verifyControlRoomAccessKey,
+} from "./ImageTransformationProof";
+export type {
+  FluxStrengthParamSnapshot,
+  ImageByteFingerprint,
+  ImageDeltaMetrics,
+  SafeTransformationProofProjection,
+  TransformProofLayer,
+  TransformProofVerdict,
+  TransformationProofReport,
+} from "./ImageTransformationProof";
+
+export {
   BANNED_SEMANTIC_SUPPORT_TERMS,
   CLOTHING_COVERAGE_PRESERVATION_PHRASE,
   PROVIDER_SENSITIVE_LEXEMES,

@@ -39,7 +39,7 @@ __export(LiveFuturePreviewPipeline_exports, {
   sha256FileBytes: () => sha256FileBytes
 });
 module.exports = __toCommonJS(LiveFuturePreviewPipeline_exports);
-var import_node_crypto4 = require("node:crypto");
+var import_node_crypto5 = require("node:crypto");
 var import_node_module = require("node:module");
 var import_node_path = require("node:path");
 
@@ -8077,6 +8077,528 @@ function projectProviderSafetyAttributionForControlRoom(diagnostic) {
   };
 }
 
+// src/ai/body-simulator/ImageTransformationProof.ts
+var import_node_crypto4 = require("node:crypto");
+var import_node_zlib = require("node:zlib");
+var TRANSFORM_PROOF_DIAGNOSTIC_MODE = "transformation_proof";
+var TRANSFORM_PROOF_DIAGNOSTIC_ENV = "BODY_SIMULATOR_TRANSFORM_PROOF_DIAGNOSTIC";
+var CONTROL_ROOM_ENABLED_ENV = "AI_OS_CONTROL_ROOM_ENABLED";
+var TRANSFORM_PROOF_PROMPT_MARKER = "[DIAGNOSTIC_TRANSFORM_PROOF_022E_F]";
+function sha256Hex(bytes) {
+  return (0, import_node_crypto4.createHash)("sha256").update(bytes).digest("hex");
+}
+function sha256ImageBytes(bytes) {
+  return sha256Hex(bytes);
+}
+function decodeDataUriToBytes(dataUri) {
+  const raw = String(dataUri || "");
+  const m = raw.match(
+    /^data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=\s]+)$/i
+  );
+  if (!m) return null;
+  try {
+    const bytes = Buffer.from(m[2].replace(/\s+/g, ""), "base64");
+    if (!bytes.length) return null;
+    return {
+      bytes,
+      mime: m[1].toLowerCase(),
+      prefix: `data:${m[1].toLowerCase()};base64,`
+    };
+  } catch {
+    return null;
+  }
+}
+function guessImageMime(bytes) {
+  if (bytes.length >= 8 && bytes[0] === 137 && bytes[1] === 80 && bytes[2] === 78 && bytes[3] === 71) {
+    return "image/png";
+  }
+  if (bytes.length >= 3 && bytes[0] === 255 && bytes[1] === 216) {
+    return "image/jpeg";
+  }
+  if (bytes.length >= 12 && bytes.toString("ascii", 0, 4) === "RIFF" && bytes.toString("ascii", 8, 12) === "WEBP") {
+    return "image/webp";
+  }
+  return "application/octet-stream";
+}
+function parseImageDimensions(bytes) {
+  const mime = guessImageMime(bytes);
+  if (mime === "image/png" && bytes.length >= 24) {
+    const w = bytes.readUInt32BE(16);
+    const h = bytes.readUInt32BE(20);
+    if (w > 0 && h > 0 && w < 1e5 && h < 1e5) return `${w}x${h}`;
+  }
+  if (mime === "image/jpeg") {
+    let i = 2;
+    while (i + 9 < bytes.length) {
+      if (bytes[i] !== 255) {
+        i += 1;
+        continue;
+      }
+      const marker = bytes[i + 1];
+      if (marker === 217 || marker === 218) break;
+      const len = bytes.readUInt16BE(i + 2);
+      if (len < 2 || i + 2 + len > bytes.length) break;
+      if (marker === 192 || marker === 193 || marker === 194 || marker === 195) {
+        const h = bytes.readUInt16BE(i + 5);
+        const w = bytes.readUInt16BE(i + 7);
+        if (w > 0 && h > 0) return `${w}x${h}`;
+      }
+      i += 2 + len;
+    }
+  }
+  return null;
+}
+function decodePngRgba(bytes) {
+  if (guessImageMime(bytes) !== "image/png" || bytes.length < 33) return null;
+  try {
+    let offset = 8;
+    let width = 0;
+    let height = 0;
+    let bitDepth = 0;
+    let colorType = -1;
+    const idat = [];
+    while (offset + 8 <= bytes.length) {
+      const len = bytes.readUInt32BE(offset);
+      const type = bytes.toString("ascii", offset + 4, offset + 8);
+      const dataStart = offset + 8;
+      const dataEnd = dataStart + len;
+      if (dataEnd + 4 > bytes.length) break;
+      const chunk = bytes.subarray(dataStart, dataEnd);
+      if (type === "IHDR" && len >= 13) {
+        width = chunk.readUInt32BE(0);
+        height = chunk.readUInt32BE(4);
+        bitDepth = chunk[8];
+        colorType = chunk[9];
+      } else if (type === "IDAT") {
+        idat.push(Buffer.from(chunk));
+      } else if (type === "IEND") {
+        break;
+      }
+      offset = dataEnd + 4;
+    }
+    if (!width || !height || bitDepth !== 8 || width > 4096 || height > 4096 || idat.length === 0) {
+      return null;
+    }
+    const compressed = Buffer.concat(idat);
+    const raw = (0, import_node_zlib.inflateSync)(compressed);
+    const bpp = colorType === 0 ? 1 : colorType === 2 ? 3 : colorType === 4 ? 2 : colorType === 6 ? 4 : 0;
+    if (!bpp) return null;
+    const stride = 1 + width * bpp;
+    if (raw.length < stride * height) return null;
+    const rgba = Buffer.alloc(width * height * 4);
+    const prior = Buffer.alloc(width * bpp);
+    for (let y = 0; y < height; y++) {
+      const rowStart = y * stride;
+      const filter = raw[rowStart];
+      const row = raw.subarray(rowStart + 1, rowStart + stride);
+      const recon = Buffer.alloc(width * bpp);
+      for (let i = 0; i < row.length; i++) {
+        const left = i >= bpp ? recon[i - bpp] : 0;
+        const up = prior[i];
+        const upLeft = i >= bpp ? prior[i - bpp] : 0;
+        let val = row[i];
+        if (filter === 1) val = val + left & 255;
+        else if (filter === 2) val = val + up & 255;
+        else if (filter === 3) val = val + Math.floor((left + up) / 2) & 255;
+        else if (filter === 4) {
+          const p = left + up - upLeft;
+          const pa = Math.abs(p - left);
+          const pb = Math.abs(p - up);
+          const pc = Math.abs(p - upLeft);
+          const pr = pa <= pb && pa <= pc ? left : pb <= pc ? up : upLeft;
+          val = val + pr & 255;
+        } else if (filter !== 0) {
+          return null;
+        }
+        recon[i] = val;
+      }
+      for (let x = 0; x < width; x++) {
+        const o = (y * width + x) * 4;
+        if (colorType === 0) {
+          const g = recon[x];
+          rgba[o] = g;
+          rgba[o + 1] = g;
+          rgba[o + 2] = g;
+          rgba[o + 3] = 255;
+        } else if (colorType === 2) {
+          rgba[o] = recon[x * 3];
+          rgba[o + 1] = recon[x * 3 + 1];
+          rgba[o + 2] = recon[x * 3 + 2];
+          rgba[o + 3] = 255;
+        } else if (colorType === 4) {
+          const g = recon[x * 2];
+          rgba[o] = g;
+          rgba[o + 1] = g;
+          rgba[o + 2] = g;
+          rgba[o + 3] = recon[x * 2 + 1];
+        } else {
+          rgba[o] = recon[x * 4];
+          rgba[o + 1] = recon[x * 4 + 1];
+          rgba[o + 2] = recon[x * 4 + 2];
+          rgba[o + 3] = recon[x * 4 + 3];
+        }
+      }
+      prior.set(recon);
+    }
+    return { width, height, rgba };
+  } catch {
+    return null;
+  }
+}
+function averageHashFromRgba(width, height, rgba) {
+  const gray = [];
+  for (let y = 0; y < 8; y++) {
+    for (let x = 0; x < 8; x++) {
+      const sx = Math.min(width - 1, Math.floor(x * width / 8));
+      const sy = Math.min(height - 1, Math.floor(y * height / 8));
+      const i = (sy * width + sx) * 4;
+      gray.push(
+        0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2]
+      );
+    }
+  }
+  const avg = gray.reduce((a, b) => a + b, 0) / gray.length;
+  let bits = 0n;
+  for (let i = 0; i < 64; i++) {
+    if (gray[i] >= avg) bits |= 1n << BigInt(63 - i);
+  }
+  return bits.toString(16).padStart(16, "0");
+}
+function averageHashFromRawBytes(bytes) {
+  if (!bytes.length) return "0".repeat(16);
+  const bucketSize = Math.max(1, Math.floor(bytes.length / 64));
+  const means = [];
+  for (let i = 0; i < 64; i++) {
+    const start = i * bucketSize;
+    const end = Math.min(bytes.length, start + bucketSize);
+    let sum = 0;
+    for (let j = start; j < end; j++) sum += bytes[j];
+    means.push(end > start ? sum / (end - start) : 0);
+  }
+  const avg = means.reduce((a, b) => a + b, 0) / means.length;
+  let bits = 0n;
+  for (let i = 0; i < 64; i++) {
+    if (means[i] >= avg) bits |= 1n << BigInt(63 - i);
+  }
+  return bits.toString(16).padStart(16, "0");
+}
+function hammingHex64(a, b) {
+  if (!a || !b || a.length !== 16 || b.length !== 16) return null;
+  try {
+    let x = BigInt(`0x${a}`) ^ BigInt(`0x${b}`);
+    let count = 0;
+    while (x > 0n) {
+      count += Number(x & 1n);
+      x >>= 1n;
+    }
+    return count;
+  } catch {
+    return null;
+  }
+}
+function fingerprintImageBytes(bytes) {
+  const mimeGuess = guessImageMime(bytes);
+  const dimensions = parseImageDimensions(bytes);
+  let averageHash = null;
+  let averageHashSource = "none";
+  const png = mimeGuess === "image/png" ? decodePngRgba(bytes) : null;
+  if (png) {
+    averageHash = averageHashFromRgba(png.width, png.height, png.rgba);
+    averageHashSource = "png_pixels";
+  } else if (bytes.length > 0) {
+    averageHash = averageHashFromRawBytes(bytes);
+    averageHashSource = "raw_byte_buckets";
+  }
+  return {
+    sha256: sha256ImageBytes(bytes),
+    byteLength: bytes.length,
+    mimeGuess,
+    dimensions,
+    averageHash,
+    averageHashSource
+  };
+}
+function compareImageBytes(input, output) {
+  const inFp = fingerprintImageBytes(input);
+  const outFp = fingerprintImageBytes(output);
+  const identicalSha256 = inFp.sha256 === outFp.sha256;
+  const dimensionsMatch = inFp.dimensions && outFp.dimensions ? inFp.dimensions === outFp.dimensions : null;
+  const averageHashHamming = hammingHex64(inFp.averageHash, outFp.averageHash);
+  let rmse = null;
+  let percentDiffering = null;
+  const inPng = decodePngRgba(input);
+  const outPng = decodePngRgba(output);
+  if (inPng && outPng && inPng.width === outPng.width && inPng.height === outPng.height) {
+    const n = inPng.rgba.length;
+    let sumSq = 0;
+    let differing = 0;
+    const pixels = inPng.width * inPng.height;
+    for (let i = 0; i < n; i += 4) {
+      const dr = inPng.rgba[i] - outPng.rgba[i];
+      const dg = inPng.rgba[i + 1] - outPng.rgba[i + 1];
+      const db = inPng.rgba[i + 2] - outPng.rgba[i + 2];
+      sumSq += dr * dr + dg * dg + db * db;
+      if (dr !== 0 || dg !== 0 || db !== 0) differing += 1;
+    }
+    rmse = Math.sqrt(sumSq / Math.max(1, pixels * 3));
+    percentDiffering = differing / Math.max(1, pixels) * 100;
+  } else if (input.length === output.length && input.length > 0) {
+    let sumSq = 0;
+    let differing = 0;
+    for (let i = 0; i < input.length; i++) {
+      const d = input[i] - output[i];
+      sumSq += d * d;
+      if (d !== 0) differing += 1;
+    }
+    rmse = Math.sqrt(sumSq / input.length);
+    percentDiffering = differing / input.length * 100;
+  }
+  let verdict;
+  if (identicalSha256) {
+    verdict = "identical_bytes";
+  } else if (dimensionsMatch === false) {
+    verdict = "dimensions_mismatch";
+  } else if (averageHashHamming != null && averageHashHamming <= 6 || rmse != null && rmse < 8 && (percentDiffering == null || percentDiffering < 5)) {
+    verdict = "near_identical";
+  } else if (averageHashHamming != null && averageHashHamming >= 12 || rmse != null && rmse >= 15 || percentDiffering != null && percentDiffering >= 10) {
+    verdict = "clearly_transformed";
+  } else if (rmse == null && averageHashHamming == null) {
+    verdict = inFp.sha256 === outFp.sha256 ? "identical_bytes" : "clearly_transformed";
+  } else {
+    verdict = "near_identical";
+  }
+  return {
+    identicalSha256,
+    byteLengthDelta: outFp.byteLength - inFp.byteLength,
+    dimensionsMatch,
+    rmse: rmse != null ? Math.round(rmse * 1e3) / 1e3 : null,
+    percentDiffering: percentDiffering != null ? Math.round(percentDiffering * 1e3) / 1e3 : null,
+    averageHashHamming,
+    verdict
+  };
+}
+var STRENGTH_LIKE_ABSENT = [
+  "image_strength",
+  "denoise",
+  "denoising_strength",
+  "prompt_strength",
+  "guidance_scale",
+  "strength"
+];
+function inspectFluxStrengthParams(input) {
+  const obj = input && typeof input === "object" ? input : {};
+  const present = [];
+  for (const key of STRENGTH_LIKE_ABSENT) {
+    if (Object.prototype.hasOwnProperty.call(obj, key)) present.push(key);
+  }
+  const absent = STRENGTH_LIKE_ABSENT.filter((k) => !present.includes(k));
+  return {
+    aspectRatio: typeof obj.aspect_ratio === "string" ? obj.aspect_ratio : null,
+    outputFormat: typeof obj.output_format === "string" ? obj.output_format : null,
+    safetyTolerance: typeof obj.safety_tolerance === "number" ? obj.safety_tolerance : null,
+    promptUpsampling: typeof obj.prompt_upsampling === "boolean" ? obj.prompt_upsampling : null,
+    hasImageStrength: present.includes("image_strength"),
+    hasDenoise: present.includes("denoise") || present.includes("denoising_strength"),
+    hasPromptStrength: present.includes("prompt_strength"),
+    hasGuidanceScale: present.includes("guidance_scale"),
+    hasSeed: Object.prototype.hasOwnProperty.call(obj, "seed"),
+    strengthLikeFieldsPresent: present,
+    strengthLikeFieldsAbsent: [...absent],
+    fluxKontextLacksDenoiseStrength: !present.includes("image_strength") && !present.includes("denoise") && !present.includes("denoising_strength") && !present.includes("prompt_strength")
+  };
+}
+function buildTransformationProofDiagnosticPrompt(basePrompt) {
+  const base = String(basePrompt || "").trim();
+  const diagnosticBlock = [
+    TRANSFORM_PROOF_PROMPT_MARKER,
+    "INTERNAL DIAGNOSTIC ATTRIBUTION ONLY \u2014 not production prompt calibration.",
+    "Apply an unmistakable, anatomically safe adult progress-photo transformation:",
+    "- visibly broader shoulders and thicker upper arms;",
+    "- clearly narrower waist;",
+    "- replace the entire background with a solid unexpected vivid teal (#008080) as a no-op marker.",
+    "Keep the same person identity and face. Photorealistic. No cartoon, no nudity, no text overlays."
+  ].join(" ");
+  return base ? `${base}
+
+${diagnosticBlock}` : diagnosticBlock;
+}
+function isTransformProofDiagnosticRequested(value) {
+  return value === TRANSFORM_PROOF_DIAGNOSTIC_MODE;
+}
+function isTransformProofDiagnosticEnvEnabled(env = process.env) {
+  return env[TRANSFORM_PROOF_DIAGNOSTIC_ENV] === "1" || env[CONTROL_ROOM_ENABLED_ENV] === "1";
+}
+function isTransformProofDiagnosticAllowed(args) {
+  if (!args.requested || !args.controlRoomAuthorized) return false;
+  return isTransformProofDiagnosticEnvEnabled(args.env ?? process.env);
+}
+function outputUrlHostOnly(url) {
+  if (typeof url !== "string" || !url.trim()) return null;
+  try {
+    const u = new URL(url);
+    return u.host || null;
+  } catch {
+    return null;
+  }
+}
+function buildTransformationProofReport(args) {
+  const strengthParams = inspectFluxStrengthParams(args.strengthInput);
+  const input = args.inputBytes ? fingerprintImageBytes(args.inputBytes) : null;
+  const output = args.outputBytes ? fingerprintImageBytes(args.outputBytes) : null;
+  const delta = args.inputBytes && args.outputBytes ? compareImageBytes(args.inputBytes, args.outputBytes) : args.paidProviderCallCompleted ? {
+    identicalSha256: false,
+    byteLengthDelta: 0,
+    dimensionsMatch: null,
+    rmse: null,
+    percentDiffering: null,
+    averageHashHamming: null,
+    verdict: "output_unavailable"
+  } : {
+    identicalSha256: false,
+    byteLengthDelta: 0,
+    dimensionsMatch: null,
+    rmse: null,
+    percentDiffering: null,
+    averageHashHamming: null,
+    verdict: "comparison_skipped"
+  };
+  const implicated = [];
+  const notes = [];
+  if (strengthParams.fluxKontextLacksDenoiseStrength) {
+    implicated.push("provider_parameters");
+    notes.push(
+      "Flux Kontext request has no image_strength/denoise/prompt_strength \u2014 change is language-only; weak adherence can look like a no-op."
+    );
+  }
+  if (strengthParams.aspectRatio === "match_input_image") {
+    notes.push(
+      "aspect_ratio=match_input_image preserves framing; does not by itself prove identity lock, but pairs with strong input conditioning."
+    );
+  }
+  if (strengthParams.promptUpsampling === false && args.diagnosticMode === false) {
+    implicated.push("provider_parameters");
+    notes.push(
+      "prompt_upsampling was false for this request \u2014 may reduce instruction amplification on mild BF/timeline cases."
+    );
+  }
+  if (args.providerFallbackUsed) {
+    implicated.push("fallback_routing");
+    notes.push("Ordered Flux fallback was used; compare successful model vs initial plan.");
+  }
+  if (delta.verdict === "identical_bytes") {
+    implicated.push("provider_capability");
+    notes.push(
+      "Server-downloaded output SHA-256 matches input \u2014 provider (or cache) returned near/exact copy before client render."
+    );
+  } else if (delta.verdict === "near_identical") {
+    implicated.push("provider_capability");
+    implicated.push("prompt_construction");
+    notes.push(
+      "Output differs in bytes but perceptual/byte delta is small \u2014 transformation strength likely lost at provider adherence or prompt force."
+    );
+  } else if (delta.verdict === "clearly_transformed") {
+    notes.push(
+      "Server-side output differs clearly from input \u2014 if UI still looks unchanged, suspect frontend_rendering or wrong URL display."
+    );
+    if (args.clientDisplayedUrlHost && args.outputImageUrl && outputUrlHostOnly(args.outputImageUrl) !== args.clientDisplayedUrlHost) {
+      implicated.push("frontend_rendering");
+      notes.push("Client displayed URL host differs from provider output host.");
+    }
+  } else if (delta.verdict === "output_unavailable" || delta.verdict === "comparison_skipped") {
+    implicated.push("inconclusive_pending_owner_run");
+    notes.push(
+      "Paid diagnostic image comparison not completed \u2014 code suspects remain; run Control Room gated diagnostic when REPLICATE_API_TOKEN is configured."
+    );
+  }
+  const seen = /* @__PURE__ */ new Set();
+  const implicatedLayers = implicated.filter((l) => {
+    if (seen.has(l)) return false;
+    seen.add(l);
+    return true;
+  });
+  return {
+    schemaVersion: 1,
+    diagnosticMode: Boolean(args.diagnosticMode),
+    diagnosticPromptInjected: Boolean(args.diagnosticPromptInjected),
+    paidProviderCallAttempted: Boolean(args.paidProviderCallAttempted),
+    paidProviderCallCompleted: Boolean(args.paidProviderCallCompleted),
+    providerModel: args.providerModel ?? null,
+    providerRoutingStrategy: args.providerRoutingStrategy ?? null,
+    providerRoutingReason: args.providerRoutingReason ?? null,
+    providerFallbackUsed: Boolean(args.providerFallbackUsed),
+    providerRequestCount: typeof args.providerRequestCount === "number" ? args.providerRequestCount : 0,
+    predictionIds: Array.isArray(args.predictionIds) ? args.predictionIds.filter((id) => typeof id === "string" && id) : [],
+    input,
+    output,
+    outputUrlHost: outputUrlHostOnly(args.outputImageUrl),
+    delta,
+    strengthParams,
+    implicatedLayers,
+    layerNotes: notes,
+    secretsRedacted: true
+  };
+}
+function projectTransformationProofForControlRoom(report) {
+  if (!report) {
+    return {
+      available: false,
+      note: "No transformation proof in this session. Run gated diagnosticMode=transformation_proof."
+    };
+  }
+  return {
+    schemaVersion: report.schemaVersion,
+    diagnosticMode: report.diagnosticMode,
+    diagnosticPromptInjected: report.diagnosticPromptInjected,
+    paidProviderCallAttempted: report.paidProviderCallAttempted,
+    paidProviderCallCompleted: report.paidProviderCallCompleted,
+    providerModel: report.providerModel,
+    providerFallbackUsed: report.providerFallbackUsed,
+    providerRequestCount: report.providerRequestCount,
+    predictionIds: report.predictionIds.join(",") || "\u2014",
+    inputSha256: report.input?.sha256 ?? null,
+    inputBytes: report.input?.byteLength ?? null,
+    inputDimensions: report.input?.dimensions ?? null,
+    inputAverageHash: report.input?.averageHash ?? null,
+    outputSha256: report.output?.sha256 ?? null,
+    outputBytes: report.output?.byteLength ?? null,
+    outputDimensions: report.output?.dimensions ?? null,
+    outputAverageHash: report.output?.averageHash ?? null,
+    outputUrlHost: report.outputUrlHost,
+    identicalSha256: report.delta?.identicalSha256 ?? null,
+    byteLengthDelta: report.delta?.byteLengthDelta ?? null,
+    rmse: report.delta?.rmse ?? null,
+    percentDiffering: report.delta?.percentDiffering ?? null,
+    averageHashHamming: report.delta?.averageHashHamming ?? null,
+    verdict: report.delta?.verdict ?? null,
+    promptUpsampling: report.strengthParams?.promptUpsampling ?? null,
+    safetyTolerance: report.strengthParams?.safetyTolerance ?? null,
+    aspectRatio: report.strengthParams?.aspectRatio ?? null,
+    fluxKontextLacksDenoiseStrength: report.strengthParams?.fluxKontextLacksDenoiseStrength ?? null,
+    strengthLikeFieldsAbsent: report.strengthParams?.strengthLikeFieldsAbsent.join(",") || "\u2014",
+    implicatedLayers: report.implicatedLayers.join(",") || "\u2014",
+    layerNotes: report.layerNotes.join(" | ") || "\u2014"
+  };
+}
+async function downloadProviderImageBytes(imageUrl, fetchImpl = fetch) {
+  if (typeof imageUrl !== "string" || !imageUrl.trim()) return null;
+  if (!/^https:\/\//i.test(imageUrl)) return null;
+  const host = outputUrlHostOnly(imageUrl);
+  try {
+    const res = await fetchImpl(imageUrl, {
+      method: "GET",
+      redirect: "follow",
+      headers: { Accept: "image/*,*/*" }
+    });
+    if (!res.ok) return null;
+    const ab = await res.arrayBuffer();
+    const bytes = Buffer.from(ab);
+    if (!bytes.length || bytes.length > 25 * 1024 * 1024) return null;
+    return { bytes, host };
+  } catch {
+    return null;
+  }
+}
+
 // src/ai/body-simulator/LiveFuturePreviewPipeline.ts
 function loadProvenFluxKontextProHelpers() {
   const req = (0, import_node_module.createRequire)((0, import_node_path.join)(process.cwd(), "package.json"));
@@ -8154,7 +8676,7 @@ var LiveFuturePreviewError = class extends Error {
 };
 function createLivePreviewTraceId(nowMs) {
   const stamp = nowMs.toString(36);
-  const rand = (0, import_node_crypto4.randomBytes)(6).toString("hex");
+  const rand = (0, import_node_crypto5.randomBytes)(6).toString("hex");
   return `lfp_${stamp}_${rand}`;
 }
 function emptyDiagnostics(livePreviewTraceId, enabled) {
@@ -8221,7 +8743,11 @@ function emptyDiagnostics(livePreviewTraceId, enabled) {
     providerFallbackUsed: false,
     providerSuccessfulModel: null,
     providerInitialModel: null,
-    providerFinalOutcome: null
+    providerFinalOutcome: null,
+    transformationProof: null,
+    diagnosticMode: null,
+    diagnosticPromptInjected: false,
+    predictionIds: []
   };
 }
 function attachSourceImageMetrics(diagnostics, sourceImageDataUri) {
@@ -8503,6 +9029,15 @@ function buildLiveFuturePreviewTraceStages(diagnostics, outcome = "pending") {
       warnings: []
     },
     {
+      id: "transformation_proof",
+      label: "Transformation Proof",
+      status: diagnostics.transformationProof ? diagnostics.transformationProof.delta?.verdict === "identical_bytes" || diagnostics.transformationProof.delta?.verdict === "near_identical" ? "warn" : diagnostics.transformationProof.paidProviderCallCompleted ? "ok" : "warn" : "pending",
+      values: projectTransformationProofForControlRoom(
+        diagnostics.transformationProof
+      ),
+      warnings: []
+    },
+    {
       id: "outcome",
       label: "Outcome",
       status: outcome === "ok" ? "ok" : outcome === "error" ? "error" : "pending",
@@ -8697,9 +9232,47 @@ function throwProviderFailed(prep, message, options = {}) {
     }
   );
 }
+async function attachTransformationProof(args) {
+  const decoded = decodeDataUriToBytes(args.sourceImageDataUri);
+  let outputBytes = null;
+  if (args.imageUrl && args.paidCompleted) {
+    const downloader = args.downloadImageBytes ?? downloadProviderImageBytes;
+    const downloaded = await downloader(args.imageUrl);
+    if (downloaded?.bytes?.length) outputBytes = downloaded.bytes;
+  }
+  const predictionIds = [
+    ...args.diagnostics.predictionIds,
+    ...args.diagnostics.providerAttempts.map((a) => a.predictionId).filter((id) => typeof id === "string" && Boolean(id))
+  ];
+  args.diagnostics.predictionIds = [...new Set(predictionIds)];
+  args.diagnostics.transformationProof = buildTransformationProofReport({
+    diagnosticMode: args.diagnosticMode,
+    diagnosticPromptInjected: args.diagnosticPromptInjected,
+    paidProviderCallAttempted: args.paidAttempted,
+    paidProviderCallCompleted: args.paidCompleted,
+    providerModel: args.diagnostics.providerModel,
+    providerRoutingStrategy: args.diagnostics.providerRoutingStrategy,
+    providerRoutingReason: args.diagnostics.providerRoutingReason,
+    providerFallbackUsed: args.diagnostics.providerFallbackUsed,
+    providerRequestCount: args.diagnostics.providerRequestCount,
+    predictionIds: args.diagnostics.predictionIds,
+    inputBytes: decoded?.bytes ?? null,
+    outputBytes,
+    outputImageUrl: args.imageUrl,
+    strengthInput: args.strengthInput
+  });
+}
 async function runLiveFuturePreview(input) {
   const env = input.env ?? process.env;
-  if (!isBodySimulatorLivePreviewEnabled(env) && input.dryRun !== true) {
+  const diagnosticRequested = isTransformProofDiagnosticRequested(
+    input.diagnosticMode
+  );
+  const diagnosticAllowed = isTransformProofDiagnosticAllowed({
+    requested: diagnosticRequested,
+    controlRoomAuthorized: input.controlRoomAuthorized === true,
+    env
+  });
+  if (!isBodySimulatorLivePreviewEnabled(env) && input.dryRun !== true && !diagnosticAllowed) {
     throw new LiveFuturePreviewError(
       "live_preview_adapter_failed",
       "Live Future preview flag is not enabled.",
@@ -8714,7 +9287,50 @@ async function runLiveFuturePreview(input) {
     nowMs: input.nowMs,
     enabled: true
   });
+  prep.diagnostics.diagnosticMode = diagnosticAllowed ? TRANSFORM_PROOF_DIAGNOSTIC_MODE : null;
   if (input.dryRun) {
+    let strengthInput = null;
+    try {
+      const helpers2 = loadProvenFluxKontextProHelpers();
+      strengthInput = helpers2.buildFluxKontextProInput({
+        prompt: "dry-run-transform-proof",
+        imageDataUri: input.sourceImageDataUri || "data:image/jpeg;base64,AA==",
+        bfNow: prep.diagnostics.bodyFat.current,
+        bfGoal: prep.diagnostics.bodyFat.target,
+        horizon: typeof input.payload.horizon === "string" ? input.payload.horizon : "12w",
+        horizonDate: typeof input.payload.horizonDate === "string" ? input.payload.horizonDate : ""
+      });
+    } catch {
+      strengthInput = null;
+    }
+    await attachTransformationProof({
+      diagnostics: prep.diagnostics,
+      sourceImageDataUri: input.sourceImageDataUri,
+      imageUrl: null,
+      strengthInput,
+      diagnosticMode: diagnosticAllowed,
+      diagnosticPromptInjected: false,
+      paidAttempted: false,
+      paidCompleted: false,
+      downloadImageBytes: input.downloadImageBytes
+    });
+    if (!prep.diagnostics.transformationProof?.strengthParams) {
+      prep.diagnostics.transformationProof = buildTransformationProofReport({
+        diagnosticMode: diagnosticAllowed,
+        diagnosticPromptInjected: false,
+        paidProviderCallAttempted: false,
+        paidProviderCallCompleted: false,
+        strengthInput: {
+          prompt: "x",
+          input_image: "[redacted]",
+          aspect_ratio: "match_input_image",
+          output_format: "png",
+          safety_tolerance: 2,
+          prompt_upsampling: false
+        },
+        inputBytes: decodeDataUriToBytes(input.sourceImageDataUri)?.bytes ?? null
+      });
+    }
     return {
       ok: true,
       imageUrl: null,
@@ -8787,7 +9403,11 @@ async function runLiveFuturePreview(input) {
     anatomicalRules: prep.rules.anatomicalTransformation?.rules ?? [],
     optionalNotes: prep.adapter.input.optionalNotes ?? []
   });
-  const providerPrompt = conditioned.conditionedPrompt;
+  let providerPrompt = conditioned.conditionedPrompt;
+  if (diagnosticAllowed) {
+    providerPrompt = buildTransformationProofDiagnosticPrompt(providerPrompt);
+    prep.diagnostics.diagnosticPromptInjected = true;
+  }
   formatted.prompt = providerPrompt;
   if (typeof formatted.negativePrompt === "string") {
     delete formatted.negativePrompt;
@@ -8802,6 +9422,7 @@ async function runLiveFuturePreview(input) {
   const horizon = typeof input.payload.horizon === "string" && input.payload.horizon.trim() ? input.payload.horizon.trim() : prep.diagnostics.timelineSource || "12w";
   const horizonDate = typeof input.payload.horizonDate === "string" ? input.payload.horizonDate : "";
   let promptUpsampling = null;
+  let strengthInputSnapshot = null;
   try {
     const helpers2 = loadProvenFluxKontextProHelpers();
     const built = helpers2.buildFluxKontextProInput({
@@ -8812,11 +9433,21 @@ async function runLiveFuturePreview(input) {
       horizon,
       horizonDate
     });
+    strengthInputSnapshot = { ...built, input_image: "[redacted]" };
     promptUpsampling = typeof built.prompt_upsampling === "boolean" ? built.prompt_upsampling : null;
   } catch {
     promptUpsampling = null;
+    strengthInputSnapshot = {
+      prompt: "[redacted]",
+      input_image: "[redacted]",
+      aspect_ratio: "match_input_image",
+      output_format: "png",
+      safety_tolerance: 2,
+      prompt_upsampling: null
+    };
   }
   prep.diagnostics.providerPromptUpsampling = promptUpsampling;
+  void inspectFluxStrengthParams(strengthInputSnapshot);
   prep.diagnostics.providerSafetyAttribution = buildAttributionForLivePath({
     diagnostics: prep.diagnostics,
     providerPrompt,
@@ -8865,6 +9496,18 @@ async function runLiveFuturePreview(input) {
     }
     const imageUrl = transport.imageUrl;
     const model = transport.model ?? DEFAULT_REPLICATE_TRANSPORT_MODEL;
+    prep.diagnostics.providerModel = model;
+    await attachTransformationProof({
+      diagnostics: prep.diagnostics,
+      sourceImageDataUri: input.sourceImageDataUri,
+      imageUrl,
+      strengthInput: strengthInputSnapshot,
+      diagnosticMode: diagnosticAllowed,
+      diagnosticPromptInjected: prep.diagnostics.diagnosticPromptInjected,
+      paidAttempted: true,
+      paidCompleted: true,
+      downloadImageBytes: input.downloadImageBytes
+    });
     const diagnostics2 = {
       ...prep.diagnostics,
       providerRequestAttempted: true,
@@ -8945,6 +9588,17 @@ async function runLiveFuturePreview(input) {
         promptUpsampling
       });
     }
+    await attachTransformationProof({
+      diagnostics: prep.diagnostics,
+      sourceImageDataUri: input.sourceImageDataUri,
+      imageUrl: generatedOnce.imageUrl,
+      strengthInput: strengthInputSnapshot,
+      diagnosticMode: diagnosticAllowed,
+      diagnosticPromptInjected: prep.diagnostics.diagnosticPromptInjected,
+      paidAttempted: true,
+      paidCompleted: true,
+      downloadImageBytes: input.downloadImageBytes
+    });
     const diagnostics2 = {
       ...prep.diagnostics,
       providerRequestAttempted: true,
@@ -9062,6 +9716,23 @@ async function runLiveFuturePreview(input) {
     providerError: null,
     logicalSuccessViaFallback: prep.diagnostics.providerFallbackUsed
   });
+  const cascadePredictionIds = (generated.providerAttempts || []).map((a) => a.predictionId).filter((id) => typeof id === "string" && Boolean(id));
+  if (cascadePredictionIds.length) {
+    prep.diagnostics.predictionIds = [
+      .../* @__PURE__ */ new Set([...prep.diagnostics.predictionIds, ...cascadePredictionIds])
+    ];
+  }
+  await attachTransformationProof({
+    diagnostics: prep.diagnostics,
+    sourceImageDataUri: input.sourceImageDataUri,
+    imageUrl: generated.imageUrl,
+    strengthInput: strengthInputSnapshot,
+    diagnosticMode: diagnosticAllowed,
+    diagnosticPromptInjected: prep.diagnostics.diagnosticPromptInjected,
+    paidAttempted: true,
+    paidCompleted: true,
+    downloadImageBytes: input.downloadImageBytes
+  });
   const diagnostics = {
     ...prep.diagnostics,
     providerRequestAttempted: true,
@@ -9090,7 +9761,7 @@ async function runLiveFuturePreview(input) {
   };
 }
 function sha256FileBytes(bytes) {
-  return (0, import_node_crypto4.createHash)("sha256").update(bytes).digest("hex");
+  return (0, import_node_crypto5.createHash)("sha256").update(bytes).digest("hex");
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
