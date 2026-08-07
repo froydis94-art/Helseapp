@@ -7,6 +7,8 @@
  */
 
 import { createHash, randomBytes } from "node:crypto";
+import { createRequire } from "node:module";
+import { join } from "node:path";
 
 import { BODY_PROFILE_SCHEMA_VERSION } from "../BodyProfile";
 import {
@@ -15,14 +17,8 @@ import {
 } from "../runtime";
 import { TRANSFORMATION_GOAL_SCHEMA_VERSION } from "../TransformationGoal";
 import {
-  DEFAULT_MAX_POLL_ATTEMPTS,
-  DEFAULT_POLL_INTERVAL_MS,
-  DEFAULT_REPLICATE_API_BASE_URL,
   DEFAULT_REPLICATE_TRANSPORT_MODEL,
-  DEFAULT_TOTAL_TIMEOUT_MS,
-  ReplicateTransportAdapter,
   type ReplicateTransportAdapter as ReplicateTransportAdapterType,
-  type ReplicateTransportConfig,
   type ReplicateTransportDependencies,
   type ReplicateTransportResult,
 } from "../transport";
@@ -43,6 +39,145 @@ import {
   type PublicFuturePayload,
   type PublicFutureAdapterResult,
 } from "./PublicFutureToBodySimulatorAdapter";
+
+/** Proven Flux Kontext Pro transport helpers from legacy lib/replicate.js */
+export interface ProvenFluxKontextProHelpers {
+  runFluxKontextProOnce: (args: {
+    imageDataUri: string;
+    prompt: string;
+    token?: string;
+    model?: string;
+    pollTimeoutMs?: number;
+    bfNow?: number | null;
+    bfGoal?: number | null;
+    horizon?: string;
+    horizonDate?: string;
+  }) => Promise<{
+    imageUrl: string;
+    model: string;
+    attempt?: string;
+    inputFieldNames?: string[];
+    providerRequestCount?: number;
+  }>;
+  buildFluxKontextProInput: (args: {
+    prompt: string;
+    imageDataUri: string;
+    bfNow?: number | null;
+    bfGoal?: number | null;
+    horizon?: string;
+    horizonDate?: string;
+  }) => Record<string, unknown>;
+  DEFAULT_MODEL: string;
+}
+
+export type ProviderErrorCategory =
+  | "provider_validation_failed"
+  | "provider_auth_failed"
+  | "provider_model_not_found"
+  | "provider_input_contract_failed"
+  | "provider_rate_limited"
+  | "provider_prediction_failed"
+  | "provider_timeout"
+  | "provider_unknown_failure";
+
+export interface LiveProviderDiagnostics {
+  providerHttpStatus: number | null;
+  providerErrorCode: string | null;
+  providerErrorCategory: ProviderErrorCategory;
+  providerModel: string;
+  providerEndpointClass: "replicate_official_model_predictions";
+  providerInputFieldNames: string[];
+  providerResponseMessageSafe: string;
+}
+
+/**
+ * Load the known-working Flux Kontext Pro contract from lib/replicate.js.
+ * Resolves from process.cwd() so tsx tests and the CJS Vercel bundle both work
+ * without bundling reservedrift prompt logic. Production API also injects
+ * `fluxProvider: runFluxKontextProOnce` explicitly.
+ */
+export function loadProvenFluxKontextProHelpers(): ProvenFluxKontextProHelpers {
+  const req = createRequire(join(process.cwd(), "package.json"));
+  return req(join(process.cwd(), "lib/replicate.js")) as ProvenFluxKontextProHelpers;
+}
+
+const PROVEN_FLUX_INPUT_FIELDS = [
+  "prompt",
+  "input_image",
+  "aspect_ratio",
+  "output_format",
+  "safety_tolerance",
+  "prompt_upsampling",
+] as const;
+
+function sanitizeProviderMessageSafe(raw: unknown): string {
+  let text = "";
+  if (typeof raw === "string") text = raw;
+  else if (raw != null) text = String(raw);
+  text = text.replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
+  text = text.replace(/r8_[A-Za-z0-9]+/gi, "[redacted]");
+  text = text.replace(/Bearer\s+\S+/gi, "Bearer [redacted]");
+  text = text.replace(
+    /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/gi,
+    "[redacted]"
+  );
+  if (!text) text = "Provider request failed.";
+  if (text.length > 200) text = `${text.slice(0, 199)}…`;
+  return text;
+}
+
+export function classifyLiveProviderErrorCategory(
+  status: number | null | undefined,
+  message: string
+): ProviderErrorCategory {
+  const code = Number(status) || 0;
+  const text = String(message || "");
+  if (code === 401 || code === 403) return "provider_auth_failed";
+  if (code === 404 || /could not be found|not found|does not exist/i.test(text)) {
+    return "provider_model_not_found";
+  }
+  if (code === 429) return "provider_rate_limited";
+  if (code === 400 || code === 422) {
+    if (/input|image|field|parameter|validation|invalid|data uri|prompt/i.test(text)) {
+      return "provider_input_contract_failed";
+    }
+    return "provider_validation_failed";
+  }
+  if (code === 504 || /timeout|timed out|for lang tid|canceled/i.test(text)) {
+    return "provider_timeout";
+  }
+  if (code >= 500 || /prediction|failed|E005|sensitive/i.test(text)) {
+    return "provider_prediction_failed";
+  }
+  return "provider_unknown_failure";
+}
+
+export function buildLiveProviderDiagnostics(args: {
+  status?: number | null;
+  code?: string | null;
+  message?: unknown;
+  model?: string | null;
+  inputFieldNames?: string[] | null;
+}): LiveProviderDiagnostics {
+  const safe = sanitizeProviderMessageSafe(args.message);
+  const status =
+    typeof args.status === "number" && Number.isFinite(args.status)
+      ? args.status
+      : null;
+  return {
+    providerHttpStatus: status,
+    providerErrorCode:
+      (typeof args.code === "string" && args.code.trim()) ||
+      (status != null ? `http_${status}` : "provider_error"),
+    providerErrorCategory: classifyLiveProviderErrorCategory(status, safe),
+    providerModel: args.model || DEFAULT_REPLICATE_TRANSPORT_MODEL,
+    providerEndpointClass: "replicate_official_model_predictions",
+    providerInputFieldNames: Array.isArray(args.inputFieldNames)
+      ? [...args.inputFieldNames]
+      : [...PROVEN_FLUX_INPUT_FIELDS],
+    providerResponseMessageSafe: safe,
+  };
+}
 
 export {
   BODY_SIMULATOR_LIVE_PREVIEW_ENV,
@@ -72,6 +207,7 @@ export class LiveFuturePreviewError extends Error {
   readonly status: number;
   readonly diagnostics: LiveBodySimulatorDiagnostics | null;
   readonly providerCalls: number;
+  readonly providerDiagnostics: LiveProviderDiagnostics | null;
 
   constructor(
     errorClass: LivePreviewErrorClass,
@@ -81,6 +217,7 @@ export class LiveFuturePreviewError extends Error {
       status?: number;
       diagnostics?: LiveBodySimulatorDiagnostics | null;
       providerCalls?: number;
+      providerDiagnostics?: LiveProviderDiagnostics | null;
     }
   ) {
     super(message);
@@ -90,6 +227,7 @@ export class LiveFuturePreviewError extends Error {
     this.status = options.status ?? 422;
     this.diagnostics = options.diagnostics ?? null;
     this.providerCalls = options.providerCalls ?? 0;
+    this.providerDiagnostics = options.providerDiagnostics ?? null;
   }
 }
 
@@ -131,8 +269,12 @@ export interface LiveBodySimulatorDiagnostics {
   promptContainsAnatomicalIntent: boolean;
   providerRequestAttempted: boolean;
   providerRequestCount: number;
+  providerContract: "flux_kontext_pro_legacy_parity" | "none";
+  providerModel: string | null;
+  providerInputFieldNames: string[];
   generationPath: "body_simulator_anatomical_live_preview" | "legacy_reservedrift";
   warnings: string[];
+  providerDiagnostics?: LiveProviderDiagnostics | null;
 }
 
 export interface LiveFuturePreviewTraceStage {
@@ -193,10 +335,14 @@ function emptyDiagnostics(
     promptContainsAnatomicalIntent: false,
     providerRequestAttempted: false,
     providerRequestCount: 0,
+    providerContract: "none",
+    providerModel: null,
+    providerInputFieldNames: [],
     generationPath: enabled
       ? "body_simulator_anatomical_live_preview"
       : "legacy_reservedrift",
     warnings: [],
+    providerDiagnostics: null,
   };
 }
 
@@ -637,8 +783,14 @@ export interface LiveFuturePreviewRunInput {
   mimeType?: string;
   env?: NodeJS.ProcessEnv | Record<string, string | undefined>;
   nowMs?: number;
+  /**
+   * Test-only transport mock. Production live path uses the proven
+   * Flux Kontext Pro contract from lib/replicate.js (not this adapter).
+   */
   transportAdapter?: ReplicateTransportAdapterType;
   transportDependencies?: ReplicateTransportDependencies;
+  /** Optional override of proven Flux helper (tests). */
+  fluxProvider?: ProvenFluxKontextProHelpers["runFluxKontextProOnce"];
   /** When true, stop after formatter — zero provider calls. */
   dryRun?: boolean;
 }
@@ -657,27 +809,51 @@ export interface LiveFuturePreviewSuccess {
   providerRequestCount: number;
 }
 
-function buildTransportConfig(
-  env: NodeJS.ProcessEnv | Record<string, string | undefined>
-): ReplicateTransportConfig {
-  const token =
-    typeof env.REPLICATE_API_TOKEN === "string" && env.REPLICATE_API_TOKEN.trim()
-      ? env.REPLICATE_API_TOKEN.trim()
-      : null;
-  return {
-    enabled: token != null,
-    apiToken: token,
-    apiBaseUrl: DEFAULT_REPLICATE_API_BASE_URL,
-    model: DEFAULT_REPLICATE_TRANSPORT_MODEL,
-    createTimeoutMs: 60_000,
-    pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
-    totalTimeoutMs: Math.max(DEFAULT_TOTAL_TIMEOUT_MS, 120_000),
-    maxPollAttempts: DEFAULT_MAX_POLL_ATTEMPTS,
-  };
+function throwProviderFailed(
+  prep: LiveFuturePreviewPreparation,
+  message: unknown,
+  options: {
+    status?: number;
+    code?: string | null;
+    model?: string | null;
+    inputFieldNames?: string[] | null;
+    providerCalls?: number;
+  } = {}
+): never {
+  const providerDiagnostics = buildLiveProviderDiagnostics({
+    status: options.status ?? 502,
+    code: options.code,
+    message,
+    model: options.model,
+    inputFieldNames: options.inputFieldNames,
+  });
+  prep.diagnostics.providerRequestAttempted = true;
+  prep.diagnostics.providerRequestCount = options.providerCalls ?? 1;
+  prep.diagnostics.providerContract = "flux_kontext_pro_legacy_parity";
+  prep.diagnostics.providerModel = providerDiagnostics.providerModel;
+  prep.diagnostics.providerInputFieldNames =
+    providerDiagnostics.providerInputFieldNames;
+  prep.diagnostics.providerDiagnostics = providerDiagnostics;
+
+  throw new LiveFuturePreviewError(
+    "live_preview_provider_failed",
+    providerDiagnostics.providerResponseMessageSafe,
+    {
+      livePreviewTraceId: prep.livePreviewTraceId,
+      diagnostics: prep.diagnostics,
+      status: options.status ?? 502,
+      providerCalls: options.providerCalls ?? 1,
+      providerDiagnostics,
+    }
+  );
 }
 
 /**
  * Full live Future preview path. Exactly one provider request when not dryRun.
+ *
+ * Transformation authority: Body Simulator → Anatomical → Formatter.
+ * Provider transport: proven Flux Kontext Pro contract from lib/replicate.js
+ * (same field names / endpoint / auth as legacy generateWithReplicate).
  */
 export async function runLiveFuturePreview(
   input: LiveFuturePreviewRunInput
@@ -727,87 +903,201 @@ export async function runLiveFuturePreview(
 
   const { profile, goal } = buildShellProfileAndGoal(prep);
 
-  let transportAdapter = input.transportAdapter;
-  if (transportAdapter == null) {
-    const config = buildTransportConfig(env);
-    if (config.apiToken == null) {
-      throw new LiveFuturePreviewError(
-        "live_preview_provider_failed",
-        "Provider is not configured.",
-        {
-          livePreviewTraceId: prep.livePreviewTraceId,
-          diagnostics: prep.diagnostics,
-          status: 503,
-          providerCalls: 0,
-        }
-      );
-    }
-    transportAdapter = new ReplicateTransportAdapter(
-      config,
-      input.transportDependencies
-    );
-  }
-
-  prep.diagnostics.providerRequestAttempted = true;
-
+  // Format anatomical prompt via existing FluxFormatter (zero provider calls).
+  // Do not force aspectRatio — proven Flux contract uses match_input_image.
   const runtime = new AiOsRuntime(
     createAiOsRuntimeDependencies({
-      transportAdapter,
+      ...(input.transportAdapter
+        ? { transportAdapter: input.transportAdapter }
+        : {}),
       now: () => input.nowMs ?? Date.now(),
     })
   );
 
-  let runtimeResult;
+  let formatResult;
   try {
-    runtimeResult = await runtime.run({
-      mode: "transport_mock",
+    formatResult = await runtime.run({
+      mode: "dry_run",
       profile: profile as never,
       goal: goal as never,
       canonicalBodyTransformation: prep.canonical,
       formatterOptions: {
-        aspectRatio: "3:4",
         quality: "standard",
-      },
-      sourceImage: {
-        kind: "data_uri",
-        value: input.sourceImageDataUri,
-        contentType: (input.mimeType === "image/png" ||
-        input.mimeType === "image/webp"
-          ? input.mimeType
-          : "image/jpeg") as "image/jpeg" | "image/png" | "image/webp",
       },
     });
   } catch (error) {
-    prep.diagnostics.providerRequestCount = 1;
     throw new LiveFuturePreviewError(
-      "live_preview_provider_failed",
-      error instanceof Error ? error.message : "Provider request failed.",
+      "live_preview_formatter_translation_failed",
+      error instanceof Error ? error.message : "Formatter failed.",
       {
         livePreviewTraceId: prep.livePreviewTraceId,
         diagnostics: prep.diagnostics,
-        status: 502,
-        providerCalls: 1,
+        status: 422,
+        providerCalls: 0,
       }
     );
   }
 
-  prep.diagnostics.providerRequestCount = 1;
-
-  const transport = runtimeResult.artifacts.transportResult as
-    | ReplicateTransportResult
-    | undefined;
-
-  if (!transport || transport.success !== true || !transport.imageUrl) {
+  const formatted = formatResult.artifacts.formattedRequest;
+  const anatomicalPrompt =
+    typeof formatted?.prompt === "string" ? formatted.prompt.trim() : "";
+  if (!formatResult.success || !formatted || !anatomicalPrompt) {
+    const detail =
+      formatResult.errors?.filter((e) => typeof e === "string").join("; ") ||
+      formatResult.terminalOutcome ||
+      "Anatomical formatter did not produce a provider prompt.";
     throw new LiveFuturePreviewError(
-      "live_preview_provider_failed",
-      "Provider request failed.",
+      "live_preview_formatter_translation_failed",
+      detail,
       {
         livePreviewTraceId: prep.livePreviewTraceId,
         diagnostics: prep.diagnostics,
-        status: 502,
-        providerCalls: 1,
+        status: 422,
+        providerCalls: 0,
       }
     );
+  }
+
+  prep.diagnostics.promptContainsAnatomicalIntent = true;
+  prep.diagnostics.providerRequestAttempted = true;
+  prep.diagnostics.providerContract = "flux_kontext_pro_legacy_parity";
+  prep.diagnostics.providerModel = DEFAULT_REPLICATE_TRANSPORT_MODEL;
+  prep.diagnostics.providerInputFieldNames = [...PROVEN_FLUX_INPUT_FIELDS];
+
+  const horizon =
+    typeof input.payload.horizon === "string" && input.payload.horizon.trim()
+      ? input.payload.horizon.trim()
+      : prep.diagnostics.timelineSource || "12w";
+  const horizonDate =
+    typeof input.payload.horizonDate === "string"
+      ? input.payload.horizonDate
+      : "";
+
+  // Test-only: injected transport adapter (one call, no auto-retry).
+  if (input.transportAdapter) {
+    let transport: ReplicateTransportResult;
+    try {
+      transport = await input.transportAdapter.generate({
+        formattedRequest: formatted,
+        sourceImage: {
+          kind: "data_uri",
+          value: input.sourceImageDataUri,
+          contentType: (input.mimeType === "image/png" ||
+          input.mimeType === "image/webp"
+            ? input.mimeType
+            : "image/jpeg") as "image/jpeg" | "image/png" | "image/webp",
+        },
+        traceId: prep.livePreviewTraceId,
+      });
+    } catch (error) {
+      throwProviderFailed(prep, error instanceof Error ? error.message : error, {
+        status: 502,
+        providerCalls: 1,
+      });
+    }
+
+    prep.diagnostics.providerRequestCount = 1;
+    if (!transport || transport.success !== true || !transport.imageUrl) {
+      const failure = transport && transport.success === false ? transport : null;
+      throwProviderFailed(
+        prep,
+        failure?.error?.message || "Provider request failed.",
+        {
+          status: 502,
+          code: failure?.error?.code ?? null,
+          model: failure?.model ?? DEFAULT_REPLICATE_TRANSPORT_MODEL,
+          providerCalls: 1,
+        }
+      );
+    }
+
+    const imageUrl = transport.imageUrl;
+    const model = transport.model ?? DEFAULT_REPLICATE_TRANSPORT_MODEL;
+    const diagnostics: LiveBodySimulatorDiagnostics = {
+      ...prep.diagnostics,
+      providerRequestAttempted: true,
+      providerRequestCount: 1,
+      promptContainsAnatomicalIntent: true,
+    };
+
+    return {
+      ok: true,
+      imageUrl,
+      livePreviewTraceId: prep.livePreviewTraceId,
+      livePreviewDiagnostics: diagnostics,
+      liveFuturePreviewTrace: buildLiveFuturePreviewTraceStages(
+        diagnostics,
+        "ok"
+      ),
+      bodySimulatorPreviewActive: true,
+      attempt: "body-simulator-anatomical-live-preview",
+      usedFallback: false,
+      model,
+      disclaimer:
+        "Realistic motivational visualization from Body Simulator anatomical rules — not a medical prediction or flattering ideal.",
+      providerRequestCount: 1,
+    };
+  }
+
+  // Production live path: proven Flux Kontext Pro contract (lib/replicate.js).
+  const token =
+    typeof env.REPLICATE_API_TOKEN === "string" && env.REPLICATE_API_TOKEN.trim()
+      ? env.REPLICATE_API_TOKEN.trim()
+      : "";
+  if (!token && input.fluxProvider == null) {
+    throwProviderFailed(prep, "Provider is not configured.", {
+      status: 503,
+      code: "missing_token",
+      providerCalls: 0,
+    });
+  }
+
+  const runOnce =
+    input.fluxProvider ?? loadProvenFluxKontextProHelpers().runFluxKontextProOnce;
+
+  let generated: {
+    imageUrl: string;
+    model: string;
+    attempt?: string;
+    inputFieldNames?: string[];
+  };
+  try {
+    generated = await runOnce({
+      imageDataUri: input.sourceImageDataUri,
+      prompt: anatomicalPrompt,
+      token,
+      model: DEFAULT_REPLICATE_TRANSPORT_MODEL,
+      bfNow: prep.diagnostics.bodyFat.current,
+      bfGoal: prep.diagnostics.bodyFat.target,
+      horizon,
+      horizonDate,
+    });
+  } catch (error) {
+    const err = error as {
+      message?: string;
+      status?: number;
+      code?: string;
+      providerErrorCode?: string;
+      providerInputFieldNames?: string[];
+      providerModel?: string;
+      replicateRaw?: string;
+    };
+    throwProviderFailed(prep, err.replicateRaw || err.message || error, {
+      status: typeof err.status === "number" ? err.status : 502,
+      code: err.providerErrorCode || err.code || null,
+      model: err.providerModel || DEFAULT_REPLICATE_TRANSPORT_MODEL,
+      inputFieldNames: err.providerInputFieldNames || [...PROVEN_FLUX_INPUT_FIELDS],
+      providerCalls: 1,
+    });
+  }
+
+  prep.diagnostics.providerRequestCount = 1;
+  if (!generated?.imageUrl) {
+    throwProviderFailed(prep, "Provider returned no image URL.", {
+      status: 502,
+      providerCalls: 1,
+      inputFieldNames: generated?.inputFieldNames || [...PROVEN_FLUX_INPUT_FIELDS],
+    });
   }
 
   const diagnostics: LiveBodySimulatorDiagnostics = {
@@ -815,11 +1105,15 @@ export async function runLiveFuturePreview(
     providerRequestAttempted: true,
     providerRequestCount: 1,
     promptContainsAnatomicalIntent: true,
+    providerContract: "flux_kontext_pro_legacy_parity",
+    providerModel: generated.model || DEFAULT_REPLICATE_TRANSPORT_MODEL,
+    providerInputFieldNames:
+      generated.inputFieldNames || [...PROVEN_FLUX_INPUT_FIELDS],
   };
 
   return {
     ok: true,
-    imageUrl: transport.imageUrl,
+    imageUrl: generated.imageUrl,
     livePreviewTraceId: prep.livePreviewTraceId,
     livePreviewDiagnostics: diagnostics,
     liveFuturePreviewTrace: buildLiveFuturePreviewTraceStages(
@@ -829,7 +1123,7 @@ export async function runLiveFuturePreview(
     bodySimulatorPreviewActive: true,
     attempt: "body-simulator-anatomical-live-preview",
     usedFallback: false,
-    model: transport.model ?? DEFAULT_REPLICATE_TRANSPORT_MODEL,
+    model: generated.model || DEFAULT_REPLICATE_TRANSPORT_MODEL,
     disclaimer:
       "Realistic motivational visualization from Body Simulator anatomical rules — not a medical prediction or flattering ideal.",
     providerRequestCount: 1,

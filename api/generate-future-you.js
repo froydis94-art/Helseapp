@@ -1,4 +1,7 @@
-const { generateWithReplicate } = require("../lib/replicate");
+const {
+  generateWithReplicate,
+  runFluxKontextProOnce,
+} = require("../lib/replicate");
 
 function setCors(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -120,6 +123,9 @@ async function handler(req, res) {
           sourceImageDataUri: toDataUri(imageBuffer, mimeType),
           mimeType,
           env: process.env,
+          // Inject proven Flux Kontext Pro contract from lib/replicate.js
+          // (same transport fields as legacy generateWithReplicate).
+          fluxProvider: runFluxKontextProOnce,
         });
 
         return res.status(200).json({
@@ -138,13 +144,37 @@ async function handler(req, res) {
         const errorClass =
           liveError?.errorClass || "live_preview_provider_failed";
         const status = liveError?.status || 500;
-        console.error("[generate-future-you] live-preview", errorClass, liveError);
+        const providerDiagnostics =
+          liveError?.providerDiagnostics ||
+          liveError?.diagnostics?.providerDiagnostics ||
+          null;
+        console.error(
+          "[generate-future-you] live-preview",
+          errorClass,
+          providerDiagnostics?.providerErrorCategory || "",
+          providerDiagnostics?.providerHttpStatus ?? "",
+          providerDiagnostics?.providerResponseMessageSafe ||
+            liveError?.message ||
+            ""
+        );
         return res.status(status).json({
           error: liveError?.message || "Live Future preview failed.",
           errorClass,
           livePreviewTraceId: liveError?.livePreviewTraceId || null,
           livePreviewDiagnostics: liveError?.diagnostics || null,
           providerRequestCount: liveError?.providerCalls ?? 0,
+          // Safe structured provider diagnostics (no tokens / image / Authorization).
+          providerHttpStatus: providerDiagnostics?.providerHttpStatus ?? null,
+          providerErrorCode: providerDiagnostics?.providerErrorCode ?? null,
+          providerErrorCategory:
+            providerDiagnostics?.providerErrorCategory ?? null,
+          providerModel: providerDiagnostics?.providerModel ?? null,
+          providerEndpointClass:
+            providerDiagnostics?.providerEndpointClass ?? null,
+          providerInputFieldNames:
+            providerDiagnostics?.providerInputFieldNames ?? null,
+          providerResponseMessageSafe:
+            providerDiagnostics?.providerResponseMessageSafe ?? null,
         });
       }
     }

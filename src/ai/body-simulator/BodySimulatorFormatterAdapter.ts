@@ -286,7 +286,20 @@ function anatomicalDirectionPhrase(direction: AnatomicalChangeDirection): string
 }
 
 function anatomicalMagnitudePhrase(magnitude: AnatomicalMagnitude): string {
-  return magnitude;
+  // Must not emit raw visibility/magnitude enum tokens into prompt text
+  // (ProviderFormatter rejects leaks like "pronounced" / "restrained").
+  switch (magnitude) {
+    case "subtle":
+      return "subtle";
+    case "moderate":
+      return "moderate";
+    case "clear":
+      return "clearly visible";
+    case "pronounced":
+      return "strongly visible";
+    default:
+      return "noticeable";
+  }
 }
 
 function anatomicalToRenderKind(

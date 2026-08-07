@@ -172,6 +172,9 @@ export {
   LiveFuturePreviewError,
   assertAnatomicalRulesTranslated,
   buildLiveFuturePreviewTraceStages,
+  buildLiveProviderDiagnostics,
+  classifyLiveProviderErrorCategory,
+  loadProvenFluxKontextProHelpers,
   prepareLiveFuturePreview,
   runLiveFuturePreview,
   sha256FileBytes,
@@ -183,6 +186,9 @@ export type {
   LiveFuturePreviewSuccess,
   LiveFuturePreviewTraceStage,
   LivePreviewErrorClass,
+  LiveProviderDiagnostics,
+  ProvenFluxKontextProHelpers,
+  ProviderErrorCategory,
 } from "./LiveFuturePreviewPipeline";
 
 export {

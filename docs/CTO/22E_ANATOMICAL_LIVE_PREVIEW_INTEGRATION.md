@@ -231,10 +231,79 @@ When the flag is ON and the live path fails, the API returns a structured error.
 
 ## Provider unchanged
 
-- Same Replicate transport adapter family
+- Same Replicate provider / official model predictions endpoint family
 - Default model remains `black-forest-labs/flux-kontext-pro`
 - No moderation / billing / auth / account-trust changes
-- No Replicate transport core redesign
+- Live path reuses the proven Flux Kontext Pro **request contract** from `lib/replicate.js` (Patch 022E-A)
+
+---
+
+## Provider Contract Parity
+
+Patch **022E-A** fixes live-preview HTTP 502 (`live_preview_provider_failed`) caused by transport contract drift — not by Body Simulator / Anatomical / formatter failures.
+
+### Legacy working contract (flag OFF)
+
+`api/generate-future-you.js` → `generateWithReplicate` → `lib/replicate.js` `runPrediction` / `buildModelInput` for Flux:
+
+| Field | Value |
+| --- | --- |
+| Model | `black-forest-labs/flux-kontext-pro` (code default) |
+| Endpoint | `POST https://api.replicate.com/v1/models/{owner}/{name}/predictions` |
+| Auth | `Authorization: Bearer <REPLICATE_API_TOKEN>` |
+| Content-Type | `application/json` |
+| Prefer | `wait=12` (capped; `CREATE_WAIT_SECONDS`) |
+| Cancel-After | attempt budget seconds |
+| Body | `{ input: { … } }` |
+| Source image field | **`input_image`** (data URI) |
+| Prompt | legacy reservedrift builders |
+| Negative prompt | omitted for Flux |
+| aspect_ratio | **`match_input_image`** |
+| width / height | omitted |
+| output_format | `png` |
+| safety_tolerance | `2` |
+| prompt_upsampling | on for long horizon (≥12m) and/or large BF delta (≥4) |
+
+### Failing 022E contract (before 022E-A)
+
+Live path used `AiOsRuntime` `transport_mock` → `ReplicateTransportAdapter` with formatter options that diverged:
+
+| Field | Failing live value | Legacy |
+| --- | --- | --- |
+| aspect_ratio | **`3:4`** (forced via `formatterOptions.aspectRatio`) | `match_input_image` |
+| prompt_upsampling | **omitted** | computed boolean |
+| Prompt delivery | FluxFormatter + optional EXCLUSIONS appendix via transport | Flux `prompt` only |
+| Transport stack | ReplicateTransportAdapter create/poll (+ AbortSignal create timeout) | `lib/replicate.js` create/poll |
+| Failure message | generic `"Provider request failed."` | provider detail (still not structured) |
+
+Body Simulator → Anatomical → formatter translation were already producing anatomical intent; only the final provider request contract was wrong.
+
+### Root cause
+
+Two stacked failures on the live path:
+
+1. **Formatter enum leak (12‑month / pronounced magnitudes):** `BodySimulatorFormatterAdapter.anatomicalMagnitudePhrase` emitted the raw enum token `pronounced` into change descriptions. `validateFormattedImageRequest` rejected the prompt (`internal enum key leaked into prompt: pronounced`). AiOsRuntime never reached a healthy provider call; the live pipeline previously collapsed this to generic `live_preview_provider_failed` HTTP 502.
+2. **Transport contract drift:** when formatting did succeed, live preview used `ReplicateTransportAdapter` with `aspect_ratio: "3:4"` (forced) and omitted `prompt_upsampling`, instead of the proven Flux Kontext Pro fields from `lib/replicate.js`.
+
+### Corrected contract (flag ON, after 022E-A)
+
+```
+Public Future
+→ Body Simulator → Anatomical → Formatter (anatomical prompt)
+→ lib/replicate.js runFluxKontextProOnce / buildFluxKontextProInput
+→ Replicate Flux Kontext Pro
+→ result
+```
+
+- Anatomical prompt from Body Simulator formatter path (transformation authority unchanged)
+- Provider body fields match legacy Flux: `prompt`, `input_image`, `aspect_ratio: match_input_image`, `output_format: png`, `safety_tolerance: 2`, `prompt_upsampling`
+- Model unchanged: `black-forest-labs/flux-kontext-pro`
+- Exactly one provider request; no cascade; no auto retry; no silent legacy transform fallback
+- Structured safe diagnostics on failure: `providerHttpStatus`, `providerErrorCode`, `providerErrorCategory`, `providerModel`, `providerEndpointClass`, `providerInputFieldNames`, `providerResponseMessageSafe` (never token / Authorization / full image / data URI)
+
+### Body Simulator remains authoritative
+
+022E-A does **not** restore legacy reservedrift transformation intent. Coefficients / anatomical rules / BF-timeline-focus-effort-note priority are untouched. Only the provider transport contract is aligned.
 
 ---
 

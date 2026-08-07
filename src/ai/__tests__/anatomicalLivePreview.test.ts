@@ -16,8 +16,11 @@ import {
   adaptPublicFutureToBodySimulator,
   assertAnatomicalRulesTranslated,
   adaptBodySimulatorRulesToFormatterInput,
+  buildLiveProviderDiagnostics,
+  classifyLiveProviderErrorCategory,
   effortCoefficientForIntensity,
   isBodySimulatorLivePreviewEnabled,
+  loadProvenFluxKontextProHelpers,
   magnitudeOrdinal,
   mapPublicBodyFat,
   mapPublicEffort,
@@ -33,6 +36,14 @@ import type {
   ReplicateTransportInput,
   ReplicateTransportResult,
 } from "../transport";
+import { createRequire } from "node:module";
+
+const requireFromTest = createRequire(import.meta.url);
+const legacyReplicate = requireFromTest("../../../lib/replicate.js") as {
+  buildFluxKontextProInput: (args: Record<string, unknown>) => Record<string, unknown>;
+  DEFAULT_MODEL: string;
+  CREATE_WAIT_SECONDS: number;
+};
 
 const repoRoot = join(fileURLToPath(new URL(".", import.meta.url)), "../../..");
 
@@ -571,5 +582,310 @@ describe("anatomicalLivePreview — DEMAND_022E", () => {
       const sim = simulateBodyTransformation(prep.adapter.input);
       assert.equal(sim.ok, true);
     });
+  });
+});
+
+describe("anatomicalLivePreview — PATCH_022E_A provider contract parity", () => {
+  const rulesHashBefore = hashFile("src/ai/body-simulator/BodySimulatorRules.ts");
+  const anatHashBefore = hashFile(
+    "src/ai/body-simulator/AnatomicalTransformationRules.ts"
+  );
+
+  it("1–5. Body Simulator / anatomical / formatter still work; 22→10 delta -12", () => {
+    const prep = prepareLiveFuturePreview(
+      casePayload({ bfNow: 22, bfGoal: 10, horizon: "12m", intensity: "strong" })
+    );
+    assert.equal(prep.diagnostics.bodySimulatorExecuted, true);
+    assert.equal(prep.diagnostics.anatomicalEngineExecuted, true);
+    assert.equal(prep.diagnostics.bodyFat.delta, -12);
+    assert.ok(prep.diagnostics.appliedAnatomicalRuleIds.length > 0);
+    assert.equal(prep.diagnostics.formatterConsumedAnatomicalRules, true);
+    assert.equal(prep.canonical.source, "body_simulator_v1");
+    assert.ok(prep.diagnostics.anatomicalTranslatedChangeCount > 0);
+  });
+
+  it("6–11. Provider uses proven Flux Kontext Pro contract", async () => {
+    const helpers = loadProvenFluxKontextProHelpers();
+    assert.equal(helpers.DEFAULT_MODEL, "black-forest-labs/flux-kontext-pro");
+    assert.equal(legacyReplicate.DEFAULT_MODEL, helpers.DEFAULT_MODEL);
+
+    const body = helpers.buildFluxKontextProInput({
+      prompt: "anatomical edit prompt from body simulator",
+      imageDataUri: JPEG_DATA_URI,
+      bfNow: 22,
+      bfGoal: 10,
+      horizon: "12m",
+    });
+    assert.deepEqual(Object.keys(body).sort(), [
+      "aspect_ratio",
+      "input_image",
+      "output_format",
+      "prompt",
+      "prompt_upsampling",
+      "safety_tolerance",
+    ].sort());
+    assert.equal(body.input_image, JPEG_DATA_URI);
+    assert.equal(body.aspect_ratio, "match_input_image");
+    assert.equal(body.output_format, "png");
+    assert.equal(body.safety_tolerance, 2);
+    assert.equal(body.prompt_upsampling, true);
+    assert.equal(typeof body.prompt, "string");
+    assert.equal("image" in body, false);
+    assert.equal("negative_prompt" in body, false);
+    assert.equal("width" in body, false);
+    assert.equal("height" in body, false);
+
+    // Same contract as legacy builder for Flux path.
+    const legacyBody = legacyReplicate.buildFluxKontextProInput({
+      prompt: "anatomical edit prompt from body simulator",
+      imageDataUri: JPEG_DATA_URI,
+      bfNow: 22,
+      bfGoal: 10,
+      horizon: "12m",
+    });
+    assert.deepEqual(body, legacyBody);
+
+    const captured: Array<Record<string, unknown>> = [];
+    const result = await runLiveFuturePreview({
+      payload: casePayload({
+        bfNow: 22,
+        bfGoal: 10,
+        horizon: "12m",
+        intensity: "strong",
+        zones: ["abs", "thighs"],
+      }),
+      sourceImageDataUri: JPEG_DATA_URI,
+      env: {
+        BODY_SIMULATOR_LIVE_PREVIEW_ENABLED: "1",
+        REPLICATE_API_TOKEN: "r8_test_token_not_real",
+      },
+      fluxProvider: async (args) => {
+        captured.push({ ...args });
+        const input = helpers.buildFluxKontextProInput({
+          prompt: args.prompt,
+          imageDataUri: args.imageDataUri,
+          bfNow: args.bfNow,
+          bfGoal: args.bfGoal,
+          horizon: args.horizon,
+          horizonDate: args.horizonDate,
+        });
+        assert.equal(input.input_image, JPEG_DATA_URI);
+        assert.equal(args.model, "black-forest-labs/flux-kontext-pro");
+        assert.match(String(args.prompt), /./);
+        // Anatomical prompt must not carry legacy reservedrift builders.
+        assert.equal(
+          /reservedrift|visuellPrompt|transformasjonLogikk|byggVisuellPrompt/.test(
+            String(args.prompt)
+          ),
+          false
+        );
+        return {
+          imageUrl: "https://cdn.example.com/out/parity.png",
+          model: "black-forest-labs/flux-kontext-pro",
+          attempt: "flux-pro-live-anatomical",
+          inputFieldNames: Object.keys(input),
+          providerRequestCount: 1,
+        };
+      },
+    });
+
+    assert.equal(captured.length, 1);
+    assert.equal(result.providerRequestCount, 1);
+    assert.equal(result.model, "black-forest-labs/flux-kontext-pro");
+    assert.equal(
+      result.livePreviewDiagnostics.providerContract,
+      "flux_kontext_pro_legacy_parity"
+    );
+    assert.ok(
+      result.livePreviewDiagnostics.providerInputFieldNames.includes(
+        "input_image"
+      )
+    );
+    assert.equal(legacyReplicate.CREATE_WAIT_SECONDS, 12);
+  });
+
+  it("12–13. Structured diagnostics; no secrets", async () => {
+    const diag = buildLiveProviderDiagnostics({
+      status: 422,
+      code: "http_422",
+      message:
+        "Bearer r8_SECRETtoken123 invalid input data:image/jpeg;base64,AAAA",
+      model: "black-forest-labs/flux-kontext-pro",
+      inputFieldNames: ["prompt", "input_image"],
+    });
+    assert.equal(diag.providerHttpStatus, 422);
+    assert.equal(diag.providerErrorCode, "http_422");
+    assert.equal(
+      diag.providerErrorCategory,
+      "provider_input_contract_failed"
+    );
+    assert.equal(diag.providerModel, "black-forest-labs/flux-kontext-pro");
+    assert.equal(
+      diag.providerEndpointClass,
+      "replicate_official_model_predictions"
+    );
+    assert.deepEqual(diag.providerInputFieldNames, ["prompt", "input_image"]);
+    assert.equal(/r8_|Bearer r8_|data:image\/jpeg;base64,AAAA/.test(diag.providerResponseMessageSafe), false);
+    assert.match(diag.providerResponseMessageSafe, /\[redacted\]/);
+
+    assert.equal(
+      classifyLiveProviderErrorCategory(401, "nope"),
+      "provider_auth_failed"
+    );
+    assert.equal(
+      classifyLiveProviderErrorCategory(429, "slow"),
+      "provider_rate_limited"
+    );
+    assert.equal(
+      classifyLiveProviderErrorCategory(504, "timeout"),
+      "provider_timeout"
+    );
+
+    try {
+      await runLiveFuturePreview({
+        payload: casePayload(),
+        sourceImageDataUri: JPEG_DATA_URI,
+        env: {
+          BODY_SIMULATOR_LIVE_PREVIEW_ENABLED: "1",
+          REPLICATE_API_TOKEN: "r8_test_token_not_real",
+        },
+        fluxProvider: async () => {
+          const err = new Error(
+            "Bearer r8_LEAK data:image/jpeg;base64,ZZZ failed"
+          ) as Error & { status: number };
+          err.status = 422;
+          throw err;
+        },
+      });
+      assert.fail("expected provider failure");
+    } catch (error) {
+      assert.ok(error instanceof LiveFuturePreviewError);
+      const e = error as LiveFuturePreviewError;
+      assert.equal(e.errorClass, "live_preview_provider_failed");
+      assert.ok(e.providerDiagnostics);
+      const json = JSON.stringify(e.providerDiagnostics);
+      assert.equal(/r8_LEAK|Authorization|data:image\/jpeg;base64,ZZZ/.test(json), false);
+      assert.equal(
+        e.diagnostics?.providerDiagnostics?.providerResponseMessageSafe.includes(
+          "[redacted]"
+        ),
+        true
+      );
+    }
+
+    const route = read("api/generate-future-you.js");
+    assert.match(route, /providerHttpStatus/);
+    assert.match(route, /providerErrorCategory/);
+    assert.match(route, /providerResponseMessageSafe/);
+  });
+
+  it("14–15. One request max; no auto retry", async () => {
+    let calls = 0;
+    await runLiveFuturePreview({
+      payload: casePayload(),
+      sourceImageDataUri: JPEG_DATA_URI,
+      env: {
+        BODY_SIMULATOR_LIVE_PREVIEW_ENABLED: "1",
+        REPLICATE_API_TOKEN: "r8_test_token_not_real",
+      },
+      fluxProvider: async () => {
+        calls += 1;
+        return {
+          imageUrl: "https://cdn.example.com/out/once.png",
+          model: "black-forest-labs/flux-kontext-pro",
+          providerRequestCount: 1,
+        };
+      },
+    });
+    assert.equal(calls, 1);
+
+    let failCalls = 0;
+    try {
+      await runLiveFuturePreview({
+        payload: casePayload(),
+        sourceImageDataUri: JPEG_DATA_URI,
+        env: {
+          BODY_SIMULATOR_LIVE_PREVIEW_ENABLED: "1",
+          REPLICATE_API_TOKEN: "r8_test_token_not_real",
+        },
+        fluxProvider: async () => {
+          failCalls += 1;
+          const err = new Error("predicted fail") as Error & { status: number };
+          err.status = 502;
+          throw err;
+        },
+      });
+      assert.fail("expected failure");
+    } catch (error) {
+      assert.ok(error instanceof LiveFuturePreviewError);
+      assert.equal(failCalls, 1);
+      assert.equal((error as LiveFuturePreviewError).providerCalls, 1);
+    }
+
+    const pipeline = read("src/ai/body-simulator/LiveFuturePreviewPipeline.ts");
+    assert.equal(/autoRetry|retry_same_provider|for\s*\(.*retry/.test(pipeline), false);
+    assert.match(pipeline, /runFluxKontextProOnce|fluxProvider/);
+  });
+
+  it("16. Flag OFF = old path", () => {
+    assert.equal(isBodySimulatorLivePreviewEnabled({}), false);
+    const route = read("api/generate-future-you.js");
+    assert.match(route, /generateWithReplicate/);
+    assert.match(
+      route,
+      /isBodySimulatorLivePreviewEnabled\(\)[\s\S]*runLiveFuturePreview[\s\S]*generateWithReplicate/
+    );
+  });
+
+  it("17. Flag ON = Body Simulator transform path", async () => {
+    assert.equal(
+      isBodySimulatorLivePreviewEnabled({
+        BODY_SIMULATOR_LIVE_PREVIEW_ENABLED: "1",
+      }),
+      true
+    );
+    const result = await runLiveFuturePreview({
+      payload: casePayload({ bfNow: 22, bfGoal: 10 }),
+      sourceImageDataUri: JPEG_DATA_URI,
+      env: {
+        BODY_SIMULATOR_LIVE_PREVIEW_ENABLED: "1",
+        REPLICATE_API_TOKEN: "r8_test_token_not_real",
+      },
+      fluxProvider: async (args) => {
+        assert.ok(args.prompt.length > 20);
+        return {
+          imageUrl: "https://cdn.example.com/out/on.png",
+          model: "black-forest-labs/flux-kontext-pro",
+          inputFieldNames: ["prompt", "input_image"],
+        };
+      },
+    });
+    assert.equal(
+      result.livePreviewDiagnostics.generationPath,
+      "body_simulator_anatomical_live_preview"
+    );
+    assert.equal(result.bodySimulatorPreviewActive, true);
+    assert.equal(result.livePreviewDiagnostics.bodyFat.delta, -12);
+  });
+
+  it("18. No simulator coefficient changes", () => {
+    assert.equal(
+      hashFile("src/ai/body-simulator/BodySimulatorRules.ts"),
+      rulesHashBefore
+    );
+    assert.equal(
+      hashFile("src/ai/body-simulator/AnatomicalTransformationRules.ts"),
+      anatHashBefore
+    );
+    const pipeline = read("src/ai/body-simulator/LiveFuturePreviewPipeline.ts");
+    const adapter = read(
+      "src/ai/body-simulator/PublicFutureToBodySimulatorAdapter.ts"
+    );
+    assert.equal(/BODY_SIM_MAX_FAT_LOSS\s*=/.test(pipeline + adapter), false);
+    assert.equal(/ANATOMICAL_EFFORT_STRICT\s*=/.test(pipeline + adapter), false);
+    assert.match(
+      read("docs/CTO/22E_ANATOMICAL_LIVE_PREVIEW_INTEGRATION.md"),
+      /## Provider Contract Parity/
+    );
   });
 });

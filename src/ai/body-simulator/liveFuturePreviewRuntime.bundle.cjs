@@ -26,7 +26,10 @@ __export(LiveFuturePreviewPipeline_exports, {
   adaptPublicFutureToBodySimulator: () => adaptPublicFutureToBodySimulator,
   assertAnatomicalRulesTranslated: () => assertAnatomicalRulesTranslated,
   buildLiveFuturePreviewTraceStages: () => buildLiveFuturePreviewTraceStages,
+  buildLiveProviderDiagnostics: () => buildLiveProviderDiagnostics,
+  classifyLiveProviderErrorCategory: () => classifyLiveProviderErrorCategory,
   isBodySimulatorLivePreviewEnabled: () => isBodySimulatorLivePreviewEnabled,
+  loadProvenFluxKontextProHelpers: () => loadProvenFluxKontextProHelpers,
   mapPublicBodyFat: () => mapPublicBodyFat,
   mapPublicEffort: () => mapPublicEffort,
   mapPublicFocusZones: () => mapPublicFocusZones,
@@ -37,6 +40,8 @@ __export(LiveFuturePreviewPipeline_exports, {
 });
 module.exports = __toCommonJS(LiveFuturePreviewPipeline_exports);
 var import_node_crypto3 = require("node:crypto");
+var import_node_module = require("node:module");
+var import_node_path = require("node:path");
 
 // src/ai/BodyProfile.ts
 var BODY_PROFILE_SCHEMA_VERSION = 1;
@@ -204,7 +209,18 @@ function anatomicalDirectionPhrase(direction) {
   return direction.replace(/_/g, " ");
 }
 function anatomicalMagnitudePhrase(magnitude) {
-  return magnitude;
+  switch (magnitude) {
+    case "subtle":
+      return "subtle";
+    case "moderate":
+      return "moderate";
+    case "clear":
+      return "clearly visible";
+    case "pronounced":
+      return "strongly visible";
+    default:
+      return "noticeable";
+  }
 }
 function anatomicalToRenderKind(rule2) {
   if (rule2.feature.includes("volume") || rule2.feature === "lat_width" || rule2.feature === "whole_body_muscle_volume") {
@@ -4383,888 +4399,7 @@ var candidateMismatchRuntimeInput = {
 };
 
 // src/ai/transport/ReplicateTransportConfig.ts
-var DEFAULT_REPLICATE_API_BASE_URL = "https://api.replicate.com/v1";
 var DEFAULT_REPLICATE_TRANSPORT_MODEL = "black-forest-labs/flux-kontext-pro";
-var DEFAULT_POLL_INTERVAL_MS = 1500;
-var DEFAULT_TOTAL_TIMEOUT_MS = 9e4;
-var DEFAULT_MAX_POLL_ATTEMPTS = 60;
-
-// src/ai/transport/ReplicateErrors.ts
-var MAX_SAFE_PROVIDER_ERROR_LENGTH = 200;
-function sanitizeProviderErrorMessage(raw) {
-  let text = "";
-  if (typeof raw === "string") {
-    text = raw;
-  } else if (raw != null && typeof raw === "object") {
-    const rec = raw;
-    if (typeof rec.detail === "string") text = rec.detail;
-    else if (typeof rec.message === "string") text = rec.message;
-    else if (typeof rec.error === "string") text = rec.error;
-    else text = "Provider error";
-  } else if (raw != null) {
-    text = String(raw);
-  }
-  text = text.replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
-  text = text.replace(/r8_[A-Za-z0-9]+/gi, "[redacted]");
-  text = text.replace(/Bearer\s+\S+/gi, "Bearer [redacted]");
-  text = text.replace(/data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/gi, "[redacted]");
-  if (text.length === 0) text = "Provider error";
-  if (text.length > MAX_SAFE_PROVIDER_ERROR_LENGTH) {
-    text = `${text.slice(0, MAX_SAFE_PROVIDER_ERROR_LENGTH - 1)}\u2026`;
-  }
-  return text;
-}
-function mapHttpStatusToTransportError(status) {
-  if (status === 401 || status === 403) {
-    return {
-      code: "provider_auth_error",
-      retryable: false,
-      message: "Provider authentication failed."
-    };
-  }
-  if (status === 429) {
-    return {
-      code: "provider_rate_limited",
-      retryable: true,
-      message: "Provider rate limited the request."
-    };
-  }
-  if (status === 400 || status === 422) {
-    return {
-      code: "provider_validation_error",
-      retryable: false,
-      message: "Provider rejected the request as invalid."
-    };
-  }
-  if (status >= 500 && status <= 599) {
-    return {
-      code: "provider_unavailable",
-      retryable: true,
-      message: "Provider is temporarily unavailable."
-    };
-  }
-  return {
-    code: "provider_failed",
-    retryable: false,
-    message: "Provider request failed."
-  };
-}
-function isAbortError(err) {
-  let current = err;
-  const seen = /* @__PURE__ */ new Set();
-  while (current != null && typeof current === "object" && !seen.has(current)) {
-    seen.add(current);
-    const e = current;
-    if (e.name === "AbortError" || e.code === "ABORT_ERR" || e.code === "ERR_ABORT" || e.code === "UND_ERR_ABORTED") {
-      return true;
-    }
-    current = e.cause;
-  }
-  return false;
-}
-function isTimeoutLikeFetchError(err) {
-  if (isAbortError(err)) return true;
-  let current = err;
-  const seen = /* @__PURE__ */ new Set();
-  while (current != null && typeof current === "object" && !seen.has(current)) {
-    seen.add(current);
-    const e = current;
-    if (e.name === "TimeoutError" || e.code === "UND_ERR_CONNECT_TIMEOUT" || e.code === "UND_ERR_HEADERS_TIMEOUT" || e.code === "UND_ERR_BODY_TIMEOUT" || e.code === "ETIMEDOUT" || e.code === "ESOCKETTIMEDOUT") {
-      return true;
-    }
-    if (typeof e.message === "string" && /timed?\s*out|timeout|HeadersTimeout|BodyTimeout|ConnectTimeout/i.test(
-      e.message
-    )) {
-      return true;
-    }
-    current = e.cause;
-  }
-  return false;
-}
-
-// src/ai/transport/ReplicateResponseNormalizer.ts
-function normalizeReplicateStatus(value) {
-  if (typeof value !== "string") return null;
-  switch (value) {
-    case "starting":
-    case "processing":
-    case "succeeded":
-    case "failed":
-    case "canceled":
-      return value;
-    default:
-      return null;
-  }
-}
-function isHttpsImageUrl(value) {
-  if (!value.startsWith("https://")) return false;
-  if (value.startsWith("https://api.replicate.com/")) return false;
-  try {
-    const u = new URL(value);
-    return u.protocol === "https:" && !u.username && !u.password;
-  } catch {
-    return false;
-  }
-}
-function extractReplicateImageUrl(output) {
-  if (typeof output === "string") {
-    const t = output.trim();
-    if (t.startsWith("data:")) return null;
-    if (t.startsWith("http://")) return null;
-    return isHttpsImageUrl(t) ? t : null;
-  }
-  if (Array.isArray(output)) {
-    for (const item of output) {
-      const found = extractReplicateImageUrl(item);
-      if (found) return found;
-    }
-    return null;
-  }
-  if (output != null && typeof output === "object") {
-    const rec = output;
-    for (const key of ["url", "image", "image_url", "href"]) {
-      if (typeof rec[key] === "string") {
-        const found = extractReplicateImageUrl(rec[key]);
-        if (found) return found;
-      }
-    }
-  }
-  return null;
-}
-function normalizeReplicateFailure(args) {
-  const message = args.providerError !== void 0 ? sanitizeProviderErrorMessage(args.providerError) : sanitizeProviderErrorMessage(args.message);
-  const failure = {
-    success: false,
-    provider: "replicate",
-    imageUrl: null,
-    generationTimeMs: Math.max(0, args.generationTimeMs),
-    error: {
-      code: args.code,
-      message: message.slice(0, 200),
-      retryable: args.retryable
-    },
-    warnings: args.warnings ?? [],
-    metadata: {
-      traceId: args.traceId,
-      pollingAttempts: args.pollingAttempts ?? 0
-    }
-  };
-  if (args.httpStatus !== void 0) {
-    failure.error.httpStatus = args.httpStatus;
-  }
-  if (args.predictionId !== void 0) {
-    failure.predictionId = args.predictionId;
-  }
-  if (args.model !== void 0) {
-    failure.model = args.model;
-  }
-  if (args.status !== void 0) {
-    failure.status = args.status;
-  }
-  if (args.providerStatus !== void 0) {
-    failure.metadata.providerStatus = args.providerStatus;
-  }
-  return failure;
-}
-function normalizeHttpFailure(httpStatus, traceId, generationTimeMs, bodyText, extras) {
-  const mapped = mapHttpStatusToTransportError(httpStatus);
-  const sanitizedBody = bodyText ? sanitizeProviderErrorMessage(bodyText) : mapped.message;
-  return normalizeReplicateFailure({
-    code: mapped.code,
-    message: sanitizedBody,
-    retryable: mapped.retryable,
-    traceId,
-    generationTimeMs,
-    httpStatus,
-    predictionId: extras?.predictionId,
-    model: extras?.model,
-    pollingAttempts: extras?.pollingAttempts,
-    providerStatus: String(httpStatus)
-  });
-}
-function parsePredictionPayload(raw) {
-  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) {
-    return null;
-  }
-  return raw;
-}
-
-// src/ai/transport/ReplicateTransportAdapter.ts
-var MAX_DATA_URI_CHARS = 8e6;
-var ALLOWED_DATA_URI_PREFIXES = [
-  "data:image/jpeg;base64,",
-  "data:image/jpg;base64,",
-  "data:image/png;base64,",
-  "data:image/webp;base64,"
-];
-var SENSITIVE_TRACE = /authorization|bearer\s|r8_[A-Za-z0-9]|api[_-]?key|data:image\/|https?:\/\/|sk-[A-Za-z0-9]/i;
-var NEGATIVE_PROMPT_APPENDIX_LABEL = "EXCLUSIONS";
-function defaultSleep(ms, signal) {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) {
-      const err = new Error("aborted");
-      err.name = "AbortError";
-      reject(err);
-      return;
-    }
-    const timer = setTimeout(() => {
-      signal?.removeEventListener("abort", onAbort);
-      resolve();
-    }, ms);
-    const onAbort = () => {
-      clearTimeout(timer);
-      const err = new Error("aborted");
-      err.name = "AbortError";
-      reject(err);
-    };
-    signal?.addEventListener("abort", onAbort, { once: true });
-  });
-}
-function resolveDeps(partial) {
-  return {
-    fetchFn: partial?.fetchFn ?? globalThis.fetch.bind(globalThis),
-    now: partial?.now ?? (() => Date.now()),
-    sleep: partial?.sleep ?? defaultSleep
-  };
-}
-function hasSensitiveContent(value) {
-  return SENSITIVE_TRACE.test(value);
-}
-function validateReplicateTransportInput(input) {
-  const errors = [];
-  const warnings = [];
-  if (input == null || typeof input !== "object") {
-    return {
-      valid: false,
-      errors: ["Transport input is required."],
-      warnings
-    };
-  }
-  if (!input.formattedRequest) {
-    errors.push("formattedRequest is required.");
-  } else {
-    const formattedCheck = validateFormattedImageRequest(input.formattedRequest);
-    if (!formattedCheck.valid) {
-      errors.push("formattedRequest failed formatter contract validation.");
-    }
-    if (input.formattedRequest.providerFamily !== "flux") {
-      errors.push('providerFamily must be "flux".');
-    }
-    if (typeof input.formattedRequest.prompt !== "string" || input.formattedRequest.prompt.trim() === "") {
-      errors.push("prompt must be a non-empty string.");
-    }
-    if (input.formattedRequest.sourceOperation !== "edit_source_image") {
-      errors.push('sourceOperation must be "edit_source_image".');
-    }
-    if (input.formattedRequest.aspectRatio !== void 0) {
-      const ar = input.formattedRequest.aspectRatio;
-      if (!SUPPORTED_FORMATTER_ASPECT_RATIOS.includes(ar)) {
-        errors.push("aspectRatio is unsupported.");
-      }
-    }
-    if (input.formattedRequest.seed !== void 0) {
-      const seed = input.formattedRequest.seed;
-      if (typeof seed !== "number" || !Number.isFinite(seed) || !Number.isInteger(seed) || seed < 0) {
-        errors.push("seed is invalid.");
-      }
-    }
-  }
-  if (typeof input.traceId !== "string" || input.traceId.trim() === "") {
-    errors.push("traceId must be a non-empty string.");
-  } else if (hasSensitiveContent(input.traceId)) {
-    errors.push("traceId contains disallowed content.");
-  }
-  const source = input.sourceImage;
-  if (!source || typeof source !== "object") {
-    errors.push("Source image reference is invalid.");
-  } else {
-    const kind = source.kind;
-    const value = source.value;
-    if (kind !== "https_url" && kind !== "data_uri") {
-      errors.push("Source image reference is invalid.");
-    } else if (typeof value !== "string" || value.trim() === "") {
-      errors.push("Source image reference is invalid.");
-    } else if (kind === "https_url") {
-      if (!value.startsWith("https://") || value.startsWith("http://")) {
-        errors.push("Source image reference is invalid.");
-      } else {
-        try {
-          const u = new URL(value);
-          if (u.protocol !== "https:" || u.username || u.password) {
-            errors.push("Source image reference is invalid.");
-          }
-        } catch {
-          errors.push("Source image reference is invalid.");
-        }
-      }
-    } else if (kind === "data_uri") {
-      const lower = value.slice(0, 64).toLowerCase();
-      if (lower.includes("image/svg")) {
-        errors.push("Source image reference is invalid.");
-      } else if (!ALLOWED_DATA_URI_PREFIXES.some(
-        (p) => value.toLowerCase().startsWith(p)
-      )) {
-        errors.push("Source image reference is invalid.");
-      } else if (value.length > MAX_DATA_URI_CHARS) {
-        errors.push("Source image reference is invalid.");
-      }
-    }
-    if (typeof value === "string" && (hasSensitiveContent(value.slice(0, 200)) && kind === "https_url" ? /authorization|bearer\s|r8_|api[_-]?key/i.test(value) : false)) {
-      errors.push("Source image reference is invalid.");
-    }
-  }
-  return { valid: errors.length === 0, errors, warnings };
-}
-function buildReplicateCreatePredictionBody(config, input) {
-  const formatted = input.formattedRequest;
-  let prompt = formatted.prompt;
-  const negative = formatted.negativePrompt?.trim();
-  if (negative) {
-    prompt = `${prompt}
-
-${NEGATIVE_PROMPT_APPENDIX_LABEL}:
-${negative}`;
-  }
-  const bodyInput = {
-    prompt,
-    input_image: input.sourceImage.value,
-    aspect_ratio: "match_input_image",
-    output_format: "png",
-    safety_tolerance: 2
-  };
-  if (formatted.aspectRatio !== void 0 && SUPPORTED_FORMATTER_ASPECT_RATIOS.includes(
-    formatted.aspectRatio
-  )) {
-    bodyInput.aspect_ratio = formatted.aspectRatio;
-  }
-  if (formatted.seed !== void 0) {
-    bodyInput.seed = formatted.seed;
-  }
-  return {
-    model: config.model,
-    input: bodyInput
-  };
-}
-function isAllowedReplicatePollUrl(url) {
-  try {
-    const u = new URL(url);
-    if (u.protocol !== "https:") return false;
-    if (u.username || u.password) return false;
-    if (u.hostname !== "api.replicate.com") return false;
-    if (u.hash) return false;
-    if (!u.pathname.startsWith("/v1/predictions/")) return false;
-    if (u.pathname === "/v1/predictions/" || u.pathname === "/v1/predictions") {
-      return false;
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
-function resolveOfficialReplicateApiBaseUrl(apiBaseUrl) {
-  if (typeof apiBaseUrl !== "string") return null;
-  const trimmed = apiBaseUrl.trim();
-  if (!trimmed) return null;
-  try {
-    const u = new URL(trimmed);
-    if (u.protocol !== "https:") return null;
-    if (u.username || u.password) return null;
-    if (u.hostname !== "api.replicate.com") return null;
-    if (u.port !== "") return null;
-    if (u.search !== "") return null;
-    if (u.hash !== "") return null;
-    let pathname = u.pathname;
-    if (pathname.length > 1 && pathname.endsWith("/")) {
-      pathname = pathname.slice(0, -1);
-    }
-    if (pathname !== "/v1") return null;
-    return DEFAULT_REPLICATE_API_BASE_URL;
-  } catch {
-    return null;
-  }
-}
-function linkAbortSignals(signals) {
-  const controller = new AbortController();
-  for (const signal of signals) {
-    if (!signal) continue;
-    if (signal.aborted) {
-      controller.abort();
-      break;
-    }
-    signal.addEventListener("abort", () => controller.abort(), { once: true });
-  }
-  return controller;
-}
-var ReplicateTransportAdapter = class {
-  constructor(config, dependencies) {
-    this.id = "replicate-transport-v1";
-    this.provider = "replicate";
-    this.config = config;
-    this.deps = resolveDeps(dependencies);
-  }
-  async generate(input) {
-    const started = this.deps.now();
-    const elapsed = () => Math.max(0, this.deps.now() - started);
-    const traceId = typeof input?.traceId === "string" && input.traceId.trim() ? input.traceId : "missing-trace";
-    try {
-      if (!this.config.enabled) {
-        return normalizeReplicateFailure({
-          code: "adapter_disabled",
-          message: "Replicate transport adapter is disabled.",
-          retryable: false,
-          traceId,
-          generationTimeMs: elapsed()
-        });
-      }
-      if (!this.config.apiToken) {
-        return normalizeReplicateFailure({
-          code: "missing_token",
-          message: "Replicate API token is not configured.",
-          retryable: false,
-          traceId,
-          generationTimeMs: elapsed(),
-          model: this.config.model
-        });
-      }
-      const validation = validateReplicateTransportInput(input);
-      if (!validation.valid) {
-        return normalizeReplicateFailure({
-          code: "invalid_request",
-          message: "Transport input is invalid.",
-          retryable: false,
-          traceId,
-          generationTimeMs: elapsed(),
-          model: this.config.model,
-          warnings: validation.warnings
-        });
-      }
-      const apiBaseUrl = resolveOfficialReplicateApiBaseUrl(
-        this.config.apiBaseUrl
-      );
-      if (!apiBaseUrl) {
-        return normalizeReplicateFailure({
-          code: "invalid_request",
-          message: "Replicate transport configuration is invalid.",
-          retryable: false,
-          traceId,
-          generationTimeMs: elapsed(),
-          model: this.config.model
-        });
-      }
-      const body = buildReplicateCreatePredictionBody(this.config, input);
-      const [owner, name] = this.config.model.split("/");
-      const createUrl = `${apiBaseUrl}/models/${owner}/${name}/predictions`;
-      const totalController = new AbortController();
-      const totalTimer = setTimeout(
-        () => totalController.abort(),
-        this.config.totalTimeoutMs
-      );
-      const createController = linkAbortSignals([
-        input.abortSignal,
-        totalController.signal
-      ]);
-      const createTimer = setTimeout(
-        () => createController.abort(),
-        this.config.createTimeoutMs
-      );
-      const preferWaitSeconds = Math.max(
-        1,
-        Math.min(12, Math.floor(this.config.createTimeoutMs / 1e3) - 8)
-      );
-      let createResponse;
-      try {
-        createResponse = await this.deps.fetchFn(createUrl, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${this.config.apiToken}`,
-            "Content-Type": "application/json",
-            Prefer: `wait=${preferWaitSeconds}`,
-            // Auto-cancel hung predictions inside the create/total budget.
-            "Cancel-After": `${Math.max(
-              5,
-              Math.ceil(this.config.totalTimeoutMs / 1e3)
-            )}s`
-          },
-          body: JSON.stringify({ input: body.input }),
-          signal: createController.signal
-        });
-      } catch (err) {
-        clearTimeout(createTimer);
-        clearTimeout(totalTimer);
-        if (isAbortError(err)) {
-          if (input.abortSignal?.aborted) {
-            return normalizeReplicateFailure({
-              code: "request_aborted",
-              message: "Request was aborted.",
-              retryable: true,
-              traceId,
-              generationTimeMs: elapsed(),
-              model: this.config.model
-            });
-          }
-          return normalizeReplicateFailure({
-            code: "request_timeout",
-            message: "Request timed out.",
-            retryable: true,
-            traceId,
-            generationTimeMs: elapsed(),
-            model: this.config.model
-          });
-        }
-        if (isTimeoutLikeFetchError(err)) {
-          return normalizeReplicateFailure({
-            code: "request_timeout",
-            message: "Request timed out.",
-            retryable: true,
-            traceId,
-            generationTimeMs: elapsed(),
-            model: this.config.model
-          });
-        }
-        return normalizeReplicateFailure({
-          code: "unknown_transport_error",
-          message: "Transport request failed.",
-          retryable: false,
-          traceId,
-          generationTimeMs: elapsed(),
-          model: this.config.model
-        });
-      } finally {
-        clearTimeout(createTimer);
-      }
-      if (!createResponse.ok) {
-        clearTimeout(totalTimer);
-        let bodyText = "";
-        try {
-          bodyText = await createResponse.text();
-        } catch {
-          bodyText = "";
-        }
-        return normalizeHttpFailure(
-          createResponse.status,
-          traceId,
-          elapsed(),
-          bodyText,
-          { model: this.config.model }
-        );
-      }
-      let createJson;
-      try {
-        createJson = await createResponse.json();
-      } catch {
-        clearTimeout(totalTimer);
-        return normalizeReplicateFailure({
-          code: "invalid_provider_response",
-          message: "Provider returned an invalid create response.",
-          retryable: false,
-          traceId,
-          generationTimeMs: elapsed(),
-          model: this.config.model
-        });
-      }
-      const prediction = parsePredictionPayload(createJson);
-      if (!prediction) {
-        clearTimeout(totalTimer);
-        return normalizeReplicateFailure({
-          code: "invalid_provider_response",
-          message: "Provider returned an invalid create response.",
-          retryable: false,
-          traceId,
-          generationTimeMs: elapsed(),
-          model: this.config.model
-        });
-      }
-      const predictionId = typeof prediction.id === "string" ? prediction.id : void 0;
-      let status = normalizeReplicateStatus(prediction.status);
-      let pollingAttempts = 0;
-      const finishSuccess = (output, providerStatus) => {
-        const imageUrl = extractReplicateImageUrl(output);
-        if (!imageUrl) {
-          return normalizeReplicateFailure({
-            code: "invalid_provider_response",
-            message: "Provider output did not contain a valid HTTPS image URL.",
-            retryable: false,
-            traceId,
-            generationTimeMs: elapsed(),
-            predictionId,
-            model: this.config.model,
-            status: status ?? void 0,
-            pollingAttempts,
-            providerStatus
-          });
-        }
-        const success = {
-          success: true,
-          provider: "replicate",
-          predictionId: predictionId ?? "unknown",
-          model: this.config.model,
-          status: "succeeded",
-          imageUrl,
-          generationTimeMs: elapsed(),
-          warnings: [],
-          metadata: {
-            traceId,
-            formatterName: input.formattedRequest.metadata.formatterName,
-            formatterVersion: input.formattedRequest.metadata.formatterVersion,
-            pollingAttempts,
-            providerStatus
-          }
-        };
-        return success;
-      };
-      if (status === "succeeded") {
-        clearTimeout(totalTimer);
-        return finishSuccess(prediction.output, status);
-      }
-      if (status === "failed" || status === "canceled") {
-        clearTimeout(totalTimer);
-        return normalizeReplicateFailure({
-          code: "provider_failed",
-          message: "Provider prediction failed.",
-          retryable: false,
-          traceId,
-          generationTimeMs: elapsed(),
-          predictionId,
-          model: this.config.model,
-          status,
-          pollingAttempts,
-          providerStatus: status,
-          providerError: prediction.error
-        });
-      }
-      const pollUrlRaw = prediction.urls && typeof prediction.urls.get === "string" ? prediction.urls.get : predictionId ? `${apiBaseUrl}/predictions/${predictionId}` : null;
-      if (!pollUrlRaw || !isAllowedReplicatePollUrl(pollUrlRaw)) {
-        clearTimeout(totalTimer);
-        return normalizeReplicateFailure({
-          code: "invalid_provider_response",
-          message: "Provider returned an untrusted polling URL.",
-          retryable: false,
-          traceId,
-          generationTimeMs: elapsed(),
-          predictionId,
-          model: this.config.model,
-          pollingAttempts
-        });
-      }
-      let latestOutput = prediction.output;
-      let latestError = prediction.error;
-      while (pollingAttempts < this.config.maxPollAttempts) {
-        if (input.abortSignal?.aborted || totalController.signal.aborted) {
-          clearTimeout(totalTimer);
-          if (input.abortSignal?.aborted) {
-            return normalizeReplicateFailure({
-              code: "request_aborted",
-              message: "Request was aborted.",
-              retryable: true,
-              traceId,
-              generationTimeMs: elapsed(),
-              predictionId,
-              model: this.config.model,
-              pollingAttempts
-            });
-          }
-          return normalizeReplicateFailure({
-            code: "request_timeout",
-            message: "Request timed out.",
-            retryable: true,
-            traceId,
-            generationTimeMs: elapsed(),
-            predictionId,
-            model: this.config.model,
-            pollingAttempts
-          });
-        }
-        try {
-          await this.deps.sleep(
-            this.config.pollIntervalMs,
-            linkAbortSignals([input.abortSignal, totalController.signal]).signal
-          );
-        } catch (err) {
-          clearTimeout(totalTimer);
-          if (isAbortError(err) && input.abortSignal?.aborted) {
-            return normalizeReplicateFailure({
-              code: "request_aborted",
-              message: "Request was aborted.",
-              retryable: true,
-              traceId,
-              generationTimeMs: elapsed(),
-              predictionId,
-              model: this.config.model,
-              pollingAttempts
-            });
-          }
-          return normalizeReplicateFailure({
-            code: "request_timeout",
-            message: "Request timed out.",
-            retryable: true,
-            traceId,
-            generationTimeMs: elapsed(),
-            predictionId,
-            model: this.config.model,
-            pollingAttempts
-          });
-        }
-        pollingAttempts += 1;
-        const pollController = linkAbortSignals([
-          input.abortSignal,
-          totalController.signal
-        ]);
-        let pollResponse;
-        try {
-          pollResponse = await this.deps.fetchFn(pollUrlRaw, {
-            method: "GET",
-            headers: {
-              Authorization: `Bearer ${this.config.apiToken}`,
-              "Content-Type": "application/json"
-            },
-            signal: pollController.signal
-          });
-        } catch (err) {
-          clearTimeout(totalTimer);
-          if (isAbortError(err)) {
-            if (input.abortSignal?.aborted) {
-              return normalizeReplicateFailure({
-                code: "request_aborted",
-                message: "Request was aborted.",
-                retryable: true,
-                traceId,
-                generationTimeMs: elapsed(),
-                predictionId,
-                model: this.config.model,
-                pollingAttempts
-              });
-            }
-            return normalizeReplicateFailure({
-              code: "request_timeout",
-              message: "Request timed out.",
-              retryable: true,
-              traceId,
-              generationTimeMs: elapsed(),
-              predictionId,
-              model: this.config.model,
-              pollingAttempts
-            });
-          }
-          if (isTimeoutLikeFetchError(err)) {
-            return normalizeReplicateFailure({
-              code: "request_timeout",
-              message: "Request timed out.",
-              retryable: true,
-              traceId,
-              generationTimeMs: elapsed(),
-              predictionId,
-              model: this.config.model,
-              pollingAttempts
-            });
-          }
-          return normalizeReplicateFailure({
-            code: "unknown_transport_error",
-            message: "Transport polling failed.",
-            retryable: false,
-            traceId,
-            generationTimeMs: elapsed(),
-            predictionId,
-            model: this.config.model,
-            pollingAttempts
-          });
-        }
-        if (!pollResponse.ok) {
-          clearTimeout(totalTimer);
-          let bodyText = "";
-          try {
-            bodyText = await pollResponse.text();
-          } catch {
-            bodyText = "";
-          }
-          return normalizeHttpFailure(
-            pollResponse.status,
-            traceId,
-            elapsed(),
-            bodyText,
-            {
-              predictionId,
-              model: this.config.model,
-              pollingAttempts
-            }
-          );
-        }
-        let pollJson;
-        try {
-          pollJson = await pollResponse.json();
-        } catch {
-          clearTimeout(totalTimer);
-          return normalizeReplicateFailure({
-            code: "invalid_provider_response",
-            message: "Provider returned an invalid poll response.",
-            retryable: false,
-            traceId,
-            generationTimeMs: elapsed(),
-            predictionId,
-            model: this.config.model,
-            pollingAttempts
-          });
-        }
-        const polled = parsePredictionPayload(pollJson);
-        if (!polled) {
-          clearTimeout(totalTimer);
-          return normalizeReplicateFailure({
-            code: "invalid_provider_response",
-            message: "Provider returned an invalid poll response.",
-            retryable: false,
-            traceId,
-            generationTimeMs: elapsed(),
-            predictionId,
-            model: this.config.model,
-            pollingAttempts
-          });
-        }
-        status = normalizeReplicateStatus(polled.status);
-        latestOutput = polled.output;
-        latestError = polled.error;
-        if (status === "succeeded") {
-          clearTimeout(totalTimer);
-          return finishSuccess(latestOutput, status);
-        }
-        if (status === "failed" || status === "canceled") {
-          clearTimeout(totalTimer);
-          return normalizeReplicateFailure({
-            code: "provider_failed",
-            message: "Provider prediction failed.",
-            retryable: false,
-            traceId,
-            generationTimeMs: elapsed(),
-            predictionId,
-            model: this.config.model,
-            status,
-            pollingAttempts,
-            providerStatus: status,
-            providerError: latestError
-          });
-        }
-      }
-      clearTimeout(totalTimer);
-      return normalizeReplicateFailure({
-        code: "polling_exhausted",
-        message: "Polling attempts exhausted.",
-        retryable: true,
-        traceId,
-        generationTimeMs: elapsed(),
-        predictionId,
-        model: this.config.model,
-        pollingAttempts
-      });
-    } catch {
-      return normalizeReplicateFailure({
-        code: "unknown_transport_error",
-        message: "Unexpected transport failure.",
-        retryable: false,
-        traceId,
-        generationTimeMs: elapsed(),
-        model: this.config.model
-      });
-    }
-  }
-};
 
 // src/ai/body-simulator/BodySimulatorTypes.ts
 var BODY_SIMULATOR_INPUT_SCHEMA_VERSION = 1;
@@ -8121,6 +7256,68 @@ function adaptPublicFutureToBodySimulator(payload, options) {
 }
 
 // src/ai/body-simulator/LiveFuturePreviewPipeline.ts
+function loadProvenFluxKontextProHelpers() {
+  const req = (0, import_node_module.createRequire)((0, import_node_path.join)(process.cwd(), "package.json"));
+  return req((0, import_node_path.join)(process.cwd(), "lib/replicate.js"));
+}
+var PROVEN_FLUX_INPUT_FIELDS = [
+  "prompt",
+  "input_image",
+  "aspect_ratio",
+  "output_format",
+  "safety_tolerance",
+  "prompt_upsampling"
+];
+function sanitizeProviderMessageSafe(raw) {
+  let text = "";
+  if (typeof raw === "string") text = raw;
+  else if (raw != null) text = String(raw);
+  text = text.replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
+  text = text.replace(/r8_[A-Za-z0-9]+/gi, "[redacted]");
+  text = text.replace(/Bearer\s+\S+/gi, "Bearer [redacted]");
+  text = text.replace(
+    /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/gi,
+    "[redacted]"
+  );
+  if (!text) text = "Provider request failed.";
+  if (text.length > 200) text = `${text.slice(0, 199)}\u2026`;
+  return text;
+}
+function classifyLiveProviderErrorCategory(status, message) {
+  const code = Number(status) || 0;
+  const text = String(message || "");
+  if (code === 401 || code === 403) return "provider_auth_failed";
+  if (code === 404 || /could not be found|not found|does not exist/i.test(text)) {
+    return "provider_model_not_found";
+  }
+  if (code === 429) return "provider_rate_limited";
+  if (code === 400 || code === 422) {
+    if (/input|image|field|parameter|validation|invalid|data uri|prompt/i.test(text)) {
+      return "provider_input_contract_failed";
+    }
+    return "provider_validation_failed";
+  }
+  if (code === 504 || /timeout|timed out|for lang tid|canceled/i.test(text)) {
+    return "provider_timeout";
+  }
+  if (code >= 500 || /prediction|failed|E005|sensitive/i.test(text)) {
+    return "provider_prediction_failed";
+  }
+  return "provider_unknown_failure";
+}
+function buildLiveProviderDiagnostics(args) {
+  const safe = sanitizeProviderMessageSafe(args.message);
+  const status = typeof args.status === "number" && Number.isFinite(args.status) ? args.status : null;
+  return {
+    providerHttpStatus: status,
+    providerErrorCode: typeof args.code === "string" && args.code.trim() || (status != null ? `http_${status}` : "provider_error"),
+    providerErrorCategory: classifyLiveProviderErrorCategory(status, safe),
+    providerModel: args.model || DEFAULT_REPLICATE_TRANSPORT_MODEL,
+    providerEndpointClass: "replicate_official_model_predictions",
+    providerInputFieldNames: Array.isArray(args.inputFieldNames) ? [...args.inputFieldNames] : [...PROVEN_FLUX_INPUT_FIELDS],
+    providerResponseMessageSafe: safe
+  };
+}
 var LiveFuturePreviewError = class extends Error {
   constructor(errorClass, message, options) {
     super(message);
@@ -8130,6 +7327,7 @@ var LiveFuturePreviewError = class extends Error {
     this.status = options.status ?? 422;
     this.diagnostics = options.diagnostics ?? null;
     this.providerCalls = options.providerCalls ?? 0;
+    this.providerDiagnostics = options.providerDiagnostics ?? null;
   }
 };
 function createLivePreviewTraceId(nowMs) {
@@ -8168,8 +7366,12 @@ function emptyDiagnostics(livePreviewTraceId, enabled) {
     promptContainsAnatomicalIntent: false,
     providerRequestAttempted: false,
     providerRequestCount: 0,
+    providerContract: "none",
+    providerModel: null,
+    providerInputFieldNames: [],
     generationPath: enabled ? "body_simulator_anatomical_live_preview" : "legacy_reservedrift",
-    warnings: []
+    warnings: [],
+    providerDiagnostics: null
   };
 }
 function noteDispositionFromAnatomical(rules) {
@@ -8489,18 +7691,31 @@ function buildShellProfileAndGoal(prep) {
   };
   return { profile, goal };
 }
-function buildTransportConfig(env) {
-  const token = typeof env.REPLICATE_API_TOKEN === "string" && env.REPLICATE_API_TOKEN.trim() ? env.REPLICATE_API_TOKEN.trim() : null;
-  return {
-    enabled: token != null,
-    apiToken: token,
-    apiBaseUrl: DEFAULT_REPLICATE_API_BASE_URL,
-    model: DEFAULT_REPLICATE_TRANSPORT_MODEL,
-    createTimeoutMs: 6e4,
-    pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
-    totalTimeoutMs: Math.max(DEFAULT_TOTAL_TIMEOUT_MS, 12e4),
-    maxPollAttempts: DEFAULT_MAX_POLL_ATTEMPTS
-  };
+function throwProviderFailed(prep, message, options = {}) {
+  const providerDiagnostics = buildLiveProviderDiagnostics({
+    status: options.status ?? 502,
+    code: options.code,
+    message,
+    model: options.model,
+    inputFieldNames: options.inputFieldNames
+  });
+  prep.diagnostics.providerRequestAttempted = true;
+  prep.diagnostics.providerRequestCount = options.providerCalls ?? 1;
+  prep.diagnostics.providerContract = "flux_kontext_pro_legacy_parity";
+  prep.diagnostics.providerModel = providerDiagnostics.providerModel;
+  prep.diagnostics.providerInputFieldNames = providerDiagnostics.providerInputFieldNames;
+  prep.diagnostics.providerDiagnostics = providerDiagnostics;
+  throw new LiveFuturePreviewError(
+    "live_preview_provider_failed",
+    providerDiagnostics.providerResponseMessageSafe,
+    {
+      livePreviewTraceId: prep.livePreviewTraceId,
+      diagnostics: prep.diagnostics,
+      status: options.status ?? 502,
+      providerCalls: options.providerCalls ?? 1,
+      providerDiagnostics
+    }
+  );
 }
 async function runLiveFuturePreview(input) {
   const env = input.env ?? process.env;
@@ -8542,86 +7757,165 @@ async function runLiveFuturePreview(input) {
     };
   }
   const { profile, goal } = buildShellProfileAndGoal(prep);
-  let transportAdapter = input.transportAdapter;
-  if (transportAdapter == null) {
-    const config = buildTransportConfig(env);
-    if (config.apiToken == null) {
-      throw new LiveFuturePreviewError(
-        "live_preview_provider_failed",
-        "Provider is not configured.",
-        {
-          livePreviewTraceId: prep.livePreviewTraceId,
-          diagnostics: prep.diagnostics,
-          status: 503,
-          providerCalls: 0
-        }
-      );
-    }
-    transportAdapter = new ReplicateTransportAdapter(
-      config,
-      input.transportDependencies
-    );
-  }
-  prep.diagnostics.providerRequestAttempted = true;
   const runtime = new AiOsRuntime(
     createAiOsRuntimeDependencies({
-      transportAdapter,
+      ...input.transportAdapter ? { transportAdapter: input.transportAdapter } : {},
       now: () => input.nowMs ?? Date.now()
     })
   );
-  let runtimeResult;
+  let formatResult;
   try {
-    runtimeResult = await runtime.run({
-      mode: "transport_mock",
+    formatResult = await runtime.run({
+      mode: "dry_run",
       profile,
       goal,
       canonicalBodyTransformation: prep.canonical,
       formatterOptions: {
-        aspectRatio: "3:4",
         quality: "standard"
-      },
-      sourceImage: {
-        kind: "data_uri",
-        value: input.sourceImageDataUri,
-        contentType: input.mimeType === "image/png" || input.mimeType === "image/webp" ? input.mimeType : "image/jpeg"
       }
     });
   } catch (error) {
-    prep.diagnostics.providerRequestCount = 1;
     throw new LiveFuturePreviewError(
-      "live_preview_provider_failed",
-      error instanceof Error ? error.message : "Provider request failed.",
+      "live_preview_formatter_translation_failed",
+      error instanceof Error ? error.message : "Formatter failed.",
       {
         livePreviewTraceId: prep.livePreviewTraceId,
         diagnostics: prep.diagnostics,
-        status: 502,
-        providerCalls: 1
+        status: 422,
+        providerCalls: 0
       }
     );
   }
-  prep.diagnostics.providerRequestCount = 1;
-  const transport = runtimeResult.artifacts.transportResult;
-  if (!transport || transport.success !== true || !transport.imageUrl) {
+  const formatted = formatResult.artifacts.formattedRequest;
+  const anatomicalPrompt = typeof formatted?.prompt === "string" ? formatted.prompt.trim() : "";
+  if (!formatResult.success || !formatted || !anatomicalPrompt) {
+    const detail = formatResult.errors?.filter((e) => typeof e === "string").join("; ") || formatResult.terminalOutcome || "Anatomical formatter did not produce a provider prompt.";
     throw new LiveFuturePreviewError(
-      "live_preview_provider_failed",
-      "Provider request failed.",
+      "live_preview_formatter_translation_failed",
+      detail,
       {
         livePreviewTraceId: prep.livePreviewTraceId,
         diagnostics: prep.diagnostics,
-        status: 502,
-        providerCalls: 1
+        status: 422,
+        providerCalls: 0
       }
     );
+  }
+  prep.diagnostics.promptContainsAnatomicalIntent = true;
+  prep.diagnostics.providerRequestAttempted = true;
+  prep.diagnostics.providerContract = "flux_kontext_pro_legacy_parity";
+  prep.diagnostics.providerModel = DEFAULT_REPLICATE_TRANSPORT_MODEL;
+  prep.diagnostics.providerInputFieldNames = [...PROVEN_FLUX_INPUT_FIELDS];
+  const horizon = typeof input.payload.horizon === "string" && input.payload.horizon.trim() ? input.payload.horizon.trim() : prep.diagnostics.timelineSource || "12w";
+  const horizonDate = typeof input.payload.horizonDate === "string" ? input.payload.horizonDate : "";
+  if (input.transportAdapter) {
+    let transport;
+    try {
+      transport = await input.transportAdapter.generate({
+        formattedRequest: formatted,
+        sourceImage: {
+          kind: "data_uri",
+          value: input.sourceImageDataUri,
+          contentType: input.mimeType === "image/png" || input.mimeType === "image/webp" ? input.mimeType : "image/jpeg"
+        },
+        traceId: prep.livePreviewTraceId
+      });
+    } catch (error) {
+      throwProviderFailed(prep, error instanceof Error ? error.message : error, {
+        status: 502,
+        providerCalls: 1
+      });
+    }
+    prep.diagnostics.providerRequestCount = 1;
+    if (!transport || transport.success !== true || !transport.imageUrl) {
+      const failure = transport && transport.success === false ? transport : null;
+      throwProviderFailed(
+        prep,
+        failure?.error?.message || "Provider request failed.",
+        {
+          status: 502,
+          code: failure?.error?.code ?? null,
+          model: failure?.model ?? DEFAULT_REPLICATE_TRANSPORT_MODEL,
+          providerCalls: 1
+        }
+      );
+    }
+    const imageUrl = transport.imageUrl;
+    const model = transport.model ?? DEFAULT_REPLICATE_TRANSPORT_MODEL;
+    const diagnostics2 = {
+      ...prep.diagnostics,
+      providerRequestAttempted: true,
+      providerRequestCount: 1,
+      promptContainsAnatomicalIntent: true
+    };
+    return {
+      ok: true,
+      imageUrl,
+      livePreviewTraceId: prep.livePreviewTraceId,
+      livePreviewDiagnostics: diagnostics2,
+      liveFuturePreviewTrace: buildLiveFuturePreviewTraceStages(
+        diagnostics2,
+        "ok"
+      ),
+      bodySimulatorPreviewActive: true,
+      attempt: "body-simulator-anatomical-live-preview",
+      usedFallback: false,
+      model,
+      disclaimer: "Realistic motivational visualization from Body Simulator anatomical rules \u2014 not a medical prediction or flattering ideal.",
+      providerRequestCount: 1
+    };
+  }
+  const token = typeof env.REPLICATE_API_TOKEN === "string" && env.REPLICATE_API_TOKEN.trim() ? env.REPLICATE_API_TOKEN.trim() : "";
+  if (!token && input.fluxProvider == null) {
+    throwProviderFailed(prep, "Provider is not configured.", {
+      status: 503,
+      code: "missing_token",
+      providerCalls: 0
+    });
+  }
+  const runOnce = input.fluxProvider ?? loadProvenFluxKontextProHelpers().runFluxKontextProOnce;
+  let generated;
+  try {
+    generated = await runOnce({
+      imageDataUri: input.sourceImageDataUri,
+      prompt: anatomicalPrompt,
+      token,
+      model: DEFAULT_REPLICATE_TRANSPORT_MODEL,
+      bfNow: prep.diagnostics.bodyFat.current,
+      bfGoal: prep.diagnostics.bodyFat.target,
+      horizon,
+      horizonDate
+    });
+  } catch (error) {
+    const err = error;
+    throwProviderFailed(prep, err.replicateRaw || err.message || error, {
+      status: typeof err.status === "number" ? err.status : 502,
+      code: err.providerErrorCode || err.code || null,
+      model: err.providerModel || DEFAULT_REPLICATE_TRANSPORT_MODEL,
+      inputFieldNames: err.providerInputFieldNames || [...PROVEN_FLUX_INPUT_FIELDS],
+      providerCalls: 1
+    });
+  }
+  prep.diagnostics.providerRequestCount = 1;
+  if (!generated?.imageUrl) {
+    throwProviderFailed(prep, "Provider returned no image URL.", {
+      status: 502,
+      providerCalls: 1,
+      inputFieldNames: generated?.inputFieldNames || [...PROVEN_FLUX_INPUT_FIELDS]
+    });
   }
   const diagnostics = {
     ...prep.diagnostics,
     providerRequestAttempted: true,
     providerRequestCount: 1,
-    promptContainsAnatomicalIntent: true
+    promptContainsAnatomicalIntent: true,
+    providerContract: "flux_kontext_pro_legacy_parity",
+    providerModel: generated.model || DEFAULT_REPLICATE_TRANSPORT_MODEL,
+    providerInputFieldNames: generated.inputFieldNames || [...PROVEN_FLUX_INPUT_FIELDS]
   };
   return {
     ok: true,
-    imageUrl: transport.imageUrl,
+    imageUrl: generated.imageUrl,
     livePreviewTraceId: prep.livePreviewTraceId,
     livePreviewDiagnostics: diagnostics,
     liveFuturePreviewTrace: buildLiveFuturePreviewTraceStages(
@@ -8631,7 +7925,7 @@ async function runLiveFuturePreview(input) {
     bodySimulatorPreviewActive: true,
     attempt: "body-simulator-anatomical-live-preview",
     usedFallback: false,
-    model: transport.model ?? DEFAULT_REPLICATE_TRANSPORT_MODEL,
+    model: generated.model || DEFAULT_REPLICATE_TRANSPORT_MODEL,
     disclaimer: "Realistic motivational visualization from Body Simulator anatomical rules \u2014 not a medical prediction or flattering ideal.",
     providerRequestCount: 1
   };
@@ -8647,7 +7941,10 @@ function sha256FileBytes(bytes) {
   adaptPublicFutureToBodySimulator,
   assertAnatomicalRulesTranslated,
   buildLiveFuturePreviewTraceStages,
+  buildLiveProviderDiagnostics,
+  classifyLiveProviderErrorCategory,
   isBodySimulatorLivePreviewEnabled,
+  loadProvenFluxKontextProHelpers,
   mapPublicBodyFat,
   mapPublicEffort,
   mapPublicFocusZones,
