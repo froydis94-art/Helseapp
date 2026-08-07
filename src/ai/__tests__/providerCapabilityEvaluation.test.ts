@@ -120,45 +120,54 @@ describe("providerCapabilityEvaluation — DEMAND_022E_D", () => {
     assert.match(replicate, /function isSafetyBlock\(message\)/);
     assert.match(replicate, /sensitive\|E005\|flagged\|nsfw\|safety/i);
     assert.match(replicate, /const safetyHit = isSafetyBlock\(error\.message\)/);
-    assert.match(replicate, /canContinue[\s\S]*safetyHit/);
+    assert.match(
+      replicate,
+      /canContinue[\s\S]*(?:safetyHit|isEligibleCascadeFailure)/
+    );
     assert.match(replicate, /isPremiumFluxLabel\(attempt\.label\)/);
   });
 
-  it("4. Live Body Simulator path uses one provider attempt", () => {
+  it("4. Live Body Simulator path uses intelligent Flux ordered fallback (022E-E)", () => {
     const live = buildLiveBodySimulatorProviderPathReport();
-    assert.equal(live.attempts, 1);
-    assert.equal(live.model, REPLICATE_FLUX_KONTEXT_PRO);
+    assert.equal(live.attempts, 3);
+    assert.equal(live.fallbackExists, true);
+    assert.equal(live.retryExists, false);
+    assert.equal(live.silentLegacyFallback, false);
     assert.equal(live.provider, "replicate");
+    assert.match(live.helper, /runFluxKontextAnatomicalCascade/);
 
     const pipeline = read("src/ai/body-simulator/LiveFuturePreviewPipeline.ts");
-    assert.match(pipeline, /Exactly one provider request/);
-    assert.match(pipeline, /providerRequestCount = 1/);
+    assert.match(pipeline, /runFluxKontextAnatomicalCascade|fluxCascade/);
+    assert.match(pipeline, /flux_ordered_fallback/);
 
-    const once = read("lib/replicate.js");
-    assert.match(once, /async function runFluxKontextProOnce/);
-    assert.match(once, /No cascade, no retry/);
+    const replicate = read("lib/replicate.js");
+    assert.match(replicate, /async function runFluxKontextAnatomicalCascade/);
+    assert.match(replicate, /function buildFluxAttemptPlan/);
+    assert.match(replicate, /async function runFluxKontextProOnce/);
   });
 
-  it("5. Live path does not silently cascade", () => {
+  it("5. Live path ordered fallback is not silent legacy reservedrift recovery", () => {
     const live = buildLiveBodySimulatorProviderPathReport();
-    assert.equal(live.fallbackExists, false);
-    assert.equal(live.retryExists, false);
     assert.equal(live.silentLegacyFallback, false);
 
     const route = read("api/generate-future-you.js");
     assert.match(route, /No silent legacy fallback/);
+    assert.match(route, /fluxCascade:\s*runFluxKontextAnatomicalCascade/);
     const catchIdx = route.indexOf("catch (liveError)");
     const legacyIdx = route.lastIndexOf("await generateWithReplicate");
     assert.ok(catchIdx > 0 && legacyIdx > catchIdx);
     const between = route.slice(catchIdx, legacyIdx);
     assert.equal(/await\s+generateWithReplicate/.test(between), false);
 
-    const once = read("lib/replicate.js");
-    const fnStart = once.indexOf("async function runFluxKontextProOnce");
-    const fnEnd = once.indexOf("async function generateWithReplicate");
+    const cascade = read("lib/replicate.js");
+    const fnStart = cascade.indexOf(
+      "async function runFluxKontextAnatomicalCascade"
+    );
+    const fnEnd = cascade.indexOf("async function generateWithReplicate");
     assert.ok(fnStart > 0 && fnEnd > fnStart);
-    const onceBody = once.slice(fnStart, fnEnd);
-    assert.equal(/uniqueAttempts|CASCADE_BUDGET_MS|flux-dev-strong/.test(onceBody), false);
+    const cascadeBody = cascade.slice(fnStart, fnEnd);
+    assert.equal(/byggVisuellPrompt|composeGoalBrief|promptVariant/.test(cascadeBody), false);
+    assert.equal(/flux-dev-strong|sdxl-emergency/.test(cascadeBody), false);
   });
 
   it("6. Provider/model selection is not modified by this demand", () => {
@@ -300,8 +309,8 @@ describe("providerCapabilityEvaluation — DEMAND_022E_D", () => {
     const report = buildProviderCapabilityEvaluationReport();
     assert.equal(report.asymmetryStatement.provenTrue, true);
     assert.equal(report.legacyCascade.e005FallbackExists, true);
-    assert.equal(report.liveBodySimulatorPath.attempts, 1);
-    assert.equal(report.liveBodySimulatorPath.fallbackExists, false);
+    assert.equal(report.liveBodySimulatorPath.attempts, 3);
+    assert.equal(report.liveBodySimulatorPath.fallbackExists, true);
     assert.deepEqual(report.manualExperiment.candidateModels, [
       REPLICATE_FLUX_KONTEXT_PRO,
       REPLICATE_FLUX_KONTEXT_MAX,

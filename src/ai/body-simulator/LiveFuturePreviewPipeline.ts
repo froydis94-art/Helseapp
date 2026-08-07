@@ -52,7 +52,23 @@ import {
   type ProviderSafetyAttributionDiagnostic,
 } from "./ProviderSafetyAttributionDiagnostic";
 
-/** Proven Flux Kontext Pro transport helpers from legacy lib/replicate.js */
+/** Flux routing attempt record (Patch 022E-E — Control Room / diagnostics). */
+export interface ProviderFluxAttemptRecord {
+  model: string;
+  label: string;
+  outcome: "success" | "failed" | "skipped_sibling_premium";
+  promptHash?: string | null;
+  eligibleFailure?: boolean;
+  errorCategory?: string | null;
+  safeMessage?: string | null;
+}
+
+export type ProviderRoutingReason =
+  | "mild"
+  | "demanding"
+  | "demanding_high_e005_risk";
+
+/** Proven Flux transport helpers from legacy lib/replicate.js */
 export interface ProvenFluxKontextProHelpers {
   runFluxKontextProOnce: (args: {
     imageDataUri: string;
@@ -71,6 +87,53 @@ export interface ProvenFluxKontextProHelpers {
     inputFieldNames?: string[];
     providerRequestCount?: number;
   }>;
+  runFluxKontextAnatomicalCascade: (args: {
+    imageDataUri: string;
+    prompt: string;
+    token?: string;
+    bfNow?: number | null;
+    bfGoal?: number | null;
+    intensity?: string;
+    zones?: string[] | string;
+    fat?: string;
+    horizon?: string;
+    horizonDate?: string;
+    months?: number;
+    pollTimeoutMs?: number;
+    runAttempt?: (args: Record<string, unknown>) => Promise<{
+      imageUrl: string;
+      model: string;
+      attempt?: string;
+      inputFieldNames?: string[];
+    }>;
+  }) => Promise<{
+    imageUrl: string;
+    model: string;
+    attempt?: string;
+    inputFieldNames?: string[];
+    providerRequestCount?: number;
+    providerRoutingStrategy?: string;
+    providerRoutingReason?: ProviderRoutingReason;
+    providerAttemptPlan?: string[];
+    providerAttempts?: ProviderFluxAttemptRecord[];
+    providerFallbackUsed?: boolean;
+    providerSuccessfulModel?: string | null;
+    providerInitialModel?: string | null;
+    providerFinalOutcome?: string;
+    preferMax?: boolean;
+    highE005Risk?: boolean;
+    promptHash?: string | null;
+    usedFallback?: boolean;
+    preferredModel?: string;
+  }>;
+  buildFluxAttemptPlan: (args: Record<string, unknown>) => {
+    preferMax: boolean;
+    highE005Risk: boolean;
+    skipSiblingPremium: boolean;
+    primaryLabel: string;
+    routingReason: ProviderRoutingReason;
+    attempts: Array<{ model: string; label: string }>;
+  };
   buildFluxKontextProInput: (args: {
     prompt: string;
     imageDataUri: string;
@@ -103,10 +166,10 @@ export interface LiveProviderDiagnostics {
 }
 
 /**
- * Load the known-working Flux Kontext Pro contract from lib/replicate.js.
+ * Load proven Flux helpers from lib/replicate.js.
  * Resolves from process.cwd() so tsx tests and the CJS Vercel bundle both work
- * without bundling reservedrift prompt logic. Production API also injects
- * `fluxProvider: runFluxKontextProOnce` explicitly.
+ * without bundling reservedrift prompt logic. Production API injects
+ * `fluxCascade: runFluxKontextAnatomicalCascade` explicitly (022E-E).
  */
 export function loadProvenFluxKontextProHelpers(): ProvenFluxKontextProHelpers {
   const req = createRequire(join(process.cwd(), "package.json"));
@@ -309,6 +372,15 @@ export interface LiveBodySimulatorDiagnostics {
   conditionedPromptHash: string | null;
   providerPromptUpsampling: boolean | null;
   providerSafetyAttribution: ProviderSafetyAttributionDiagnostic | null;
+  /** Patch 022E-E — intelligent Flux ordered fallback diagnostics. */
+  providerRoutingStrategy: "flux_ordered_fallback" | "flux_single" | "none";
+  providerRoutingReason: ProviderRoutingReason | null;
+  providerAttemptPlan: string[];
+  providerAttempts: ProviderFluxAttemptRecord[];
+  providerFallbackUsed: boolean;
+  providerSuccessfulModel: string | null;
+  providerInitialModel: string | null;
+  providerFinalOutcome: string | null;
 }
 
 export interface LiveFuturePreviewTraceStage {
@@ -397,6 +469,14 @@ function emptyDiagnostics(
     conditionedPromptHash: null,
     providerPromptUpsampling: null,
     providerSafetyAttribution: null,
+    providerRoutingStrategy: "none",
+    providerRoutingReason: null,
+    providerAttemptPlan: [],
+    providerAttempts: [],
+    providerFallbackUsed: false,
+    providerSuccessfulModel: null,
+    providerInitialModel: null,
+    providerFinalOutcome: null,
   };
 }
 
@@ -420,6 +500,7 @@ function buildAttributionForLivePath(args: {
   sourceImageDataUri: string;
   promptUpsampling?: boolean | null;
   providerError?: LiveProviderDiagnostics | null;
+  logicalSuccessViaFallback?: boolean;
 }): ProviderSafetyAttributionDiagnostic {
   const d = args.diagnostics;
   return buildProviderSafetyAttributionDiagnostic({
@@ -449,6 +530,15 @@ function buildAttributionForLivePath(args: {
     anatomicalTranslatedChangeCount: d.anatomicalTranslatedChangeCount,
     imageContractMatchesLegacy:
       d.sourceImageSerializationMatchesLegacy === true,
+    fluxOrderedFallback: {
+      strategy: d.providerRoutingStrategy,
+      reason: d.providerRoutingReason,
+      attemptPlan: d.providerAttemptPlan,
+      attempts: d.providerAttempts,
+      fallbackUsed: d.providerFallbackUsed,
+      requestCount: d.providerRequestCount,
+      logicalSuccessViaFallback: Boolean(args.logicalSuccessViaFallback),
+    },
   });
 }
 
@@ -721,7 +811,7 @@ export function buildLiveFuturePreviewTraceStages(
       id: "provider_attempt",
       label: "Provider Attempt",
       status: diagnostics.providerRequestAttempted
-        ? diagnostics.providerRequestCount === 1
+        ? diagnostics.providerRequestCount >= 1
           ? "ok"
           : "warn"
         : "pending",
@@ -736,6 +826,32 @@ export function buildLiveFuturePreviewTraceStages(
         imagePrefix: diagnostics.sourceImageDataUriPrefix,
         promptUpsampling: diagnostics.providerPromptUpsampling,
         conditionedPromptHash: diagnostics.conditionedPromptHash,
+      },
+      warnings: [],
+    },
+    {
+      id: "flux_routing",
+      label: "Flux Routing",
+      status:
+        diagnostics.providerRoutingStrategy === "flux_ordered_fallback"
+          ? outcome === "error"
+            ? "error"
+            : diagnostics.providerRequestAttempted
+              ? "ok"
+              : "pending"
+          : "pending",
+      values: {
+        strategy: diagnostics.providerRoutingStrategy,
+        reason: diagnostics.providerRoutingReason,
+        attemptPlan: diagnostics.providerAttemptPlan.join("→"),
+        requestCount: diagnostics.providerRequestCount,
+        fallbackUsed: diagnostics.providerFallbackUsed,
+        initialModel: diagnostics.providerInitialModel,
+        successfulModel: diagnostics.providerSuccessfulModel,
+        finalOutcome: diagnostics.providerFinalOutcome,
+        attempts: diagnostics.providerAttempts
+          .map((a) => `${a.label}:${a.outcome}`)
+          .join(","),
       },
       warnings: [],
     },
@@ -966,8 +1082,13 @@ export interface LiveFuturePreviewRunInput {
    */
   transportAdapter?: ReplicateTransportAdapterType;
   transportDependencies?: ReplicateTransportDependencies;
-  /** Optional override of proven Flux helper (tests). */
+  /**
+   * Test-only single-call override. When set, skips ordered Flux cascade
+   * (legacy test adapter path). Production uses fluxCascade.
+   */
   fluxProvider?: ProvenFluxKontextProHelpers["runFluxKontextProOnce"];
+  /** Optional override of intelligent Flux cascade (tests / API injection). */
+  fluxCascade?: ProvenFluxKontextProHelpers["runFluxKontextAnatomicalCascade"];
   /** When true, stop after formatter — zero provider calls. */
   dryRun?: boolean;
 }
@@ -1047,11 +1168,13 @@ function throwProviderFailed(
 }
 
 /**
- * Full live Future preview path. Exactly one provider request when not dryRun.
+ * Full live Future preview path.
+ * Provider transport: intelligent Flux ordered fallback (Max/Pro/Dev) via
+ * runFluxKontextAnatomicalCascade — same anatomical prompt across attempts.
+ * Max 3 sequential paid requests; stops on first success.
  *
- * Transformation authority: Body Simulator → Anatomical → Formatter.
- * Provider transport: proven Flux Kontext Pro contract from lib/replicate.js
- * (same field names / endpoint / auth as legacy generateWithReplicate).
+ * Transformation authority: Body Simulator → Anatomical → Formatter →
+ * NeutralAnatomicalPromptConditioner → Intelligent Flux Router → Replicate.
  */
 export async function runLiveFuturePreview(
   input: LiveFuturePreviewRunInput
@@ -1293,12 +1416,16 @@ export async function runLiveFuturePreview(
     };
   }
 
-  // Production live path: proven Flux Kontext Pro contract (lib/replicate.js).
+  // Production live path: intelligent Flux ordered fallback (lib/replicate.js).
   const token =
     typeof env.REPLICATE_API_TOKEN === "string" && env.REPLICATE_API_TOKEN.trim()
       ? env.REPLICATE_API_TOKEN.trim()
       : "";
-  if (!token && input.fluxProvider == null) {
+  if (
+    !token &&
+    input.fluxProvider == null &&
+    input.fluxCascade == null
+  ) {
     throwProviderFailed(prep, "Provider is not configured.", {
       status: 503,
       code: "missing_token",
@@ -1309,23 +1436,154 @@ export async function runLiveFuturePreview(
     });
   }
 
-  const runOnce =
-    input.fluxProvider ?? loadProvenFluxKontextProHelpers().runFluxKontextProOnce;
+  const zonesFromPayload = Array.isArray(input.payload.zones)
+    ? input.payload.zones.map(String)
+    : typeof input.payload.zones === "string"
+      ? String(input.payload.zones)
+          .split(",")
+          .map((z) => z.trim())
+          .filter(Boolean)
+      : typeof input.payload.zone === "string" && input.payload.zone.trim()
+        ? [input.payload.zone.trim()]
+        : prep.diagnostics.focusZones.publicFocusZonesReceived;
 
-  let generated: {
-    imageUrl: string;
-    model: string;
-    attempt?: string;
-    inputFieldNames?: string[];
-  };
+  const intensity =
+    typeof input.payload.intensity === "string" && input.payload.intensity.trim()
+      ? input.payload.intensity.trim()
+      : prep.diagnostics.effort.publicEffort || "moderate";
+  const fat =
+    typeof input.payload.fat === "string" && input.payload.fat.trim()
+      ? input.payload.fat.trim()
+      : "decrease";
+
+  // Test adapter: single-call fluxProvider skips cascade (existing unit tests).
+  if (input.fluxProvider) {
+    let generatedOnce: {
+      imageUrl: string;
+      model: string;
+      attempt?: string;
+      inputFieldNames?: string[];
+    };
+    try {
+      generatedOnce = await input.fluxProvider({
+        imageDataUri: input.sourceImageDataUri,
+        prompt: providerPrompt,
+        token,
+        model: DEFAULT_REPLICATE_TRANSPORT_MODEL,
+        bfNow: prep.diagnostics.bodyFat.current,
+        bfGoal: prep.diagnostics.bodyFat.target,
+        horizon,
+        horizonDate,
+      });
+    } catch (error) {
+      const err = error as {
+        message?: string;
+        status?: number;
+        code?: string;
+        providerErrorCode?: string;
+        providerInputFieldNames?: string[];
+        providerModel?: string;
+        replicateRaw?: string;
+      };
+      prep.diagnostics.providerRoutingStrategy = "flux_single";
+      throwProviderFailed(prep, err.replicateRaw || err.message || error, {
+        status: typeof err.status === "number" ? err.status : 502,
+        code: err.providerErrorCode || err.code || null,
+        model: err.providerModel || DEFAULT_REPLICATE_TRANSPORT_MODEL,
+        inputFieldNames:
+          err.providerInputFieldNames || [...PROVEN_FLUX_INPUT_FIELDS],
+        providerCalls: 1,
+        providerPrompt,
+        sourceImageDataUri: input.sourceImageDataUri,
+        promptUpsampling,
+      });
+    }
+
+    prep.diagnostics.providerRequestCount = 1;
+    prep.diagnostics.providerRoutingStrategy = "flux_single";
+    prep.diagnostics.providerFinalOutcome = "success";
+    prep.diagnostics.providerSuccessfulModel =
+      generatedOnce.model || DEFAULT_REPLICATE_TRANSPORT_MODEL;
+    prep.diagnostics.providerInitialModel =
+      generatedOnce.model || DEFAULT_REPLICATE_TRANSPORT_MODEL;
+    if (!generatedOnce?.imageUrl) {
+      throwProviderFailed(prep, "Provider returned no image URL.", {
+        status: 502,
+        providerCalls: 1,
+        inputFieldNames:
+          generatedOnce?.inputFieldNames || [...PROVEN_FLUX_INPUT_FIELDS],
+        providerPrompt,
+        sourceImageDataUri: input.sourceImageDataUri,
+        promptUpsampling,
+      });
+    }
+
+    const diagnostics: LiveBodySimulatorDiagnostics = {
+      ...prep.diagnostics,
+      providerRequestAttempted: true,
+      providerRequestCount: 1,
+      promptContainsAnatomicalIntent: true,
+      providerContract: "flux_kontext_pro_legacy_parity",
+      providerModel: generatedOnce.model || DEFAULT_REPLICATE_TRANSPORT_MODEL,
+      providerInputFieldNames:
+        generatedOnce.inputFieldNames || [...PROVEN_FLUX_INPUT_FIELDS],
+    };
+
+    return {
+      ok: true,
+      imageUrl: generatedOnce.imageUrl,
+      livePreviewTraceId: prep.livePreviewTraceId,
+      livePreviewDiagnostics: diagnostics,
+      liveFuturePreviewTrace: buildLiveFuturePreviewTraceStages(
+        diagnostics,
+        "ok"
+      ),
+      bodySimulatorPreviewActive: true,
+      attempt: "body-simulator-anatomical-live-preview",
+      usedFallback: false,
+      model: generatedOnce.model || DEFAULT_REPLICATE_TRANSPORT_MODEL,
+      disclaimer:
+        "Realistic motivational visualization from Body Simulator anatomical rules — not a medical prediction or flattering ideal.",
+      providerRequestCount: 1,
+    };
+  }
+
+  const helpers = loadProvenFluxKontextProHelpers();
+  const runCascade =
+    input.fluxCascade ?? helpers.runFluxKontextAnatomicalCascade;
+
+  // Pre-compute routing plan for diagnostics even before the first call.
   try {
-    generated = await runOnce({
+    const plan = helpers.buildFluxAttemptPlan({
+      fat,
+      bfNow: prep.diagnostics.bodyFat.current,
+      bfGoal: prep.diagnostics.bodyFat.target,
+      intensity,
+      zones: zonesFromPayload,
+      horizon,
+      horizonDate,
+    });
+    prep.diagnostics.providerRoutingStrategy = "flux_ordered_fallback";
+    prep.diagnostics.providerRoutingReason = plan.routingReason;
+    prep.diagnostics.providerAttemptPlan = plan.attempts.map((a) => a.label);
+    prep.diagnostics.providerInitialModel = plan.attempts[0]?.model ?? null;
+  } catch {
+    prep.diagnostics.providerRoutingStrategy = "flux_ordered_fallback";
+  }
+
+  let generated: Awaited<
+    ReturnType<ProvenFluxKontextProHelpers["runFluxKontextAnatomicalCascade"]>
+  >;
+  try {
+    generated = await runCascade({
       imageDataUri: input.sourceImageDataUri,
       prompt: providerPrompt,
       token,
-      model: DEFAULT_REPLICATE_TRANSPORT_MODEL,
       bfNow: prep.diagnostics.bodyFat.current,
       bfGoal: prep.diagnostics.bodyFat.target,
+      intensity,
+      zones: zonesFromPayload,
+      fat,
       horizon,
       horizonDate,
     });
@@ -1338,24 +1596,73 @@ export async function runLiveFuturePreview(
       providerInputFieldNames?: string[];
       providerModel?: string;
       replicateRaw?: string;
+      providerRequestCount?: number;
+      providerAttempts?: ProviderFluxAttemptRecord[];
+      providerAttemptPlan?: string[];
+      providerRoutingReason?: ProviderRoutingReason;
+      providerFallbackUsed?: boolean;
+      providerInitialModel?: string | null;
+      providerFinalOutcome?: string;
     };
+    if (Array.isArray(err.providerAttempts)) {
+      prep.diagnostics.providerAttempts = err.providerAttempts;
+    }
+    if (Array.isArray(err.providerAttemptPlan)) {
+      prep.diagnostics.providerAttemptPlan = err.providerAttemptPlan;
+    }
+    if (err.providerRoutingReason) {
+      prep.diagnostics.providerRoutingReason = err.providerRoutingReason;
+    }
+    prep.diagnostics.providerRoutingStrategy = "flux_ordered_fallback";
+    prep.diagnostics.providerFallbackUsed = Boolean(err.providerFallbackUsed);
+    prep.diagnostics.providerInitialModel =
+      err.providerInitialModel ?? prep.diagnostics.providerInitialModel;
+    prep.diagnostics.providerFinalOutcome =
+      err.providerFinalOutcome || "all_attempts_failed";
+    prep.diagnostics.providerSuccessfulModel = null;
     throwProviderFailed(prep, err.replicateRaw || err.message || error, {
       status: typeof err.status === "number" ? err.status : 502,
       code: err.providerErrorCode || err.code || null,
-      model: err.providerModel || DEFAULT_REPLICATE_TRANSPORT_MODEL,
-      inputFieldNames: err.providerInputFieldNames || [...PROVEN_FLUX_INPUT_FIELDS],
-      providerCalls: 1,
+      model: err.providerModel || prep.diagnostics.providerInitialModel,
+      inputFieldNames:
+        err.providerInputFieldNames || [...PROVEN_FLUX_INPUT_FIELDS],
+      providerCalls:
+        typeof err.providerRequestCount === "number"
+          ? err.providerRequestCount
+          : Math.max(1, prep.diagnostics.providerAttempts.length),
       providerPrompt,
       sourceImageDataUri: input.sourceImageDataUri,
       promptUpsampling,
     });
   }
 
-  prep.diagnostics.providerRequestCount = 1;
+  const requestCount =
+    typeof generated.providerRequestCount === "number"
+      ? generated.providerRequestCount
+      : 1;
+  prep.diagnostics.providerRequestCount = requestCount;
+  prep.diagnostics.providerRoutingStrategy = "flux_ordered_fallback";
+  prep.diagnostics.providerRoutingReason =
+    generated.providerRoutingReason ?? prep.diagnostics.providerRoutingReason;
+  prep.diagnostics.providerAttemptPlan =
+    generated.providerAttemptPlan ?? prep.diagnostics.providerAttemptPlan;
+  prep.diagnostics.providerAttempts = generated.providerAttempts ?? [];
+  prep.diagnostics.providerFallbackUsed = Boolean(
+    generated.providerFallbackUsed
+  );
+  prep.diagnostics.providerSuccessfulModel =
+    generated.providerSuccessfulModel || generated.model || null;
+  prep.diagnostics.providerInitialModel =
+    generated.providerInitialModel ?? prep.diagnostics.providerInitialModel;
+  prep.diagnostics.providerFinalOutcome =
+    generated.providerFinalOutcome || "success";
+  prep.diagnostics.providerModel =
+    generated.model || DEFAULT_REPLICATE_TRANSPORT_MODEL;
+
   if (!generated?.imageUrl) {
     throwProviderFailed(prep, "Provider returned no image URL.", {
       status: 502,
-      providerCalls: 1,
+      providerCalls: requestCount,
       inputFieldNames: generated?.inputFieldNames || [...PROVEN_FLUX_INPUT_FIELDS],
       providerPrompt,
       sourceImageDataUri: input.sourceImageDataUri,
@@ -1363,10 +1670,20 @@ export async function runLiveFuturePreview(
     });
   }
 
+  // Refresh attribution with attempt failure + logical success when fallback wins.
+  prep.diagnostics.providerSafetyAttribution = buildAttributionForLivePath({
+    diagnostics: prep.diagnostics,
+    providerPrompt,
+    sourceImageDataUri: input.sourceImageDataUri,
+    promptUpsampling,
+    providerError: null,
+    logicalSuccessViaFallback: prep.diagnostics.providerFallbackUsed,
+  });
+
   const diagnostics: LiveBodySimulatorDiagnostics = {
     ...prep.diagnostics,
     providerRequestAttempted: true,
-    providerRequestCount: 1,
+    providerRequestCount: requestCount,
     promptContainsAnatomicalIntent: true,
     providerContract: "flux_kontext_pro_legacy_parity",
     providerModel: generated.model || DEFAULT_REPLICATE_TRANSPORT_MODEL,
@@ -1385,11 +1702,12 @@ export async function runLiveFuturePreview(
     ),
     bodySimulatorPreviewActive: true,
     attempt: "body-simulator-anatomical-live-preview",
+    // Public UX: fallback success is a normal Goal Image (not "Safety fallback").
     usedFallback: false,
     model: generated.model || DEFAULT_REPLICATE_TRANSPORT_MODEL,
     disclaimer:
       "Realistic motivational visualization from Body Simulator anatomical rules — not a medical prediction or flattering ideal.",
-    providerRequestCount: 1,
+    providerRequestCount: requestCount,
   };
 }
 

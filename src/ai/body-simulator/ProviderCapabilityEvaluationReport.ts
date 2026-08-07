@@ -341,19 +341,21 @@ export function buildLegacyGenerationCascadeReport(): LegacyGenerationCascadeRep
 export function buildLiveBodySimulatorProviderPathReport(): LiveBodySimulatorProviderPathReport {
   return {
     provider: "replicate",
+    // Mild edits start on Pro; demanding / high-E005 routes Max-first (022E-E).
     model: REPLICATE_FLUX_KONTEXT_PRO,
-    attempts: 1,
-    fallbackExists: false,
+    attempts: 3,
+    fallbackExists: true,
     retryExists: false,
     silentLegacyFallback: false,
     e005Handling:
-      "Classify as live_preview_provider_failed + ProviderSafetyAttributionDiagnostic; return structured error; zero additional provider calls; no generateWithReplicate recovery",
-    helper: "lib/replicate.js runFluxKontextProOnce — injected as fluxProvider",
+      "Eligible failures continue ordered Flux cascade (Max/Pro/Dev per buildFluxAttemptPlan); all-fail → live_preview_provider_failed + ProviderSafetyAttributionDiagnostic; no generateWithReplicate reservedrift recovery",
+    helper:
+      "lib/replicate.js runFluxKontextAnatomicalCascade — injected as fluxCascade (022E-E)",
     evidenceCitations: [
-      "api/generate-future-you.js:95-187 live path + catch without legacy recovery",
-      "lib/replicate.js:2040-2105 runFluxKontextProOnce (no cascade)",
-      "src/ai/body-simulator/LiveFuturePreviewPipeline.ts:1050 exactly one provider request",
-      "docs/CTO/22E_ANATOMICAL_LIVE_PREVIEW_INTEGRATION.md No automatic fallback",
+      "api/generate-future-you.js live path injects fluxCascade; catch without legacy recovery",
+      "lib/replicate.js buildFluxAttemptPlan + runFluxKontextAnatomicalCascade",
+      "src/ai/body-simulator/LiveFuturePreviewPipeline.ts intelligent Flux ordered fallback",
+      "docs/CTO/22E_ANATOMICAL_LIVE_PREVIEW_INTEGRATION.md Patch 022E-E",
     ],
   };
 }
@@ -677,7 +679,8 @@ export function buildProviderCapabilityEvaluationReport(): ProviderCapabilityEva
         moderationReliability:
           "Fragile — one external E005 ends the request (current live path)",
         operationalRisk: "Medium — false hard-fail when sibling models might accept",
-        notes: "Current Body Simulator live path (flag ON).",
+        notes:
+          "Pre-022E-E Body Simulator live path (Pro-only). Superseded by ordered fallback in 022E-E.",
       },
       orderedFallback: {
         id: "ordered_fallback",
@@ -692,7 +695,7 @@ export function buildProviderCapabilityEvaluationReport(): ProviderCapabilityEva
           "Better — each model judged under its own policy; not a safety bypass",
         operationalRisk: "Medium — cost/latency budgets; quality variance",
         notes:
-          "Closest to existing legacy generateWithReplicate cascade; recommended architecture to evaluate (not implement in 022E-D).",
+          "IMPLEMENTED by Patch 022E-E via buildFluxAttemptPlan + runFluxKontextAnatomicalCascade (same anatomical prompt; max 3 attempts; no SDXL / no Dev-strong reservedrift).",
       },
       transformationAwareRouting: {
         id: "transformation_aware_routing",
@@ -755,13 +758,13 @@ export function buildProviderCapabilityEvaluationReport(): ProviderCapabilityEva
     },
     asymmetryStatement: {
       statement:
-        "The legacy path may appear more tolerant because it can fall through to another model after Flux Kontext Pro returns E005, while the Body Simulator live path stops after one Flux Kontext Pro request.",
+        "Pre-022E-E: legacy could fall through after E005 while live Body Simulator stopped after one Flux Kontext Pro request. 022E-E restores ordered Flux fallback on the live anatomical path (still no silent generateWithReplicate reservedrift recovery).",
       provenTrue: true,
       evidenceCitations: [
-        "lib/replicate.js:2320-2347 safetyHit continues cascade / skips sibling premium",
-        "lib/replicate.js:2040-2105 runFluxKontextProOnce — no cascade",
-        "api/generate-future-you.js:145-187 live catch returns error (no generateWithReplicate recovery)",
-        "src/ai/body-simulator/LiveFuturePreviewPipeline.ts:1050 one provider request",
+        "lib/replicate.js generateWithReplicate — legacy cascade (historical asymmetry)",
+        "lib/replicate.js runFluxKontextProOnce — former live single-shot helper (kept)",
+        "lib/replicate.js runFluxKontextAnatomicalCascade — 022E-E live ordered fallback",
+        "api/generate-future-you.js injects fluxCascade; catch still has no generateWithReplicate recovery",
       ],
     },
     manualExperiment: {

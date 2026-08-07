@@ -1,7 +1,8 @@
 # Provider Capability & Fallback Evaluation
 
 Status:  
-Investigation & architecture recommendation only (Demand 022E-D) — **not implemented**
+Investigation & architecture recommendation (Demand 022E-D).  
+**Ordered fallback (OPTION B) — IMPLEMENTED by Patch 022E-E** (`buildFluxAttemptPlan` + `runFluxKontextAnatomicalCascade`).
 
 Authority: [HelseApp AI Constitution](./00_AI_CONSTITUTION.md)  
 Related: [22E — Anatomical Live Preview Integration](./22E_ANATOMICAL_LIVE_PREVIEW_INTEGRATION.md) (incl. 022E-C attribution), [22D — Anatomical Transformation Engine](./22D_ANATOMICAL_TRANSFORMATION_ENGINE.md), [22 — Body Simulator v1](./22_BODY_SIMULATOR_V1.md), [17 — Internal AI Image Preview](./17_INTERNAL_AI_IMAGE_PREVIEW.md), [11 — Replicate Transport Adapter](./11_REPLICATE_TRANSPORT_ADAPTER.md)
@@ -97,7 +98,7 @@ Typed freeze: `LegacyGenerationCascadeReport` via `buildLegacyGenerationCascadeR
 
 ## Body Simulator live provider path
 
-Path (flag **ON** = `BODY_SIMULATOR_LIVE_PREVIEW_ENABLED=1`):
+Path (flag **ON** = `BODY_SIMULATOR_LIVE_PREVIEW_ENABLED=1`) — **after 022E-E**:
 
 ```
 Public Future
@@ -105,23 +106,23 @@ Public Future
 → Body Simulator → Anatomical Engine
 → BodySimulatorFormatterAdapter → FluxFormatter
 → NeutralAnatomicalPromptConditioner
-→ runFluxKontextProOnce (lib/replicate.js)
-→ Flux Kontext Pro (exactly one request)
+→ buildFluxAttemptPlan + runFluxKontextAnatomicalCascade (lib/replicate.js)
+→ ordered Flux Max/Pro/Dev (max 3; same anatomical prompt)
 → result or structured error
 ```
 
-| Dimension | Live (flag ON) |
+| Dimension | Live (flag ON, 022E-E) |
 | --- | --- |
 | Provider | Replicate |
-| Model | `black-forest-labs/flux-kontext-pro` only |
-| Attempts | **1** |
-| Fallback | **None** |
-| Auto retry | **None** |
+| Model | Ordered Flux family via `buildFluxAttemptPlan` (mild: Pro-first; demanding: Max-first; high E005 risk: Max→Dev, Pro skipped) |
+| Attempts | **≤3** sequential |
+| Fallback | **Ordered Flux** (eligible failures only) |
+| Auto retry | **None** (no same-model loop) |
 | Silent legacy reservedrift recovery | **None** (`api/generate-future-you.js` live `catch` returns JSON error; does not call `generateWithReplicate`) |
-| E005 handling | `live_preview_provider_failed` + `ProviderSafetyAttributionDiagnostic` |
-| Contract | Proven Flux fields via `buildFluxKontextProInput` (`safety_tolerance: 2`) |
+| E005 handling | Continue cascade when eligible; all-fail → `live_preview_provider_failed` + attribution |
+| Contract | Proven Flux fields via `buildFluxKontextProInput` (`safety_tolerance: 2`); same prompt/image across attempts |
 
-Evidence: `lib/replicate.js:2040-2105` (`runFluxKontextProOnce` — “No cascade”); `LiveFuturePreviewPipeline.ts:1050`; `api/generate-future-you.js:95-187`.
+Historical (022E-D evidence of pre-fix regression): `runFluxKontextProOnce` was Pro-only / no cascade. Kept as a helper; live path now injects `fluxCascade: runFluxKontextAnatomicalCascade`.
 
 ---
 
@@ -201,12 +202,14 @@ Comparison dimensions (complexity, quality consistency, cost, latency, observabi
 
 ## Recommended architecture
 
-**OPTION B — Ordered fallback** (recommend only — **do not implement in 022E-D**).
+**OPTION B — Ordered fallback** — **IMPLEMENTED by 022E-E**.
 
-Reasons:
+022E-D recommended this architecture without implementing it. Patch 022E-E restores intelligent Flux routing on the live anatomical path via shared `buildFluxAttemptPlan` + `runFluxKontextAnatomicalCascade` (same conditioned anatomical prompt; max 3 attempts; no SDXL / no Dev-strong reservedrift; no moderation bypass).
+
+Reasons (original 022E-D):
 
 1. Legacy already demonstrates E005 continuation to alternate Flux models under their own moderation.
-2. Live single-Pro path makes external refusals look like product hard-fails even when siblings might accept.
+2. Live single-Pro path made external refusals look like product hard-fails even when siblings might accept.
 3. Preserves one primary on the success path; improves reliability without weakening HelseApp or provider safety.
 4. Lower complexity than C/D before manual single-model evidence exists.
 
@@ -351,9 +354,13 @@ Do **not** take automatically:
 
 ## Confirmations (022E-D)
 
-- No provider/model/routing implementation changes
+- 022E-D itself: investigation/docs only (no routing implementation at the time)
 - No moderation weakening; `safety_tolerance` unchanged
 - No Body Simulator / Anatomical physiology or coefficient changes
 - No paid provider requests from this demand
 - No env var changes
 - No new dependencies
+
+## Follow-up (022E-E)
+
+- Ordered fallback **IMPLEMENTED** on the live Body Simulator path (see [22E Anatomical Live Preview Integration — Patch 022E-E](./22E_ANATOMICAL_LIVE_PREVIEW_INTEGRATION.md#patch-022e-e--intelligent-flux-routing-restored))

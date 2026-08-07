@@ -7885,22 +7885,40 @@ function buildProviderSafetyAttributionDiagnostic(input) {
   const unresolvedDifferences = [
     ...input.unresolvedDifferences ?? []
   ];
+  const fallbackCtx = input.fluxOrderedFallback || null;
+  const orderedFallbackActive = fallbackCtx?.strategy === "flux_ordered_fallback";
   const defaultUnresolved = [
     "prompt_content_differs_from_legacy_slim_athletic_framing",
-    "legacy_path_may_cascade_alternate_models_on_e005",
     "e005_message_does_not_distinguish_input_vs_output",
     "no_paid_provider_attribution_probe"
   ];
+  if (!orderedFallbackActive) {
+    defaultUnresolved.splice(
+      1,
+      0,
+      "legacy_path_may_cascade_alternate_models_on_e005"
+    );
+  }
   for (const id of defaultUnresolved) {
     if (!unresolvedDifferences.includes(id)) unresolvedDifferences.push(id);
+  }
+  if (orderedFallbackActive && !repairedDefects.includes("restored_intelligent_flux_ordered_fallback")) {
+    repairedDefects.push("restored_intelligent_flux_ordered_fallback");
   }
   const reasons = [];
   let classification = "indeterminate";
   let confidence = "low";
   if (!isE005 && !safeMessage) {
     reasons.push("no_provider_safety_error_present");
-    classification = "indeterminate";
-    confidence = "low";
+    if (fallbackCtx?.logicalSuccessViaFallback) {
+      reasons.push("primary_attempt_failed_eligible_fallback_succeeded");
+      reasons.push("live_path_flux_ordered_fallback_logical_success");
+      classification = "provider_behavior_changed";
+      confidence = "medium";
+    } else {
+      classification = "indeterminate";
+      confidence = "low";
+    }
   } else if (!isE005) {
     reasons.push("provider_error_not_e005_sensitive");
     classification = "indeterminate";
@@ -7935,7 +7953,22 @@ function buildProviderSafetyAttributionDiagnostic(input) {
     }
     reasons.push("provider_prompt_structure_differs_from_legacy_slim");
     reasons.push("legacy_generateWithReplicate_may_cascade_on_e005");
-    reasons.push("live_path_single_request_no_cascade");
+    if (orderedFallbackActive) {
+      reasons.push("live_path_flux_ordered_fallback");
+      const failedAttempts = (fallbackCtx?.attempts || []).filter(
+        (a) => a.outcome === "failed"
+      );
+      if (failedAttempts.length > 0) {
+        reasons.push("attempt_level_eligible_failure_recorded");
+      }
+      if (fallbackCtx?.logicalSuccessViaFallback) {
+        reasons.push("primary_attempt_failed_eligible_fallback_succeeded");
+      } else {
+        reasons.push("all_flux_ordered_fallback_attempts_failed");
+      }
+    } else {
+      reasons.push("live_path_single_request_no_cascade");
+    }
     reasons.push("attribution_without_paid_provider_isolation_probe");
     if (!imageContractMatchesLegacy) {
       classification = "likely_input_related";
@@ -8180,7 +8213,15 @@ function emptyDiagnostics(livePreviewTraceId, enabled) {
     sourceImageSerializationMatchesLegacy: null,
     conditionedPromptHash: null,
     providerPromptUpsampling: null,
-    providerSafetyAttribution: null
+    providerSafetyAttribution: null,
+    providerRoutingStrategy: "none",
+    providerRoutingReason: null,
+    providerAttemptPlan: [],
+    providerAttempts: [],
+    providerFallbackUsed: false,
+    providerSuccessfulModel: null,
+    providerInitialModel: null,
+    providerFinalOutcome: null
   };
 }
 function attachSourceImageMetrics(diagnostics, sourceImageDataUri) {
@@ -8215,7 +8256,16 @@ function buildAttributionForLivePath(args) {
     timelineWeeks: d.timelineWeeks,
     focusZones: d.focusZones.canonicalFocusZonesMapped,
     anatomicalTranslatedChangeCount: d.anatomicalTranslatedChangeCount,
-    imageContractMatchesLegacy: d.sourceImageSerializationMatchesLegacy === true
+    imageContractMatchesLegacy: d.sourceImageSerializationMatchesLegacy === true,
+    fluxOrderedFallback: {
+      strategy: d.providerRoutingStrategy,
+      reason: d.providerRoutingReason,
+      attemptPlan: d.providerAttemptPlan,
+      attempts: d.providerAttempts,
+      fallbackUsed: d.providerFallbackUsed,
+      requestCount: d.providerRequestCount,
+      logicalSuccessViaFallback: Boolean(args.logicalSuccessViaFallback)
+    }
   });
 }
 function applyNeutralPromptDiagnostics(target, conditioned) {
@@ -8411,7 +8461,7 @@ function buildLiveFuturePreviewTraceStages(diagnostics, outcome = "pending") {
     {
       id: "provider_attempt",
       label: "Provider Attempt",
-      status: diagnostics.providerRequestAttempted ? diagnostics.providerRequestCount === 1 ? "ok" : "warn" : "pending",
+      status: diagnostics.providerRequestAttempted ? diagnostics.providerRequestCount >= 1 ? "ok" : "warn" : "pending",
       values: {
         attempted: diagnostics.providerRequestAttempted,
         count: diagnostics.providerRequestCount,
@@ -8423,6 +8473,23 @@ function buildLiveFuturePreviewTraceStages(diagnostics, outcome = "pending") {
         imagePrefix: diagnostics.sourceImageDataUriPrefix,
         promptUpsampling: diagnostics.providerPromptUpsampling,
         conditionedPromptHash: diagnostics.conditionedPromptHash
+      },
+      warnings: []
+    },
+    {
+      id: "flux_routing",
+      label: "Flux Routing",
+      status: diagnostics.providerRoutingStrategy === "flux_ordered_fallback" ? outcome === "error" ? "error" : diagnostics.providerRequestAttempted ? "ok" : "pending" : "pending",
+      values: {
+        strategy: diagnostics.providerRoutingStrategy,
+        reason: diagnostics.providerRoutingReason,
+        attemptPlan: diagnostics.providerAttemptPlan.join("\u2192"),
+        requestCount: diagnostics.providerRequestCount,
+        fallbackUsed: diagnostics.providerFallbackUsed,
+        initialModel: diagnostics.providerInitialModel,
+        successfulModel: diagnostics.providerSuccessfulModel,
+        finalOutcome: diagnostics.providerFinalOutcome,
+        attempts: diagnostics.providerAttempts.map((a) => `${a.label}:${a.outcome}`).join(",")
       },
       warnings: []
     },
@@ -8736,8 +8803,8 @@ async function runLiveFuturePreview(input) {
   const horizonDate = typeof input.payload.horizonDate === "string" ? input.payload.horizonDate : "";
   let promptUpsampling = null;
   try {
-    const helpers = loadProvenFluxKontextProHelpers();
-    const built = helpers.buildFluxKontextProInput({
+    const helpers2 = loadProvenFluxKontextProHelpers();
+    const built = helpers2.buildFluxKontextProInput({
       prompt: providerPrompt,
       imageDataUri: input.sourceImageDataUri,
       bfNow: prep.diagnostics.bodyFat.current,
@@ -8823,7 +8890,7 @@ async function runLiveFuturePreview(input) {
     };
   }
   const token = typeof env.REPLICATE_API_TOKEN === "string" && env.REPLICATE_API_TOKEN.trim() ? env.REPLICATE_API_TOKEN.trim() : "";
-  if (!token && input.fluxProvider == null) {
+  if (!token && input.fluxProvider == null && input.fluxCascade == null) {
     throwProviderFailed(prep, "Provider is not configured.", {
       status: 503,
       code: "missing_token",
@@ -8833,47 +8900,172 @@ async function runLiveFuturePreview(input) {
       promptUpsampling
     });
   }
-  const runOnce = input.fluxProvider ?? loadProvenFluxKontextProHelpers().runFluxKontextProOnce;
+  const zonesFromPayload = Array.isArray(input.payload.zones) ? input.payload.zones.map(String) : typeof input.payload.zones === "string" ? String(input.payload.zones).split(",").map((z) => z.trim()).filter(Boolean) : typeof input.payload.zone === "string" && input.payload.zone.trim() ? [input.payload.zone.trim()] : prep.diagnostics.focusZones.publicFocusZonesReceived;
+  const intensity = typeof input.payload.intensity === "string" && input.payload.intensity.trim() ? input.payload.intensity.trim() : prep.diagnostics.effort.publicEffort || "moderate";
+  const fat = typeof input.payload.fat === "string" && input.payload.fat.trim() ? input.payload.fat.trim() : "decrease";
+  if (input.fluxProvider) {
+    let generatedOnce;
+    try {
+      generatedOnce = await input.fluxProvider({
+        imageDataUri: input.sourceImageDataUri,
+        prompt: providerPrompt,
+        token,
+        model: DEFAULT_REPLICATE_TRANSPORT_MODEL,
+        bfNow: prep.diagnostics.bodyFat.current,
+        bfGoal: prep.diagnostics.bodyFat.target,
+        horizon,
+        horizonDate
+      });
+    } catch (error) {
+      const err = error;
+      prep.diagnostics.providerRoutingStrategy = "flux_single";
+      throwProviderFailed(prep, err.replicateRaw || err.message || error, {
+        status: typeof err.status === "number" ? err.status : 502,
+        code: err.providerErrorCode || err.code || null,
+        model: err.providerModel || DEFAULT_REPLICATE_TRANSPORT_MODEL,
+        inputFieldNames: err.providerInputFieldNames || [...PROVEN_FLUX_INPUT_FIELDS],
+        providerCalls: 1,
+        providerPrompt,
+        sourceImageDataUri: input.sourceImageDataUri,
+        promptUpsampling
+      });
+    }
+    prep.diagnostics.providerRequestCount = 1;
+    prep.diagnostics.providerRoutingStrategy = "flux_single";
+    prep.diagnostics.providerFinalOutcome = "success";
+    prep.diagnostics.providerSuccessfulModel = generatedOnce.model || DEFAULT_REPLICATE_TRANSPORT_MODEL;
+    prep.diagnostics.providerInitialModel = generatedOnce.model || DEFAULT_REPLICATE_TRANSPORT_MODEL;
+    if (!generatedOnce?.imageUrl) {
+      throwProviderFailed(prep, "Provider returned no image URL.", {
+        status: 502,
+        providerCalls: 1,
+        inputFieldNames: generatedOnce?.inputFieldNames || [...PROVEN_FLUX_INPUT_FIELDS],
+        providerPrompt,
+        sourceImageDataUri: input.sourceImageDataUri,
+        promptUpsampling
+      });
+    }
+    const diagnostics2 = {
+      ...prep.diagnostics,
+      providerRequestAttempted: true,
+      providerRequestCount: 1,
+      promptContainsAnatomicalIntent: true,
+      providerContract: "flux_kontext_pro_legacy_parity",
+      providerModel: generatedOnce.model || DEFAULT_REPLICATE_TRANSPORT_MODEL,
+      providerInputFieldNames: generatedOnce.inputFieldNames || [...PROVEN_FLUX_INPUT_FIELDS]
+    };
+    return {
+      ok: true,
+      imageUrl: generatedOnce.imageUrl,
+      livePreviewTraceId: prep.livePreviewTraceId,
+      livePreviewDiagnostics: diagnostics2,
+      liveFuturePreviewTrace: buildLiveFuturePreviewTraceStages(
+        diagnostics2,
+        "ok"
+      ),
+      bodySimulatorPreviewActive: true,
+      attempt: "body-simulator-anatomical-live-preview",
+      usedFallback: false,
+      model: generatedOnce.model || DEFAULT_REPLICATE_TRANSPORT_MODEL,
+      disclaimer: "Realistic motivational visualization from Body Simulator anatomical rules \u2014 not a medical prediction or flattering ideal.",
+      providerRequestCount: 1
+    };
+  }
+  const helpers = loadProvenFluxKontextProHelpers();
+  const runCascade = input.fluxCascade ?? helpers.runFluxKontextAnatomicalCascade;
+  try {
+    const plan = helpers.buildFluxAttemptPlan({
+      fat,
+      bfNow: prep.diagnostics.bodyFat.current,
+      bfGoal: prep.diagnostics.bodyFat.target,
+      intensity,
+      zones: zonesFromPayload,
+      horizon,
+      horizonDate
+    });
+    prep.diagnostics.providerRoutingStrategy = "flux_ordered_fallback";
+    prep.diagnostics.providerRoutingReason = plan.routingReason;
+    prep.diagnostics.providerAttemptPlan = plan.attempts.map((a) => a.label);
+    prep.diagnostics.providerInitialModel = plan.attempts[0]?.model ?? null;
+  } catch {
+    prep.diagnostics.providerRoutingStrategy = "flux_ordered_fallback";
+  }
   let generated;
   try {
-    generated = await runOnce({
+    generated = await runCascade({
       imageDataUri: input.sourceImageDataUri,
       prompt: providerPrompt,
       token,
-      model: DEFAULT_REPLICATE_TRANSPORT_MODEL,
       bfNow: prep.diagnostics.bodyFat.current,
       bfGoal: prep.diagnostics.bodyFat.target,
+      intensity,
+      zones: zonesFromPayload,
+      fat,
       horizon,
       horizonDate
     });
   } catch (error) {
     const err = error;
+    if (Array.isArray(err.providerAttempts)) {
+      prep.diagnostics.providerAttempts = err.providerAttempts;
+    }
+    if (Array.isArray(err.providerAttemptPlan)) {
+      prep.diagnostics.providerAttemptPlan = err.providerAttemptPlan;
+    }
+    if (err.providerRoutingReason) {
+      prep.diagnostics.providerRoutingReason = err.providerRoutingReason;
+    }
+    prep.diagnostics.providerRoutingStrategy = "flux_ordered_fallback";
+    prep.diagnostics.providerFallbackUsed = Boolean(err.providerFallbackUsed);
+    prep.diagnostics.providerInitialModel = err.providerInitialModel ?? prep.diagnostics.providerInitialModel;
+    prep.diagnostics.providerFinalOutcome = err.providerFinalOutcome || "all_attempts_failed";
+    prep.diagnostics.providerSuccessfulModel = null;
     throwProviderFailed(prep, err.replicateRaw || err.message || error, {
       status: typeof err.status === "number" ? err.status : 502,
       code: err.providerErrorCode || err.code || null,
-      model: err.providerModel || DEFAULT_REPLICATE_TRANSPORT_MODEL,
+      model: err.providerModel || prep.diagnostics.providerInitialModel,
       inputFieldNames: err.providerInputFieldNames || [...PROVEN_FLUX_INPUT_FIELDS],
-      providerCalls: 1,
+      providerCalls: typeof err.providerRequestCount === "number" ? err.providerRequestCount : Math.max(1, prep.diagnostics.providerAttempts.length),
       providerPrompt,
       sourceImageDataUri: input.sourceImageDataUri,
       promptUpsampling
     });
   }
-  prep.diagnostics.providerRequestCount = 1;
+  const requestCount = typeof generated.providerRequestCount === "number" ? generated.providerRequestCount : 1;
+  prep.diagnostics.providerRequestCount = requestCount;
+  prep.diagnostics.providerRoutingStrategy = "flux_ordered_fallback";
+  prep.diagnostics.providerRoutingReason = generated.providerRoutingReason ?? prep.diagnostics.providerRoutingReason;
+  prep.diagnostics.providerAttemptPlan = generated.providerAttemptPlan ?? prep.diagnostics.providerAttemptPlan;
+  prep.diagnostics.providerAttempts = generated.providerAttempts ?? [];
+  prep.diagnostics.providerFallbackUsed = Boolean(
+    generated.providerFallbackUsed
+  );
+  prep.diagnostics.providerSuccessfulModel = generated.providerSuccessfulModel || generated.model || null;
+  prep.diagnostics.providerInitialModel = generated.providerInitialModel ?? prep.diagnostics.providerInitialModel;
+  prep.diagnostics.providerFinalOutcome = generated.providerFinalOutcome || "success";
+  prep.diagnostics.providerModel = generated.model || DEFAULT_REPLICATE_TRANSPORT_MODEL;
   if (!generated?.imageUrl) {
     throwProviderFailed(prep, "Provider returned no image URL.", {
       status: 502,
-      providerCalls: 1,
+      providerCalls: requestCount,
       inputFieldNames: generated?.inputFieldNames || [...PROVEN_FLUX_INPUT_FIELDS],
       providerPrompt,
       sourceImageDataUri: input.sourceImageDataUri,
       promptUpsampling
     });
   }
+  prep.diagnostics.providerSafetyAttribution = buildAttributionForLivePath({
+    diagnostics: prep.diagnostics,
+    providerPrompt,
+    sourceImageDataUri: input.sourceImageDataUri,
+    promptUpsampling,
+    providerError: null,
+    logicalSuccessViaFallback: prep.diagnostics.providerFallbackUsed
+  });
   const diagnostics = {
     ...prep.diagnostics,
     providerRequestAttempted: true,
-    providerRequestCount: 1,
+    providerRequestCount: requestCount,
     promptContainsAnatomicalIntent: true,
     providerContract: "flux_kontext_pro_legacy_parity",
     providerModel: generated.model || DEFAULT_REPLICATE_TRANSPORT_MODEL,
@@ -8890,10 +9082,11 @@ async function runLiveFuturePreview(input) {
     ),
     bodySimulatorPreviewActive: true,
     attempt: "body-simulator-anatomical-live-preview",
+    // Public UX: fallback success is a normal Goal Image (not "Safety fallback").
     usedFallback: false,
     model: generated.model || DEFAULT_REPLICATE_TRANSPORT_MODEL,
     disclaimer: "Realistic motivational visualization from Body Simulator anatomical rules \u2014 not a medical prediction or flattering ideal.",
-    providerRequestCount: 1
+    providerRequestCount: requestCount
   };
 }
 function sha256FileBytes(bytes) {

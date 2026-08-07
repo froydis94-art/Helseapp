@@ -1,6 +1,6 @@
 const {
   generateWithReplicate,
-  runFluxKontextProOnce,
+  runFluxKontextAnatomicalCascade,
 } = require("../lib/replicate");
 
 function setCors(res) {
@@ -123,15 +123,16 @@ async function handler(req, res) {
           sourceImageDataUri: toDataUri(imageBuffer, mimeType),
           mimeType,
           env: process.env,
-          // Inject proven Flux Kontext Pro contract from lib/replicate.js
-          // (same transport fields as legacy generateWithReplicate).
-          fluxProvider: runFluxKontextProOnce,
+          // Inject intelligent Flux ordered fallback (022E-E).
+          // Same anatomical prompt across Max/Pro/Dev; no legacy reservedrift.
+          fluxCascade: runFluxKontextAnatomicalCascade,
         });
 
         return res.status(200).json({
           ok: true,
           imageUrl: live.imageUrl,
           attempt: live.attempt,
+          // Public UX: cascade success is a normal Goal Image (not "Safety fallback").
           usedFallback: false,
           model: live.model,
           livePreviewTraceId: live.livePreviewTraceId,

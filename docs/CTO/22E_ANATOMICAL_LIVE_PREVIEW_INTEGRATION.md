@@ -528,13 +528,71 @@ If E005 persists: remaining issue is likely outside authorized HelseApp repair (
 
 ## Provider capability evaluation (022E-D)
 
-Investigation-only report (no routing/provider implementation):
+Investigation-only report (no routing/provider implementation at the time):
 
 → [22E-D — Provider Capability & Fallback Evaluation](./22E_D_PROVIDER_CAPABILITY_EVALUATION.md)
 
 Typed freeze: `src/ai/body-simulator/ProviderCapabilityEvaluationReport.ts`.
 
-Key finding: legacy `generateWithReplicate` may cascade to Max/Dev after E005; live Body Simulator path uses one Flux Kontext Pro request and does not fall back. Architecture recommendation (not implemented): ordered fallback after owner-run single-model experiments.
+Historical finding (pre-022E-E): legacy `generateWithReplicate` may cascade to Max/Dev after E005; live Body Simulator path used one Flux Kontext Pro request and did not fall back. Ordered fallback was recommended; **implemented in Patch 022E-E** below.
+
+---
+
+## Patch 022E-E — Intelligent Flux Routing Restored
+
+**Root cause:** Live Body Simulator preview was wired to `runFluxKontextProOnce()` (Pro only, 1 attempt) while legacy `generateWithReplicate` retained intelligent Flux cascade (`needsMaxEdit` / `isHighE005Risk`, Max-first, Dev recovery). That single-Pro routing regression made legitimate progress-photo E005s look like hard product failures even when sibling Flux models might accept the same anatomical intent.
+
+### Canonical transform (unchanged authority)
+
+```
+Body Simulator → Anatomical → Formatter → NeutralAnatomicalPromptConditioner
+→ Intelligent Flux Router (buildFluxAttemptPlan + runFluxKontextAnatomicalCascade)
+→ Replicate
+```
+
+### Shared planner
+
+`lib/replicate.js` `buildFluxAttemptPlan(...)` → `{ preferMax, highE005Risk, skipSiblingPremium, routingReason, attempts }`.
+
+| Route | Order |
+| --- | --- |
+| Mild | Pro → Max → Dev |
+| Demanding | Max → Pro → Dev |
+| Demanding + high E005 risk | Max → Dev (**Pro skipped**) |
+
+Owner fixture (thresholds unchanged): BF 22→12, fat decrease, strong, 12m, Core/abs → `needsMaxEdit=true`, `highE005Risk=true`, Max first, Pro skipped.
+
+### Anatomical cascade (not legacy reservedrift)
+
+`runFluxKontextAnatomicalCascade`:
+
+- Uses the **supplied conditioned anatomical prompt** for every attempt (same prompt hash / same image bytes)
+- Does **not** call `byggVisuellPrompt` / `composeGoalBrief` / Dev-strong / SDXL
+- Max 3 sequential attempts; stop on first success
+- Eligible failures match legacy (E005/safety, timeout, 5xx, missing model)
+- Success on first attempt = 1 paid request
+
+### Wiring
+
+- `runLiveFuturePreview` → `runFluxKontextAnatomicalCascade` (API injects `fluxCascade`)
+- Test adapters may still inject `fluxProvider` (single-call) or `fluxCascade`
+- Public Goal Image on cascade success: `usedFallback: false` (no “Safety fallback” UX)
+- Control Room Live Future Preview Trace includes read-only **Flux Routing** stage
+
+### Diagnostics
+
+`providerRoutingStrategy: "flux_ordered_fallback"`, `providerRoutingReason` (`mild` | `demanding` | `demanding_high_e005_risk`), `providerAttemptPlan`, `providerAttempts[]`, `providerRequestCount`, `providerFallbackUsed`, `providerSuccessfulModel`, `providerInitialModel`, `providerFinalOutcome`.
+
+### Preserved
+
+- NeutralAnatomicalPromptConditioner, ProviderSafetyAttributionDiagnostic (updated for attempt failure + logical success via fallback)
+- `safety_tolerance: 2`; no moderation bypass
+- Body Simulator physiology / Anatomical coefficients unchanged
+- No public model selector; no SDXL for Future You body transforms
+
+### Manual validation (owner)
+
+Do **not** run paid calls from Cursor. After deploy with flag `=1`, retest BF 22→12 / 12 months / core-abs / strict and inspect Flux Routing diagnostics.
 
 ---
 

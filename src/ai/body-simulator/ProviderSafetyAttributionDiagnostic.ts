@@ -245,6 +245,20 @@ export interface BuildProviderSafetyAttributionInput {
   unresolvedDifferences?: string[];
   /** When true, image contract already verified against legacy helper. */
   imageContractMatchesLegacy?: boolean;
+  /** Patch 022E-E — ordered Flux fallback context for attribution. */
+  fluxOrderedFallback?: {
+    strategy?: string | null;
+    reason?: string | null;
+    attemptPlan?: string[] | null;
+    attempts?: Array<{
+      label?: string;
+      outcome?: string;
+      eligibleFailure?: boolean;
+    }> | null;
+    fallbackUsed?: boolean;
+    requestCount?: number;
+    logicalSuccessViaFallback?: boolean;
+  } | null;
 }
 
 function arraysEqualSorted(a: string[], b: readonly string[]): boolean {
@@ -302,14 +316,30 @@ export function buildProviderSafetyAttributionDiagnostic(
   const unresolvedDifferences = [
     ...(input.unresolvedDifferences ?? []),
   ];
+  const fallbackCtx = input.fluxOrderedFallback || null;
+  const orderedFallbackActive =
+    fallbackCtx?.strategy === "flux_ordered_fallback";
   const defaultUnresolved = [
     "prompt_content_differs_from_legacy_slim_athletic_framing",
-    "legacy_path_may_cascade_alternate_models_on_e005",
     "e005_message_does_not_distinguish_input_vs_output",
     "no_paid_provider_attribution_probe",
   ];
+  if (!orderedFallbackActive) {
+    defaultUnresolved.splice(
+      1,
+      0,
+      "legacy_path_may_cascade_alternate_models_on_e005"
+    );
+  }
   for (const id of defaultUnresolved) {
     if (!unresolvedDifferences.includes(id)) unresolvedDifferences.push(id);
+  }
+
+  if (
+    orderedFallbackActive &&
+    !repairedDefects.includes("restored_intelligent_flux_ordered_fallback")
+  ) {
+    repairedDefects.push("restored_intelligent_flux_ordered_fallback");
   }
 
   const reasons: string[] = [];
@@ -318,8 +348,15 @@ export function buildProviderSafetyAttributionDiagnostic(
 
   if (!isE005 && !safeMessage) {
     reasons.push("no_provider_safety_error_present");
-    classification = "indeterminate";
-    confidence = "low";
+    if (fallbackCtx?.logicalSuccessViaFallback) {
+      reasons.push("primary_attempt_failed_eligible_fallback_succeeded");
+      reasons.push("live_path_flux_ordered_fallback_logical_success");
+      classification = "provider_behavior_changed";
+      confidence = "medium";
+    } else {
+      classification = "indeterminate";
+      confidence = "low";
+    }
   } else if (!isE005) {
     reasons.push("provider_error_not_e005_sensitive");
     classification = "indeterminate";
@@ -355,7 +392,22 @@ export function buildProviderSafetyAttributionDiagnostic(
     }
     reasons.push("provider_prompt_structure_differs_from_legacy_slim");
     reasons.push("legacy_generateWithReplicate_may_cascade_on_e005");
-    reasons.push("live_path_single_request_no_cascade");
+    if (orderedFallbackActive) {
+      reasons.push("live_path_flux_ordered_fallback");
+      const failedAttempts = (fallbackCtx?.attempts || []).filter(
+        (a) => a.outcome === "failed"
+      );
+      if (failedAttempts.length > 0) {
+        reasons.push("attempt_level_eligible_failure_recorded");
+      }
+      if (fallbackCtx?.logicalSuccessViaFallback) {
+        reasons.push("primary_attempt_failed_eligible_fallback_succeeded");
+      } else {
+        reasons.push("all_flux_ordered_fallback_attempts_failed");
+      }
+    } else {
+      reasons.push("live_path_single_request_no_cascade");
+    }
     reasons.push("attribution_without_paid_provider_isolation_probe");
 
     if (!imageContractMatchesLegacy) {

@@ -824,7 +824,7 @@ describe("anatomicalLivePreview — PATCH_022E_A provider contract parity", () =
 
     const pipeline = read("src/ai/body-simulator/LiveFuturePreviewPipeline.ts");
     assert.equal(/autoRetry|retry_same_provider|for\s*\(.*retry/.test(pipeline), false);
-    assert.match(pipeline, /runFluxKontextProOnce|fluxProvider/);
+    assert.match(pipeline, /runFluxKontextAnatomicalCascade|fluxCascade|fluxProvider/);
   });
 
   it("16. Flag OFF = old path", () => {
