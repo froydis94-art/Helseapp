@@ -27,6 +27,11 @@ import {
   DEFAULT_PROMPT_ISOLATION_VARIANT,
   buildPromptIsolationSummary,
 } from "./PromptIsolationVariants";
+import type {
+  FormatterComparison,
+  GenerationDiagnostics,
+  PipelineSnapshot,
+} from "./FormatterComparisonDiagnostics";
 
 const STAGE_LABELS: Record<string, string> = {
   input_validation: "Input validation",
@@ -213,6 +218,9 @@ export interface ImagePreviewProjectionInput {
   inputAssurances: ImagePreviewInputAssurances;
   promptIsolation: PromptIsolationSummary;
   extraWarnings?: string[];
+  formatterComparison?: FormatterComparison | null;
+  generationDiagnostics?: GenerationDiagnostics | null;
+  pipelineSnapshot?: PipelineSnapshot | null;
 }
 
 /**
@@ -308,6 +316,18 @@ export function projectImagePreviewResult(
       ? { ...IMAGE_PREVIEW_INPUT_ASSURANCES }
       : { ...input.inputAssurances },
     promptIsolation: structuredClone(input.promptIsolation),
+    formatterComparison:
+      input.formatterComparison == null
+        ? null
+        : structuredClone(input.formatterComparison),
+    generationDiagnostics:
+      input.generationDiagnostics == null
+        ? null
+        : structuredClone(input.generationDiagnostics),
+    pipelineSnapshot:
+      input.pipelineSnapshot == null
+        ? null
+        : structuredClone(input.pipelineSnapshot),
     warnings,
     errors: [...runtimeResult.errors].slice(0, 20),
   };
@@ -479,6 +499,9 @@ export function sanitizeImagePreviewProjection(
     safety: { ...IMAGE_PREVIEW_SAFETY_STATUS },
     inputAssurances: { ...IMAGE_PREVIEW_INPUT_ASSURANCES },
     promptIsolation: fallbackIsolation,
+    formatterComparison: null,
+    generationDiagnostics: null,
+    pipelineSnapshot: null,
     warnings: [],
     errors: [IMAGE_PREVIEW_FORBIDDEN_CONTENT_ERROR],
   };

@@ -127,6 +127,79 @@ Read-only:
 
 ---
 
+## Formatter Comparison (Demand 022B-A)
+
+Internal, read-only side-by-side comparison when the Body Simulator formatter path is used (Control Room dry-run with shadow enabled, or internal preview prep):
+
+```
+Legacy Formatter → Prompt Summary → Formatter Summary
+Body Simulator Formatter → Prompt Summary → Formatter Summary
+```
+
+`FormatterComparison` includes:
+
+- added / removed fields
+- changed transformation fields
+- changed preservation fields
+- prompt length delta
+- summary differences
+- `providerCallsFromComparison: 0` (invariant)
+
+### Legacy comparison (deprecated, internal, never production)
+
+- The legacy TransformationEngine → RenderPlan → FluxFormatter path is **deprecated**.
+- It runs **in-memory only** for comparison.
+- It is **never** sent to a provider.
+- It is **never** a production generate path (`api/generate-future-you.js` does not use it).
+- No second provider request and no second image generation are performed for comparison.
+
+---
+
+## Generation Diagnostics (Demand 022B-A)
+
+`GenerationDiagnostics` (session payload) includes:
+
+| Field | Notes |
+| --- | --- |
+| Body Simulator version | Rules version from simulator output |
+| Formatter version / schema | FluxFormatter metadata + schema label |
+| Rule schema | Body Simulator rules schema label |
+| Scenario / Timeline / Intensity | From Body Simulator rules when present |
+| Prompt length | Characters (positive + negative) |
+| Estimated tokens | Heuristic estimate (`labeling: "estimate"`) |
+| Estimated provider cost | Placeholder estimate — no billing API |
+| Generation duration / Provider / Model / HTTP status / Retry count | Populated on internal preview; dry-run uses `null` / `not_run` |
+| Warnings / Limitations | From simulator + comparison notes |
+| Provider classification | e.g. `dry_run_no_provider`, `internal_preview` |
+| Timestamp | ISO |
+
+No API keys or secrets are included.
+
+---
+
+## Pipeline Snapshot (Demand 022B-A)
+
+Internal session-only structure:
+
+```
+Transformation Rules
+→ Formatter Input
+→ Formatter Output
+→ Prompt
+→ Generation Diagnostics
+→ Preview metadata
+```
+
+### Session lifetime
+
+- Exists only in-memory / Control Room (or preview) response payload for the current session.
+- **Not** persisted to disk or DB.
+- No download button (Copy JSON is available).
+- No filesystem writes of snapshots.
+- Cleared when Control Room is locked / session state reset.
+
+---
+
 ## Feature flags
 
 | Flag | Role |
@@ -162,10 +235,11 @@ Agent does **not** execute a real paid Replicate call.
 3. Set `AI_OS_BODY_SIMULATOR_SHADOW_ENABLED=1` on the target Vercel env (Preview recommended).
 4. Run one allowlisted dry-run scenario.
 5. Confirm Pipeline Inspector: **Body Simulator** ✓, **Formatter Input** ✓, **Formatter Preview** ✓.
-6. Confirm Provider Formatter section still shows FluxFormatter output (no raw prompt editing).
-7. With `AI_OS_IMAGE_PREVIEW_ENABLED=1` + `REPLICATE_API_TOKEN` set, select an approved fixture, confirm adult/consent/billing, generate **one** internal preview.
-8. Verify pipeline order intent: Body Simulator → Formatter → Provider → Preview (prompt contains Body Simulator wording; no legacy silhouette-recomposition id).
-9. Lock Control Room — runtime inspector state clears.
+6. Confirm **Formatter Comparison**, **Generation Diagnostics**, and **Pipeline Snapshot** sections populate (legacy marked deprecated; Copy JSON works; no download).
+7. Confirm Provider Formatter section still shows FluxFormatter output (no raw prompt editing).
+8. With `AI_OS_IMAGE_PREVIEW_ENABLED=1` + `REPLICATE_API_TOKEN` set, select an approved fixture, confirm adult/consent/billing, generate **one** internal preview.
+9. Verify pipeline order intent: Body Simulator → Formatter → Provider → Preview (prompt contains Body Simulator wording; no legacy silhouette-recomposition id). Comparison must not cause a second provider call.
+10. Lock Control Room — runtime inspector state clears (session snapshot cleared).
 
 ---
 
@@ -196,10 +270,12 @@ Agent does **not** execute a real paid Replicate call.
 | Path | Role |
 | --- | --- |
 | `src/ai/body-simulator/BodySimulatorFormatterAdapter.ts` | Translate-only adapter + inspector views |
+| `src/ai/control-room/FormatterComparisonDiagnostics.ts` | 022B-A comparison / diagnostics / snapshot builders |
 | `src/ai/runtime/AiOsRuntime.ts` / `AiOsRuntimeTypes.ts` | Optional canonical apply before format |
-| `src/ai/control-room/ImagePreviewService.ts` | Preview pipeline wiring |
-| `src/ai/control-room/ControlRoomService.ts` | Dry-run + formatter bridge |
-| `public/ai-os-control-room.*` | Formatter Input / Preview UI |
+| `src/ai/control-room/ImagePreviewService.ts` | Preview pipeline wiring + prep diagnostics |
+| `src/ai/control-room/ControlRoomService.ts` | Dry-run + formatter bridge + diagnostics |
+| `public/ai-os-control-room.*` | Formatter Input / Preview / Comparison / Diagnostics UI |
 | `api/ai-os-image-preview.ts` | Maps `body_simulator_failed` safely |
 | `src/ai/__tests__/bodySimulatorPreview.test.ts` | Focused 022B tests |
+| `src/ai/__tests__/formatterComparisonDiagnostics.test.ts` | Focused 022B-A tests |
 | `docs/CTO/22B_FIRST_END_TO_END_PREVIEW.md` | This document |

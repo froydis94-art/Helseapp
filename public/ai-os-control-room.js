@@ -89,6 +89,40 @@
     "formatterInputSummaryBody"
   );
   var formatterPreviewBody = document.getElementById("formatterPreviewBody");
+  var formatterComparisonLegacyBody = document.getElementById(
+    "formatterComparisonLegacyBody"
+  );
+  var formatterComparisonBodySimBody = document.getElementById(
+    "formatterComparisonBodySimBody"
+  );
+  var formatterComparisonDiffBody = document.getElementById(
+    "formatterComparisonDiffBody"
+  );
+  var formatterComparisonJsonView = document.getElementById(
+    "formatterComparisonJsonView"
+  );
+  var formatterComparisonCopyBtn = document.getElementById(
+    "formatterComparisonCopyBtn"
+  );
+  var generationDiagnosticsBody = document.getElementById(
+    "generationDiagnosticsBody"
+  );
+  var generationDiagnosticsJsonView = document.getElementById(
+    "generationDiagnosticsJsonView"
+  );
+  var generationDiagnosticsCopyBtn = document.getElementById(
+    "generationDiagnosticsCopyBtn"
+  );
+  var pipelineSnapshotBody = document.getElementById("pipelineSnapshotBody");
+  var pipelineSnapshotJsonView = document.getElementById(
+    "pipelineSnapshotJsonView"
+  );
+  var pipelineSnapshotCopyBtn = document.getElementById(
+    "pipelineSnapshotCopyBtn"
+  );
+  var sessionFormatterComparison = null;
+  var sessionGenerationDiagnostics = null;
+  var sessionPipelineSnapshot = null;
   var resultPanel = document.getElementById("resultPanel");
   var stageList = document.getElementById("stageList");
   var transformationPlanView = document.getElementById("transformationPlanView");
@@ -293,6 +327,9 @@
     "Body Simulator",
     "Formatter Input",
     "Formatter Preview",
+    "Formatter Comparison",
+    "Generation Diagnostics",
+    "Pipeline Snapshot",
     "Rule Provenance",
     "Formatter",
     "Prompts",
@@ -2503,6 +2540,7 @@
     setText(rawProjectionView, "");
     clearBodySimulatorViews();
     clearFormatterBridgeViews();
+    clearFormatterDiagnosticsViews();
     if (promptDetails) promptDetails.open = false;
   }
 
@@ -2915,6 +2953,328 @@
     ].forEach(function (el) {
       clearChildren(el);
     });
+  }
+
+  function clearFormatterDiagnosticsViews() {
+    [
+      formatterComparisonLegacyBody,
+      formatterComparisonBodySimBody,
+      formatterComparisonDiffBody,
+      generationDiagnosticsBody,
+      pipelineSnapshotBody,
+    ].forEach(function (el) {
+      clearChildren(el);
+    });
+    setText(formatterComparisonJsonView, "");
+    setText(generationDiagnosticsJsonView, "");
+    setText(pipelineSnapshotJsonView, "");
+    sessionFormatterComparison = null;
+    sessionGenerationDiagnostics = null;
+    sessionPipelineSnapshot = null;
+  }
+
+  function copySessionJson(value, label) {
+    var text = pretty(value);
+    if (!text) {
+      setMessage(runMessage, label + " unavailable.", "warn");
+      return;
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(
+        function () {
+          setMessage(runMessage, label + " copied.", "ok");
+        },
+        function () {
+          setMessage(runMessage, "Clipboard copy failed.", "error");
+        }
+      );
+      return;
+    }
+    setMessage(runMessage, "Clipboard API unavailable.", "warn");
+  }
+
+  function renderFormatterPathSide(container, side, title) {
+    if (!container) return;
+    appendKv(container, "path", title);
+    appendKv(
+      container,
+      "deprecated",
+      side && side.deprecated === true ? "true" : "false"
+    );
+    appendKv(
+      container,
+      "neverProduction",
+      side && side.neverProduction === true ? "true" : "false"
+    );
+    appendKv(
+      container,
+      "productionEligible",
+      side && side.productionEligible === true ? "true" : "false"
+    );
+    var prompt = (side && side.promptSummary) || {};
+    appendKv(
+      container,
+      "prompt.totalLength",
+      prompt.totalLength == null ? "—" : String(prompt.totalLength)
+    );
+    appendKv(
+      container,
+      "prompt.positivePreview",
+      prompt.positivePreview || "—"
+    );
+    appendKv(
+      container,
+      "prompt.approvedChangeIds",
+      Array.isArray(prompt.approvedChangeIds)
+        ? prompt.approvedChangeIds.join(", ")
+        : "—"
+    );
+    var fmt = (side && side.formatterSummary) || {};
+    appendKv(container, "formatter.name", fmt.formatterName || "—");
+    appendKv(container, "formatter.version", fmt.formatterVersion || "—");
+    appendKv(container, "formatter.visualIntensity", fmt.visualIntensity || "—");
+    appendKv(
+      container,
+      "formatter.changeVisibility",
+      fmt.changeVisibility || "—"
+    );
+    appendKv(
+      container,
+      "formatter.approvedChangeCount",
+      fmt.approvedChangeCount == null ? "—" : String(fmt.approvedChangeCount)
+    );
+    appendKv(
+      container,
+      "formatter.approvedChangeIds",
+      Array.isArray(fmt.approvedChangeIds)
+        ? fmt.approvedChangeIds.join(", ")
+        : "—"
+    );
+  }
+
+  function renderFormatterComparisonInspector(comparison) {
+    [
+      formatterComparisonLegacyBody,
+      formatterComparisonBodySimBody,
+      formatterComparisonDiffBody,
+    ].forEach(function (el) {
+      clearChildren(el);
+    });
+    sessionFormatterComparison = comparison || null;
+    if (!comparison || typeof comparison !== "object") {
+      appendKv(
+        formatterComparisonDiffBody,
+        "status",
+        "Not available — enable Body Simulator shadow and run a scenario"
+      );
+      setText(formatterComparisonJsonView, "");
+      return;
+    }
+    renderFormatterPathSide(
+      formatterComparisonLegacyBody,
+      comparison.legacyPath,
+      "Legacy Formatter (deprecated, never production)"
+    );
+    renderFormatterPathSide(
+      formatterComparisonBodySimBody,
+      comparison.bodySimulatorPath,
+      "Body Simulator Formatter"
+    );
+    appendKv(
+      formatterComparisonDiffBody,
+      "promptLengthDelta",
+      comparison.promptLengthDelta == null
+        ? "—"
+        : String(comparison.promptLengthDelta)
+    );
+    appendKv(
+      formatterComparisonDiffBody,
+      "addedFields",
+      Array.isArray(comparison.addedFields)
+        ? comparison.addedFields.join(", ") || "(none)"
+        : "—"
+    );
+    appendKv(
+      formatterComparisonDiffBody,
+      "removedFields",
+      Array.isArray(comparison.removedFields)
+        ? comparison.removedFields.join(", ") || "(none)"
+        : "—"
+    );
+    appendKv(
+      formatterComparisonDiffBody,
+      "changedTransformationFields",
+      Array.isArray(comparison.changedTransformationFields)
+        ? comparison.changedTransformationFields.join(", ") || "(none)"
+        : "—"
+    );
+    appendKv(
+      formatterComparisonDiffBody,
+      "changedPreservationFields",
+      Array.isArray(comparison.changedPreservationFields)
+        ? comparison.changedPreservationFields.join(", ") || "(none)"
+        : "—"
+    );
+    appendKv(
+      formatterComparisonDiffBody,
+      "summaryDifferences",
+      Array.isArray(comparison.summaryDifferences)
+        ? comparison.summaryDifferences.join(" | ") || "(none)"
+        : "—"
+    );
+    appendKv(
+      formatterComparisonDiffBody,
+      "providerCallsFromComparison",
+      comparison.providerCallsFromComparison == null
+        ? "—"
+        : String(comparison.providerCallsFromComparison)
+    );
+    appendKv(
+      formatterComparisonDiffBody,
+      "lifetime",
+      comparison.lifetime || "session_only"
+    );
+    setText(formatterComparisonJsonView, pretty(comparison));
+  }
+
+  function renderGenerationDiagnosticsInspector(diagnostics) {
+    clearChildren(generationDiagnosticsBody);
+    sessionGenerationDiagnostics = diagnostics || null;
+    if (!diagnostics || typeof diagnostics !== "object") {
+      appendKv(
+        generationDiagnosticsBody,
+        "status",
+        "Not available — enable Body Simulator shadow and run a scenario"
+      );
+      setText(generationDiagnosticsJsonView, "");
+      return;
+    }
+    var pairs = [
+      ["bodySimulatorVersion", diagnostics.bodySimulatorVersion],
+      ["formatterVersion", diagnostics.formatterVersion],
+      ["formatterSchema", diagnostics.formatterSchema],
+      ["ruleSchema", diagnostics.ruleSchema],
+      ["scenario", diagnostics.scenario],
+      ["timeline", diagnostics.timeline],
+      ["intensity", diagnostics.intensity],
+      ["promptLength", diagnostics.promptLength],
+      [
+        "estimatedTokens",
+        diagnostics.estimatedTokens
+          ? String(diagnostics.estimatedTokens.value) +
+            " (" +
+            diagnostics.estimatedTokens.labeling +
+            ")"
+          : null,
+      ],
+      [
+        "estimatedProviderCost",
+        diagnostics.estimatedProviderCost
+          ? String(diagnostics.estimatedProviderCost.value) +
+            " (" +
+            diagnostics.estimatedProviderCost.labeling +
+            ")"
+          : null,
+      ],
+      ["generationDurationMs", diagnostics.generationDurationMs],
+      ["provider", diagnostics.provider],
+      ["model", diagnostics.model],
+      ["httpStatus", diagnostics.httpStatus],
+      ["retryCount", diagnostics.retryCount],
+      ["providerClassification", diagnostics.providerClassification],
+      ["timestamp", diagnostics.timestamp],
+      [
+        "warnings",
+        Array.isArray(diagnostics.warnings)
+          ? diagnostics.warnings.join(" | ")
+          : null,
+      ],
+      [
+        "limitations",
+        Array.isArray(diagnostics.limitations)
+          ? diagnostics.limitations.join(" | ")
+          : null,
+      ],
+    ];
+    pairs.forEach(function (pair) {
+      appendKv(
+        generationDiagnosticsBody,
+        pair[0],
+        pair[1] == null || pair[1] === "" ? "—" : String(pair[1])
+      );
+    });
+    setText(generationDiagnosticsJsonView, pretty(diagnostics));
+  }
+
+  function renderPipelineSnapshotInspector(snapshot) {
+    clearChildren(pipelineSnapshotBody);
+    sessionPipelineSnapshot = snapshot || null;
+    if (!snapshot || typeof snapshot !== "object") {
+      appendKv(
+        pipelineSnapshotBody,
+        "status",
+        "Not available — enable Body Simulator shadow and run a scenario"
+      );
+      setText(pipelineSnapshotJsonView, "");
+      return;
+    }
+    var meta = snapshot.previewMetadata || {};
+    appendKv(pipelineSnapshotBody, "lifetime", snapshot.lifetime || "session_only");
+    appendKv(
+      pipelineSnapshotBody,
+      "persisted",
+      snapshot.persisted === true ? "true" : "false"
+    );
+    appendKv(
+      pipelineSnapshotBody,
+      "downloadAvailable",
+      snapshot.downloadAvailable === true ? "true" : "false"
+    );
+    appendKv(pipelineSnapshotBody, "mode", meta.mode || "—");
+    appendKv(pipelineSnapshotBody, "scenarioId", meta.scenarioId || "—");
+    appendKv(
+      pipelineSnapshotBody,
+      "bodySimulatorScenarioId",
+      meta.bodySimulatorScenarioId || "—"
+    );
+    appendKv(
+      pipelineSnapshotBody,
+      "formatterComparisonPresent",
+      meta.formatterComparisonPresent === true ? "true" : "false"
+    );
+    appendKv(
+      pipelineSnapshotBody,
+      "legacyPathSentToProvider",
+      meta.legacyPathSentToProvider === true ? "true" : "false"
+    );
+    appendKv(
+      pipelineSnapshotBody,
+      "hasTransformationRules",
+      snapshot.transformationRules != null ? "true" : "false"
+    );
+    appendKv(
+      pipelineSnapshotBody,
+      "hasFormatterInput",
+      snapshot.formatterInput != null ? "true" : "false"
+    );
+    appendKv(
+      pipelineSnapshotBody,
+      "hasFormatterOutput",
+      snapshot.formatterOutput != null ? "true" : "false"
+    );
+    appendKv(
+      pipelineSnapshotBody,
+      "promptLength",
+      snapshot.prompt && snapshot.prompt.totalLength != null
+        ? String(snapshot.prompt.totalLength)
+        : "—"
+    );
+    appendKv(
+      pipelineSnapshotBody,
+      "hasGenerationDiagnostics",
+      snapshot.generationDiagnostics != null ? "true" : "false"
+    );
+    setText(pipelineSnapshotJsonView, pretty(snapshot));
   }
 
   function renderFormatterInputInspector(formatterInput) {
@@ -3510,6 +3870,9 @@
     renderBodySimulatorInspector(result.bodySimulator);
     renderFormatterInputInspector(result.formatterInput);
     renderFormatterPreviewInspector(result.formatterPreview);
+    renderFormatterComparisonInspector(result.formatterComparison);
+    renderGenerationDiagnosticsInspector(result.generationDiagnostics);
+    renderPipelineSnapshotInspector(result.pipelineSnapshot);
     setText(rawProjectionView, pretty(result));
   }
 
@@ -4319,6 +4682,24 @@
   if (promptExperimentExportButton) {
     promptExperimentExportButton.addEventListener("click", function () {
       exportPromptExperimentReport();
+    });
+  }
+  if (formatterComparisonCopyBtn) {
+    formatterComparisonCopyBtn.addEventListener("click", function () {
+      copySessionJson(sessionFormatterComparison, "Formatter Comparison JSON");
+    });
+  }
+  if (generationDiagnosticsCopyBtn) {
+    generationDiagnosticsCopyBtn.addEventListener("click", function () {
+      copySessionJson(
+        sessionGenerationDiagnostics,
+        "Generation Diagnostics JSON"
+      );
+    });
+  }
+  if (pipelineSnapshotCopyBtn) {
+    pipelineSnapshotCopyBtn.addEventListener("click", function () {
+      copySessionJson(sessionPipelineSnapshot, "Pipeline Snapshot JSON");
     });
   }
   renderPromptExperimentHistory();

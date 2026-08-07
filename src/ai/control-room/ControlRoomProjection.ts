@@ -15,6 +15,11 @@ import {
   buildBodySimulatorShadowPlaceholder,
   type ControlRoomBodySimulatorView,
 } from "../shadow/BodySimulatorShadowIntegration";
+import type {
+  FormatterComparison,
+  GenerationDiagnostics,
+  PipelineSnapshot,
+} from "./FormatterComparisonDiagnostics";
 import {
   CONTROL_ROOM_FORBIDDEN_CONTENT_ERROR,
   CONTROL_ROOM_RULES_VERSION,
@@ -25,6 +30,14 @@ import {
   type ControlRoomScenarioSummary,
   type ControlRoomStageView,
 } from "./ControlRoomTypes";
+
+export interface ControlRoomProjectionBridge {
+  formatterInput?: FormatterInputInspectionView | null;
+  formatterPreview?: FormatterPreviewView | null;
+  formatterComparison?: FormatterComparison | null;
+  generationDiagnostics?: GenerationDiagnostics | null;
+  pipelineSnapshot?: PipelineSnapshot | null;
+}
 
 const STAGE_LABELS: Record<AiOsRuntimeStage, string> = {
   input_validation: "Input validation",
@@ -146,14 +159,54 @@ function projectFormattedRequest(
 /**
  * Project a successful dry_run AiOsRuntimeResult into Control Room view model.
  * Preserves plans and prompts without rewriting them.
+ *
+ * Trailing bridge args remain optional for older tests. Prefer the bridge
+ * object form when supplying 022B-A diagnostics.
  */
 export function projectControlRoomResult(
   scenario: ControlRoomScenarioSummary,
   runtimeResult: AiOsRuntimeResult,
   bodySimulator?: ControlRoomBodySimulatorView,
-  formatterInput?: FormatterInputInspectionView | null,
-  formatterPreview?: FormatterPreviewView | null
+  formatterInputOrBridge?:
+    | FormatterInputInspectionView
+    | ControlRoomProjectionBridge
+    | null,
+  formatterPreview?: FormatterPreviewView | null,
+  formatterComparison?: FormatterComparison | null,
+  generationDiagnostics?: GenerationDiagnostics | null,
+  pipelineSnapshot?: PipelineSnapshot | null
 ): ControlRoomRunResult {
+  const looksLikeInspectionView =
+    formatterInputOrBridge != null &&
+    typeof formatterInputOrBridge === "object" &&
+    "receivedCanonicalRules" in formatterInputOrBridge;
+  const looksLikeBridge =
+    formatterInputOrBridge != null &&
+    typeof formatterInputOrBridge === "object" &&
+    !looksLikeInspectionView &&
+    ("formatterComparison" in formatterInputOrBridge ||
+      "generationDiagnostics" in formatterInputOrBridge ||
+      "pipelineSnapshot" in formatterInputOrBridge ||
+      "formatterInput" in formatterInputOrBridge ||
+      "formatterPreview" in formatterInputOrBridge);
+
+  const bridge: ControlRoomProjectionBridge = looksLikeBridge
+    ? (formatterInputOrBridge as ControlRoomProjectionBridge)
+    : {
+        formatterInput: looksLikeInspectionView
+          ? (formatterInputOrBridge as FormatterInputInspectionView)
+          : null,
+        formatterPreview: formatterPreview ?? null,
+        formatterComparison: formatterComparison ?? null,
+        generationDiagnostics: generationDiagnostics ?? null,
+        pipelineSnapshot: pipelineSnapshot ?? null,
+      };
+
+  const formatterInput = bridge.formatterInput ?? null;
+  const resolvedFormatterPreview = bridge.formatterPreview ?? null;
+  const resolvedComparison = bridge.formatterComparison ?? null;
+  const resolvedDiagnostics = bridge.generationDiagnostics ?? null;
+  const resolvedSnapshot = bridge.pipelineSnapshot ?? null;
   if (runtimeResult.mode !== "dry_run") {
     throw new ControlRoomProjectionError(
       "Control Room requires dry_run runtime mode."
@@ -224,7 +277,19 @@ export function projectControlRoomResult(
     formatterInput:
       formatterInput == null ? null : structuredClone(formatterInput),
     formatterPreview:
-      formatterPreview == null ? null : structuredClone(formatterPreview),
+      resolvedFormatterPreview == null
+        ? null
+        : structuredClone(resolvedFormatterPreview),
+    formatterComparison:
+      resolvedComparison == null
+        ? null
+        : structuredClone(resolvedComparison),
+    generationDiagnostics:
+      resolvedDiagnostics == null
+        ? null
+        : structuredClone(resolvedDiagnostics),
+    pipelineSnapshot:
+      resolvedSnapshot == null ? null : structuredClone(resolvedSnapshot),
     warnings: [...runtimeResult.warnings],
     errors: [...runtimeResult.errors],
   };
@@ -336,6 +401,9 @@ export function sanitizeControlRoomProjection(
     bodySimulator: buildBodySimulatorShadowPlaceholder(),
     formatterInput: null,
     formatterPreview: null,
+    formatterComparison: null,
+    generationDiagnostics: null,
+    pipelineSnapshot: null,
     warnings: [],
     errors: [CONTROL_ROOM_FORBIDDEN_CONTENT_ERROR],
   };

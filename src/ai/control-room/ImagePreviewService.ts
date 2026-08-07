@@ -40,6 +40,13 @@ import {
 import { runBodySimulatorShadowPhase } from "../shadow/BodySimulatorShadowIntegration";
 import { getControlRoomScenario } from "./ControlRoomFixtures";
 import {
+  buildFormatterComparison,
+  buildGenerationDiagnostics,
+  buildPipelineSnapshot,
+  runBodySimulatorFormatterComparisonPath,
+  runLegacyFormatterComparisonPath,
+} from "./FormatterComparisonDiagnostics";
+import {
   ImagePreviewProjectionError,
   projectImagePreviewResult,
   sanitizeImagePreviewProjection,
@@ -699,6 +706,59 @@ export class ImagePreviewService {
       seed,
     });
 
+    // Demand 022B-A — in-memory legacy comparison during preview prep.
+    // Never send legacy path to provider; transport already ran once above.
+    const legacyCompare = runLegacyFormatterComparisonPath({
+      profile: resolved.runtimeInput.profile as never,
+      goal: resolved.runtimeInput.goal as never,
+      formatterOptions,
+    });
+    const bodySimCompare = runBodySimulatorFormatterComparisonPath({
+      rules: bodySimView.rules,
+      profile: resolved.runtimeInput.profile as never,
+      goal: resolved.runtimeInput.goal as never,
+      formatterOptions,
+    });
+    const formatterComparison = buildFormatterComparison({
+      legacyRenderPlan: legacyCompare.renderPlan,
+      legacyFormatted: legacyCompare.formatted,
+      bodySimulatorRenderPlan: bodySimCompare.renderPlan,
+      bodySimulatorFormatted: bodySimCompare.formatted,
+    });
+    const positiveLen = formatted?.prompt?.length ?? 0;
+    const negativeLen = formatted?.negativePrompt?.length ?? 0;
+    const generationDiagnostics = buildGenerationDiagnostics({
+      scenarioId: resolved.summary.id,
+      rules: bodySimView.rules,
+      formatterName: formatted?.metadata?.formatterName ?? null,
+      formatterVersion: formatted?.metadata?.formatterVersion ?? null,
+      promptLength: positiveLen + negativeLen,
+      warnings: [
+        ...(bodySimView.rules.warnings ?? []),
+        ...formatterComparison.summaryDifferences,
+      ],
+      limitations: [...(bodySimView.rules.limitations ?? [])],
+      providerClassification: "internal_preview",
+      generationDurationMs:
+        typeof transport.generationTimeMs === "number"
+          ? transport.generationTimeMs
+          : null,
+      provider: transport.provider ?? "replicate",
+      model: transport.model ?? model,
+      httpStatus: transport.success ? 200 : null,
+      retryCount: 0,
+    });
+    const pipelineSnapshot = buildPipelineSnapshot({
+      mode: "transport_mock",
+      scenarioId: resolved.summary.id,
+      bodySimulatorScenarioId: bodySimScenarioId,
+      rules: bodySimView.rules,
+      bodySimulatorRenderPlan: bodySimCompare.renderPlan,
+      formatted: formatted ?? bodySimCompare.formatted,
+      generationDiagnostics,
+      formatterComparisonPresent: true,
+    });
+
     let projected: ImagePreviewResult;
     try {
       projected = projectImagePreviewResult({
@@ -711,10 +771,14 @@ export class ImagePreviewService {
         model,
         inputAssurances: { ...IMAGE_PREVIEW_INPUT_ASSURANCES },
         promptIsolation,
+        formatterComparison,
+        generationDiagnostics,
+        pipelineSnapshot,
         extraWarnings: [
           "Preview laboratory: ResultValidator used provisional evidence; real vision analysis is deferred to Demand 018.",
           "No automatic retry was performed.",
           "Prompt Isolation Lab: only prompt construction differs across variants; provider, model, and transport stay fixed.",
+          "022B-A: Legacy formatter comparison ran in-memory only; legacy path was not sent to the provider.",
         ],
       });
     } catch (error) {

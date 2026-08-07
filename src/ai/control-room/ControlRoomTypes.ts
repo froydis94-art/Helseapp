@@ -11,6 +11,11 @@ import type {
   FormatterPreviewView,
 } from "../body-simulator/BodySimulatorFormatterAdapter";
 import type { ControlRoomBodySimulatorView } from "../shadow/BodySimulatorShadowIntegration";
+import type {
+  FormatterComparison,
+  GenerationDiagnostics,
+  PipelineSnapshot,
+} from "./FormatterComparisonDiagnostics";
 
 export const CONTROL_ROOM_SCHEMA_VERSION = 1 as const;
 export const CONTROL_ROOM_RULES_VERSION = "1.0" as const;
@@ -109,6 +114,22 @@ export interface ControlRoomRunResult {
    * Null when Body Simulator did not produce rules for this dry-run.
    */
   formatterPreview: FormatterPreviewView | null;
+
+  /**
+   * Demand 022B-A — Legacy vs Body Simulator formatter comparison.
+   * Internal / deprecated legacy side for inspection only. Never production.
+   */
+  formatterComparison: FormatterComparison | null;
+
+  /**
+   * Demand 022B-A — Generation diagnostics (dry-run leaves HTTP/retry as not_run).
+   */
+  generationDiagnostics: GenerationDiagnostics | null;
+
+  /**
+   * Demand 022B-A — Session-only pipeline snapshot (not persisted).
+   */
+  pipelineSnapshot: PipelineSnapshot | null;
 
   warnings: string[];
   errors: string[];

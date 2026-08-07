@@ -423,6 +423,57 @@
                   </p>
                   <div id="formatterPreviewBody" class="kv-grid"></div>
                 </details>
+                <details id="aiPipelineSectionFormatterComparison" class="pipeline-section">
+                  <summary>Formatter Comparison</summary>
+                  <p class="panel-copy">
+                    Internal side-by-side comparison only. Legacy formatter is
+                    deprecated and never sent to a provider. Session only —
+                    not persisted.
+                  </p>
+                  <h5>Legacy Formatter → Prompt Summary → Formatter Summary</h5>
+                  <div id="formatterComparisonLegacyBody" class="kv-grid"></div>
+                  <h5>Body Simulator Formatter → Prompt Summary → Formatter Summary</h5>
+                  <div id="formatterComparisonBodySimBody" class="kv-grid"></div>
+                  <h5>Diff</h5>
+                  <div id="formatterComparisonDiffBody" class="kv-grid"></div>
+                  <button type="button" id="formatterComparisonCopyBtn" class="btn ghost">
+                    Copy JSON
+                  </button>
+                  <details>
+                    <summary>Safe JSON</summary>
+                    <pre id="formatterComparisonJsonView" class="code-block"></pre>
+                  </details>
+                </details>
+                <details id="aiPipelineSectionGenerationDiagnostics" class="pipeline-section">
+                  <summary>Generation Diagnostics</summary>
+                  <p class="panel-copy">
+                    Read-only diagnostics. Token/cost values are estimates —
+                    not billing APIs. Dry-run leaves HTTP/retry as not_run.
+                  </p>
+                  <div id="generationDiagnosticsBody" class="kv-grid"></div>
+                  <button type="button" id="generationDiagnosticsCopyBtn" class="btn ghost">
+                    Copy JSON
+                  </button>
+                  <details>
+                    <summary>Safe JSON</summary>
+                    <pre id="generationDiagnosticsJsonView" class="code-block"></pre>
+                  </details>
+                </details>
+                <details id="aiPipelineSectionPipelineSnapshot" class="pipeline-section">
+                  <summary>Pipeline Snapshot</summary>
+                  <p class="panel-copy">
+                    Session-only pipeline chain. Not written to disk or DB.
+                    Copy JSON is available; no file export control.
+                  </p>
+                  <div id="pipelineSnapshotBody" class="kv-grid"></div>
+                  <button type="button" id="pipelineSnapshotCopyBtn" class="btn ghost">
+                    Copy JSON
+                  </button>
+                  <details>
+                    <summary>Safe JSON</summary>
+                    <pre id="pipelineSnapshotJsonView" class="code-block"></pre>
+                  </details>
+                </details>
                 <details id="aiPipelineSectionProvenance" class="pipeline-section">
                   <summary>Rule Provenance</summary>
                   <div id="aiPipelineProvenanceBody" class="kv-grid"></div>

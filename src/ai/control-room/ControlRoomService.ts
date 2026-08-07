@@ -7,6 +7,9 @@
  * Demand 022B: when Body Simulator shadow succeeds, canonical transformation
  * rules are applied to the formatter path (no legacy transformation fallback
  * for that dry-run). Provider traffic remains off.
+ *
+ * Demand 022B-A: when Body Simulator path is used, run legacy formatter
+ * comparison in-memory only (never sent to provider; no second generation).
  */
 
 import {
@@ -34,6 +37,16 @@ import {
   sanitizeControlRoomProjection,
   validateControlRoomProjection,
 } from "./ControlRoomProjection";
+import {
+  buildFormatterComparison,
+  buildGenerationDiagnostics,
+  buildPipelineSnapshot,
+  runBodySimulatorFormatterComparisonPath,
+  runLegacyFormatterComparisonPath,
+  type FormatterComparison,
+  type GenerationDiagnostics,
+  type PipelineSnapshot,
+} from "./FormatterComparisonDiagnostics";
 import {
   CONTROL_ROOM_FORBIDDEN_CONTENT_ERROR,
   CONTROL_ROOM_SAFETY_STATUS,
@@ -145,22 +158,35 @@ function buildFormatterBridgeViews(
     negativePrompt?: string;
     formatterName?: string;
     formatterVersion?: string;
-  } | null
+  } | null,
+  scenario: ControlRoomScenarioSummary,
+  runtimeProfile: unknown,
+  runtimeGoal: unknown,
+  formatterOptions: unknown,
+  bodySimulatorScenarioId: string | null
 ): {
   formatterInput: FormatterInputInspectionView | null;
   formatterPreview: FormatterPreviewView | null;
+  formatterComparison: FormatterComparison | null;
+  generationDiagnostics: GenerationDiagnostics | null;
+  pipelineSnapshot: PipelineSnapshot | null;
 } {
   if (
     bodySimulator.rules == null ||
     (bodySimulator.status !== "succeeded" &&
       bodySimulator.status !== "ready_with_limitations")
   ) {
-    return { formatterInput: null, formatterPreview: null };
+    return {
+      formatterInput: null,
+      formatterPreview: null,
+      formatterComparison: null,
+      generationDiagnostics: null,
+      pipelineSnapshot: null,
+    };
   }
 
-  const canonical = adaptBodySimulatorRulesToFormatterInput(
-    bodySimulator.rules
-  );
+  const rules = bodySimulator.rules;
+  const canonical = adaptBodySimulatorRulesToFormatterInput(rules);
   const positiveLen =
     typeof formattedRequest?.positivePrompt === "string"
       ? formattedRequest.positivePrompt.length
@@ -172,17 +198,67 @@ function buildFormatterBridgeViews(
   const promptLength =
     formattedRequest == null ? null : positiveLen + negativeLen;
 
+  const formatterInput = buildFormatterInputInspectionView(rules, canonical);
+  const formatterPreview = buildFormatterPreviewView({
+    canonical,
+    promptLength,
+    formatterName: formattedRequest?.formatterName ?? null,
+    formatterVersion: formattedRequest?.formatterVersion ?? null,
+  });
+
+  // Demand 022B-A — in-memory legacy comparison only. Never transport.
+  const legacy = runLegacyFormatterComparisonPath({
+    profile: runtimeProfile as never,
+    goal: runtimeGoal as never,
+    formatterOptions: formatterOptions as never,
+  });
+  const bodySimPath = runBodySimulatorFormatterComparisonPath({
+    rules,
+    profile: runtimeProfile as never,
+    goal: runtimeGoal as never,
+    formatterOptions: formatterOptions as never,
+  });
+  const formatterComparison = buildFormatterComparison({
+    legacyRenderPlan: legacy.renderPlan,
+    legacyFormatted: legacy.formatted,
+    bodySimulatorRenderPlan: bodySimPath.renderPlan,
+    bodySimulatorFormatted: bodySimPath.formatted,
+  });
+
+  const generationDiagnostics = buildGenerationDiagnostics({
+    scenarioId: scenario.id,
+    rules,
+    formatterName: formattedRequest?.formatterName ?? null,
+    formatterVersion: formattedRequest?.formatterVersion ?? null,
+    promptLength,
+    warnings: [...(rules.warnings ?? [])],
+    limitations: [...(rules.limitations ?? [])],
+    providerClassification: "dry_run_no_provider",
+    generationDurationMs: null,
+    provider: null,
+    model: null,
+    httpStatus: "not_run",
+    retryCount: "not_run",
+  });
+
+  const pipelineSnapshot = buildPipelineSnapshot({
+    mode: "dry_run",
+    scenarioId: scenario.id,
+    bodySimulatorScenarioId,
+    rules,
+    formatterInput,
+    bodySimulatorRenderPlan: bodySimPath.renderPlan,
+    formatted: bodySimPath.formatted,
+    generationDiagnostics,
+    formatterComparisonPresent: true,
+  });
+
   return {
-    formatterInput: buildFormatterInputInspectionView(
-      bodySimulator.rules,
-      canonical
-    ),
-    formatterPreview: buildFormatterPreviewView({
-      canonical,
-      promptLength,
-      formatterName: formattedRequest?.formatterName ?? null,
-      formatterVersion: formattedRequest?.formatterVersion ?? null,
-    }),
+    formatterInput,
+    formatterPreview,
+    formatterComparison,
+    generationDiagnostics,
+    pipelineSnapshot,
   };
 }
 
@@ -205,6 +281,10 @@ export class ControlRoomService {
 
     // Body Simulator first (Demand 022B pipeline order for formatter path).
     const bodySimulator = runBodySimulatorForControlRoom(scenarioId, options);
+    const resolvedBodySimScenarioId = resolveBodySimulatorScenarioForPreview(
+      scenarioId,
+      options?.bodySimulatorScenarioId ?? null
+    );
 
     let canonical =
       bodySimulator.rules != null &&
@@ -265,7 +345,12 @@ export class ControlRoomService {
             formatterName: formatted.metadata.formatterName,
             formatterVersion: formatted.metadata.formatterVersion,
           }
-        : null
+        : null,
+      resolved.summary,
+      resolved.runtimeInput.profile,
+      resolved.runtimeInput.goal,
+      resolved.runtimeInput.formatterOptions,
+      resolvedBodySimScenarioId
     );
 
     let projected: ControlRoomRunResult;
@@ -274,8 +359,13 @@ export class ControlRoomService {
         resolved.summary,
         runtimeResult,
         bodySimulator,
-        bridge.formatterInput,
-        bridge.formatterPreview
+        {
+          formatterInput: bridge.formatterInput,
+          formatterPreview: bridge.formatterPreview,
+          formatterComparison: bridge.formatterComparison,
+          generationDiagnostics: bridge.generationDiagnostics,
+          pipelineSnapshot: bridge.pipelineSnapshot,
+        }
       );
     } catch (error) {
       if (error instanceof ControlRoomProjectionError) {
@@ -322,6 +412,9 @@ export function buildControlRoomFailureShell(
     bodySimulator: buildBodySimulatorShadowPlaceholder(),
     formatterInput: null,
     formatterPreview: null,
+    formatterComparison: null,
+    generationDiagnostics: null,
+    pipelineSnapshot: null,
     warnings: [],
     errors: [CONTROL_ROOM_FORBIDDEN_CONTENT_ERROR],
   };

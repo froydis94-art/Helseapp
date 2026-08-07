@@ -6,6 +6,11 @@
  */
 
 import type { PromptIsolationSummary } from "./PromptIsolationVariants";
+import type {
+  FormatterComparison,
+  GenerationDiagnostics,
+  PipelineSnapshot,
+} from "./FormatterComparisonDiagnostics";
 
 export type {
   PromptIsolationVariant,
@@ -135,6 +140,18 @@ export interface ImagePreviewResult {
 
   /** Prompt Isolation Lab summary (Demand 018A). Present on every lab run. */
   promptIsolation: PromptIsolationSummary;
+
+  /**
+   * Demand 022B-A — Legacy vs Body Simulator formatter comparison (prep only).
+   * Legacy path is never sent to the provider.
+   */
+  formatterComparison: FormatterComparison | null;
+
+  /** Demand 022B-A — Generation diagnostics for the preview session. */
+  generationDiagnostics: GenerationDiagnostics | null;
+
+  /** Demand 022B-A — Session-only pipeline snapshot (not persisted). */
+  pipelineSnapshot: PipelineSnapshot | null;
 
   warnings: string[];
   errors: string[];

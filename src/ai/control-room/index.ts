@@ -41,6 +41,34 @@ export {
 } from "./ControlRoomService";
 
 export {
+  FORMATTER_COMPARISON_SCHEMA_VERSION,
+  GENERATION_DIAGNOSTICS_SCHEMA_VERSION,
+  PIPELINE_SNAPSHOT_SCHEMA_VERSION,
+  LEGACY_FORMATTER_PATH_ID,
+  BODY_SIMULATOR_FORMATTER_PATH_ID,
+  TOKEN_ESTIMATE_CHARS_PER_TOKEN,
+  buildFormatterComparison,
+  buildGenerationDiagnostics,
+  buildPipelineSnapshot,
+  compareLegacyAndBodySimulatorFormatters,
+  estimateProviderCostPlaceholder,
+  estimateTokensFromPromptLength,
+  runBodySimulatorFormatterComparisonPath,
+  runLegacyFormatterComparisonPath,
+} from "./FormatterComparisonDiagnostics";
+export type {
+  EstimatedMetric,
+  FormatterComparison,
+  FormatterPathFormatterSummary,
+  FormatterPathId,
+  FormatterPathPromptSummary,
+  FormatterPathSide,
+  GenerationDiagnostics,
+  LegacyFormatterComparisonRun,
+  PipelineSnapshot,
+} from "./FormatterComparisonDiagnostics";
+
+export {
   IMAGE_PREVIEW_ACCEPTED_MIME,
   IMAGE_PREVIEW_FORBIDDEN_CONTENT_ERROR,
   IMAGE_PREVIEW_MAX_BYTES,

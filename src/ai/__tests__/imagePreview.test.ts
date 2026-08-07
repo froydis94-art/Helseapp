@@ -775,6 +775,9 @@ describe("imagePreview — DEMAND_017", () => {
                     seedApplied: true,
                     seed: 101,
                   },
+                  formatterComparison: null,
+                  generationDiagnostics: null,
+                  pipelineSnapshot: null,
                   warnings: [],
                   errors: [],
                 } satisfies ImagePreviewResult;
@@ -1225,6 +1228,9 @@ describe("imagePreview — DEMAND_017", () => {
           seedApplied: false,
           seed: null,
         },
+        formatterComparison: null,
+        generationDiagnostics: null,
+        pipelineSnapshot: null,
         warnings: [],
         errors: [],
       };
@@ -3218,6 +3224,9 @@ describe("imagePreview — DEMAND_017", () => {
         "Body Simulator",
         "Formatter Input",
         "Formatter Preview",
+        "Formatter Comparison",
+        "Generation Diagnostics",
+        "Pipeline Snapshot",
         "Rule Provenance",
         "Formatter",
         "Prompts",
@@ -3231,6 +3240,9 @@ describe("imagePreview — DEMAND_017", () => {
       const bodySimIdx = html.indexOf("aiPipelineSectionBodySimulator");
       const fmtInputIdx = html.indexOf("aiPipelineSectionFormatterInput");
       const fmtPreviewIdx = html.indexOf("aiPipelineSectionFormatterPreview");
+      const fmtCompareIdx = html.indexOf("aiPipelineSectionFormatterComparison");
+      const genDiagIdx = html.indexOf("aiPipelineSectionGenerationDiagnostics");
+      const pipeSnapIdx = html.indexOf("aiPipelineSectionPipelineSnapshot");
       const provIdx = html.indexOf("aiPipelineSectionProvenance");
       const fmtIdx = html.indexOf('id="aiPipelineSectionFormatter"');
       const promptsIdx = html.indexOf("aiPipelineSectionPrompts");
@@ -3238,8 +3250,10 @@ describe("imagePreview — DEMAND_017", () => {
       const resultIdx = html.indexOf("aiPipelineSectionResult");
       assert.ok(goalIdx < planIdx && planIdx < rulesIdx);
       assert.ok(rulesIdx < bodySimIdx && bodySimIdx < fmtInputIdx);
-      assert.ok(fmtInputIdx < fmtPreviewIdx && fmtPreviewIdx < provIdx);
-      assert.ok(provIdx < fmtIdx && fmtIdx < promptsIdx);
+      assert.ok(fmtInputIdx < fmtPreviewIdx && fmtPreviewIdx < fmtCompareIdx);
+      assert.ok(fmtCompareIdx < genDiagIdx && genDiagIdx < pipeSnapIdx);
+      assert.ok(pipeSnapIdx < provIdx && provIdx < fmtIdx);
+      assert.ok(fmtIdx < promptsIdx);
       assert.ok(promptsIdx < providerIdx && providerIdx < resultIdx);
     });
 
