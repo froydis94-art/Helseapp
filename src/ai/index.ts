@@ -217,6 +217,26 @@ export {
 } from "./progressCurve";
 export type { ProgressBand } from "./progressCurve";
 
+/** Body Simulator v1 (deterministic Transformation Rules — not production-wired). */
+export {
+  BODY_SIMULATOR_INPUT_SCHEMA_VERSION,
+  BODY_SIMULATOR_PRIMARY_PURPOSE,
+  BODY_SIMULATOR_RULES_SCHEMA_VERSION,
+  BODY_SIMULATOR_RULES_VERSION,
+  DEFAULT_BODY_SIMULATION_INTENSITY,
+  assessBodySimulatorReadiness,
+  listBodySimulatorFixtures,
+  projectBodySimulatorRules,
+  simulateBodyTransformation,
+  validateBodySimulatorInput,
+} from "./body-simulator";
+export type {
+  BodySimulatorInput,
+  BodySimulatorReadiness,
+  BodySimulatorSimulateResult,
+  BodySimulatorTransformationRules,
+} from "./body-simulator";
+
 /** Server-side Replicate transport (disabled by default — not production-wired). */
 export type {
   ReplicateCreatePredictionBody,

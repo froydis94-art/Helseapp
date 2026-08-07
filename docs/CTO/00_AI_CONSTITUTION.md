@@ -442,3 +442,26 @@ Permanent product rules for Personal accounts and private progress:
 > Account-level acceptance may replace repeated adult/consent checkboxes only
 > after the server can prove the required trust state. Production enforcement
 > must not activate without real authentication and persistence.
+
+## 24. Body Simulator Transformation Rules
+
+Permanent product and architecture rules for the Body Simulator:
+
+> Body Simulator Transformation Rules are the canonical representation of the
+> expected body change.
+
+> The Body Simulator must distinguish user-declared facts, measured facts,
+> deterministic simulation and unknown values.
+
+> Medication-related effects are user-reported bounded modifiers and must not be
+> represented as verified medical facts.
+
+> Body Simulator output is an expected visualization, not a medical prediction,
+> guaranteed outcome or promise.
+
+> The Body Simulator may not rank, shame or assign human value to a body.
+
+> Provider prompts must remain derived artifacts and may not become the source
+> of HelseApp transformation logic.
+
+See [22 — Body Simulator v1](./22_BODY_SIMULATOR_V1.md).

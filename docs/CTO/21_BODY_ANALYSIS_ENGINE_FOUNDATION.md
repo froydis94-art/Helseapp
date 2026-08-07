@@ -189,3 +189,4 @@ Also still open where listed in the owner brief:
 
 - [19 — Personal Progress Library](./19_PERSONAL_PROGRESS_LIBRARY.md)
 - [20 — Guided Progress Photo Capture](./20_GUIDED_PROGRESS_PHOTO_CAPTURE.md)
+- [22 — Body Simulator v1](./22_BODY_SIMULATOR_V1.md)
