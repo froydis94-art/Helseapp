@@ -37,8 +37,15 @@ import {
   adaptBodySimulatorRulesToFormatterInput,
   resolveBodySimulatorScenarioForPreview,
 } from "../body-simulator/BodySimulatorFormatterAdapter";
+import type { BodySimulatorTransformationRules } from "../body-simulator/BodySimulatorTypes";
 import { runBodySimulatorShadowPhase } from "../shadow/BodySimulatorShadowIntegration";
 import { getControlRoomScenario } from "./ControlRoomFixtures";
+import {
+  buildComparisonRunFromPreview,
+  createComparisonSessionId,
+  resolveGenerationPath,
+  verifyCanonicalBodySimulatorRules,
+} from "./BodySimulatorComparison";
 import {
   buildFormatterComparison,
   buildGenerationDiagnostics,
@@ -80,6 +87,7 @@ export class ImagePreviewServiceError extends Error {
     | "consent_confirmation_required"
     | "billing_confirmation_required"
     | "body_simulator_failed"
+    | "body_simulator_rule_verification_failed"
     | "runtime_failure"
     | "provider_failure"
     | "provider_timeout"
@@ -120,6 +128,11 @@ export interface ImagePreviewRunInput {
   promptIsolationVariant?: unknown;
   /** Optional allowlisted Body Simulator fixture override (Demand 022B). */
   bodySimulatorScenarioId?: unknown;
+  /**
+   * Demand 022C — allowlisted generation path.
+   * `"legacy"` | `"body_simulator"`. Default: body_simulator.
+   */
+  generationPath?: unknown;
 }
 
 export interface ImagePreviewServiceDependencies {
@@ -522,40 +535,69 @@ export class ImagePreviewService {
       );
     }
 
-    // Demand 022B — Body Simulator is authoritative for transformation intent.
-    // No legacy TransformationEngine fallback on the internal preview path.
+    const generationPath = resolveGenerationPath(input.generationPath);
+    if (generationPath == null) {
+      throw new ImagePreviewServiceError(
+        "invalid_request",
+        "Invalid generation path."
+      );
+    }
+    const deprecatedBaseline = generationPath === "legacy";
+
+    // Demand 022C — path selection is explicit. Body Simulator path remains
+    // authoritative for its own transformation intent; legacy is a deprecated
+    // baseline only. No cross-path fallback on failure.
     const bodySimScenarioId = resolveBodySimulatorScenarioForPreview(
       scenarioId,
       typeof input.bodySimulatorScenarioId === "string"
         ? input.bodySimulatorScenarioId
         : null
     );
-    let bodySimPhase;
-    try {
-      bodySimPhase = runBodySimulatorShadowPhase({
-        enabled: true,
-        scenarioId: bodySimScenarioId,
-      });
-    } catch {
-      throw new ImagePreviewServiceError(
-        "body_simulator_failed",
-        "Body Simulator preview phase failed."
+
+    let bodySimRules: BodySimulatorTransformationRules | null = null;
+    let canonicalBodyTransformation:
+      | ReturnType<typeof adaptBodySimulatorRulesToFormatterInput>
+      | undefined;
+
+    if (generationPath === "body_simulator") {
+      let bodySimPhase;
+      try {
+        bodySimPhase = runBodySimulatorShadowPhase({
+          enabled: true,
+          scenarioId: bodySimScenarioId,
+        });
+      } catch {
+        throw new ImagePreviewServiceError(
+          "body_simulator_failed",
+          "Body Simulator preview phase failed."
+        );
+      }
+      const bodySimView = bodySimPhase.view;
+      if (
+        bodySimView.rules == null ||
+        (bodySimView.status !== "succeeded" &&
+          bodySimView.status !== "ready_with_limitations")
+      ) {
+        throw new ImagePreviewServiceError(
+          "body_simulator_failed",
+          "Body Simulator did not produce transformation rules for preview."
+        );
+      }
+
+      // Canonical rule verification BEFORE any provider call (Demand 022C).
+      const verification = verifyCanonicalBodySimulatorRules(bodySimView.rules);
+      if (!verification.ok) {
+        throw new ImagePreviewServiceError(
+          "body_simulator_rule_verification_failed",
+          "Body Simulator canonical rule verification failed."
+        );
+      }
+
+      bodySimRules = bodySimView.rules;
+      canonicalBodyTransformation = adaptBodySimulatorRulesToFormatterInput(
+        bodySimView.rules
       );
     }
-    const bodySimView = bodySimPhase.view;
-    if (
-      bodySimView.rules == null ||
-      (bodySimView.status !== "succeeded" &&
-        bodySimView.status !== "ready_with_limitations")
-    ) {
-      throw new ImagePreviewServiceError(
-        "body_simulator_failed",
-        "Body Simulator did not produce transformation rules for preview."
-      );
-    }
-    const canonicalBodyTransformation = adaptBodySimulatorRulesToFormatterInput(
-      bodySimView.rules
-    );
 
     const source = validatePreviewSourceImage(input.sourceImageDataUri);
     const env = this.deps.env ?? process.env;
@@ -609,7 +651,9 @@ export class ImagePreviewService {
       profile: resolved.runtimeInput.profile,
       goal: resolved.runtimeInput.goal,
       formatterOptions,
-      canonicalBodyTransformation,
+      ...(canonicalBodyTransformation != null
+        ? { canonicalBodyTransformation }
+        : {}),
       sourceImage: {
         kind: "data_uri" as const,
         value: source.dataUri,
@@ -706,38 +750,52 @@ export class ImagePreviewService {
       seed,
     });
 
-    // Demand 022B-A — in-memory legacy comparison during preview prep.
-    // Never send legacy path to provider; transport already ran once above.
+    // Demand 022B-A / 022C — in-memory formatter comparison (prep only).
+    // At most one provider call already completed above for the selected path.
     const legacyCompare = runLegacyFormatterComparisonPath({
       profile: resolved.runtimeInput.profile as never,
       goal: resolved.runtimeInput.goal as never,
       formatterOptions,
     });
-    const bodySimCompare = runBodySimulatorFormatterComparisonPath({
-      rules: bodySimView.rules,
-      profile: resolved.runtimeInput.profile as never,
-      goal: resolved.runtimeInput.goal as never,
-      formatterOptions,
-    });
-    const formatterComparison = buildFormatterComparison({
-      legacyRenderPlan: legacyCompare.renderPlan,
-      legacyFormatted: legacyCompare.formatted,
-      bodySimulatorRenderPlan: bodySimCompare.renderPlan,
-      bodySimulatorFormatted: bodySimCompare.formatted,
-    });
+    let formatterComparison = null as ReturnType<
+      typeof buildFormatterComparison
+    > | null;
+    let bodySimCompareRenderPlan = runtimeResult.artifacts.renderPlan ?? null;
+    if (bodySimRules != null) {
+      const bodySimCompare = runBodySimulatorFormatterComparisonPath({
+        rules: bodySimRules,
+        profile: resolved.runtimeInput.profile as never,
+        goal: resolved.runtimeInput.goal as never,
+        formatterOptions,
+      });
+      bodySimCompareRenderPlan = bodySimCompare.renderPlan;
+      formatterComparison = buildFormatterComparison({
+        legacyRenderPlan: legacyCompare.renderPlan,
+        legacyFormatted: legacyCompare.formatted,
+        bodySimulatorRenderPlan: bodySimCompare.renderPlan,
+        bodySimulatorFormatted: bodySimCompare.formatted,
+      });
+    }
     const positiveLen = formatted?.prompt?.length ?? 0;
     const negativeLen = formatted?.negativePrompt?.length ?? 0;
     const generationDiagnostics = buildGenerationDiagnostics({
       scenarioId: resolved.summary.id,
-      rules: bodySimView.rules,
+      rules: bodySimRules,
       formatterName: formatted?.metadata?.formatterName ?? null,
       formatterVersion: formatted?.metadata?.formatterVersion ?? null,
       promptLength: positiveLen + negativeLen,
       warnings: [
-        ...(bodySimView.rules.warnings ?? []),
-        ...formatterComparison.summaryDifferences,
+        ...(bodySimRules?.warnings ?? []),
+        ...(formatterComparison?.summaryDifferences ?? []),
+        ...(deprecatedBaseline
+          ? [
+              "022C: Deprecated legacy baseline was sent to the provider (internal comparison only).",
+            ]
+          : [
+              "022C: Body Simulator path was sent to the provider; legacy formatter comparison (if present) ran in-memory only.",
+            ]),
       ],
-      limitations: [...(bodySimView.rules.limitations ?? [])],
+      limitations: [...(bodySimRules?.limitations ?? [])],
       providerClassification: "internal_preview",
       generationDurationMs:
         typeof transport.generationTimeMs === "number"
@@ -747,17 +805,56 @@ export class ImagePreviewService {
       model: transport.model ?? model,
       httpStatus: transport.success ? 200 : null,
       retryCount: 0,
+      generationPath,
+      deprecatedBaseline,
     });
     const pipelineSnapshot = buildPipelineSnapshot({
       mode: "transport_mock",
       scenarioId: resolved.summary.id,
-      bodySimulatorScenarioId: bodySimScenarioId,
-      rules: bodySimView.rules,
-      bodySimulatorRenderPlan: bodySimCompare.renderPlan,
-      formatted: formatted ?? bodySimCompare.formatted,
+      bodySimulatorScenarioId:
+        generationPath === "body_simulator" ? bodySimScenarioId : null,
+      rules: bodySimRules,
+      bodySimulatorRenderPlan: bodySimCompareRenderPlan,
+      formatted: formatted ?? null,
       generationDiagnostics,
-      formatterComparisonPresent: true,
+      formatterComparisonPresent: formatterComparison != null,
+      generationPath,
     });
+
+    const comparisonRun = buildComparisonRunFromPreview({
+      comparisonSessionId: createComparisonSessionId(now()),
+      generationPath,
+      sourceImageFingerprint: null,
+      scenarioId: resolved.summary.id,
+      bodySimulatorScenarioId:
+        generationPath === "body_simulator" ? bodySimScenarioId : null,
+      provider: transport.provider ?? "replicate",
+      model: transport.model ?? model,
+      width: null,
+      height: null,
+      outputCount: 1,
+      bodySimulatorRulesVersion: bodySimRules?.rulesVersion ?? null,
+      formatterVersion: formatted?.metadata?.formatterVersion ?? null,
+      formatterSchema: `FormattedImageRequest@flux/${formatted?.metadata?.formatterVersion ?? "1.0"}`,
+      positivePrompt: formatted?.prompt ?? "",
+      negativePrompt: formatted?.negativePrompt ?? "",
+      outcome: "succeeded",
+      durationMs:
+        typeof transport.generationTimeMs === "number"
+          ? transport.generationTimeMs
+          : null,
+      httpStatus: 200,
+      providerPredictionId: transport.predictionId ?? null,
+      generatedImageUrl: null,
+      diagnostics: [
+        deprecatedBaseline
+          ? "deprecatedBaseline=true"
+          : "generationPath=body_simulator",
+        "providerCalls=1",
+      ],
+    });
+    // Browser session attaches display URL from result.generatedImage only.
+    // Never embed HTTPS URLs inside comparisonRun (projection allowlist).
 
     let projected: ImagePreviewResult;
     try {
@@ -774,11 +871,16 @@ export class ImagePreviewService {
         formatterComparison,
         generationDiagnostics,
         pipelineSnapshot,
+        generationPath,
+        deprecatedBaseline,
+        comparisonRun,
         extraWarnings: [
           "Preview laboratory: ResultValidator used provisional evidence; real vision analysis is deferred to Demand 018.",
           "No automatic retry was performed.",
           "Prompt Isolation Lab: only prompt construction differs across variants; provider, model, and transport stay fixed.",
-          "022B-A: Legacy formatter comparison ran in-memory only; legacy path was not sent to the provider.",
+          deprecatedBaseline
+            ? "022C: Legacy generation path (deprecated baseline) — one provider request; never production."
+            : "022C: Body Simulator generation path — one provider request; legacy comparison (if any) stayed in-memory.",
         ],
       });
     } catch (error) {

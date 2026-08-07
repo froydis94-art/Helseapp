@@ -69,6 +69,41 @@ export type {
 } from "./FormatterComparisonDiagnostics";
 
 export {
+  BODY_SIMULATOR_COMPARISON_MAX_RUNS,
+  BODY_SIMULATOR_COMPARISON_SCHEMA_VERSION,
+  DEFAULT_GENERATION_PATH,
+  GENERATION_PATH_BODY_SIMULATOR,
+  GENERATION_PATH_LEGACY,
+  GENERATION_PATHS,
+  MANUAL_EVAL_CATEGORIES,
+  SIMULATOR_CALIBRATION_OBSERVATION_SCHEMA_VERSION,
+  averageAssessableScores,
+  buildComparisonDifferenceSummary,
+  buildComparisonRunFromPreview,
+  buildSimulatorCalibrationObservation,
+  checkComparisonComparability,
+  countWords,
+  createComparisonRunId,
+  createComparisonSessionId,
+  interpretManualEvaluationAverages,
+  isGenerationPath,
+  pushComparisonRun,
+  resolveGenerationPath,
+  verifyCanonicalBodySimulatorRules,
+} from "./BodySimulatorComparison";
+export type {
+  BodySimulatorComparisonRun,
+  ComparabilityCheck,
+  ComparisonDifferenceSummary,
+  GenerationPath,
+  ManualComparisonEvaluation,
+  ManualEvalCategoryId,
+  ManualEvalScore,
+  PathPairEvaluation,
+  SimulatorCalibrationObservation,
+} from "./BodySimulatorComparison";
+
+export {
   IMAGE_PREVIEW_ACCEPTED_MIME,
   IMAGE_PREVIEW_FORBIDDEN_CONTENT_ERROR,
   IMAGE_PREVIEW_MAX_BYTES,

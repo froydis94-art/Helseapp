@@ -263,6 +263,8 @@ Agent does **not** execute a real paid Replicate call.
 - AI retraining
 - Changing Body Simulator coefficients
 
+See also: [22C — Controlled Legacy vs Body Simulator Generation](./22C_CONTROLLED_SIMULATOR_COMPARISON.md) (manual A/B generation comparison).
+
 ---
 
 ## Code map

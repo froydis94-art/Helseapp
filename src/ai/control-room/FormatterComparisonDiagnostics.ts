@@ -107,6 +107,15 @@ export interface GenerationDiagnostics {
   schemaVersion: typeof GENERATION_DIAGNOSTICS_SCHEMA_VERSION;
   lifetime: "session_only";
   persisted: false;
+  /** Demand 022C — which path produced the provider request (when any). */
+  generationPath?: "legacy" | "body_simulator" | null;
+  /**
+   * Demand 022C — Body Simulator rules version when used; null on legacy path.
+   * Distinct from bodySimulatorVersion which may carry a placeholder label.
+   */
+  bodySimulatorRules: string | null;
+  /** Demand 022C — true when the provider-bound path was the deprecated legacy baseline. */
+  deprecatedBaseline: boolean;
   bodySimulatorVersion: string;
   formatterVersion: string;
   formatterSchema: string;
@@ -158,7 +167,11 @@ export interface PipelineSnapshot {
     scenarioId: string;
     bodySimulatorScenarioId: string | null;
     formatterComparisonPresent: boolean;
-    legacyPathSentToProvider: false;
+    /** True only when Demand 022C generationPath === "legacy". */
+    legacyPathSentToProvider: boolean;
+    /** True only when Demand 022C generationPath === "body_simulator". */
+    bodySimulatorPathSentToProvider: boolean;
+    generationPath: "legacy" | "body_simulator" | null;
   };
 }
 
@@ -501,6 +514,9 @@ export function buildGenerationDiagnostics(options: {
   httpStatus?: number | null | DiagnosticsNotRun;
   retryCount?: number | null | DiagnosticsNotRun;
   timestamp?: string;
+  /** Demand 022C — which path was bound to the provider (if any). */
+  generationPath?: "legacy" | "body_simulator" | null;
+  deprecatedBaseline?: boolean;
 }): GenerationDiagnostics {
   const rules = options.rules ?? null;
   const promptLength =
@@ -509,16 +525,32 @@ export function buildGenerationDiagnostics(options: {
     options.providerClassification === "dry_run_no_provider" ||
     options.providerClassification === "comparison_only" ||
     options.providerClassification === "not_run";
+  const generationPath = options.generationPath ?? null;
+  const deprecatedBaseline =
+    options.deprecatedBaseline === true || generationPath === "legacy";
+  const bodySimulatorRules =
+    deprecatedBaseline || rules == null
+      ? null
+      : rules.rulesVersion ?? null;
 
   return {
     schemaVersion: GENERATION_DIAGNOSTICS_SCHEMA_VERSION,
     lifetime: "session_only",
     persisted: false,
-    bodySimulatorVersion: rules?.rulesVersion ?? BODY_SIMULATOR_RULES_VERSION,
+    generationPath,
+    bodySimulatorRules,
+    deprecatedBaseline,
+    bodySimulatorVersion:
+      bodySimulatorRules ??
+      (deprecatedBaseline
+        ? "legacy_baseline_no_body_simulator_rules"
+        : BODY_SIMULATOR_RULES_VERSION),
     formatterVersion:
       options.formatterVersion ?? FLUX_FORMATTER_VERSION,
     formatterSchema: `FormattedImageRequest@flux/${FLUX_FORMATTER_VERSION}`,
-    ruleSchema: `BodySimulatorTransformationRules@${BODY_SIMULATOR_RULES_SCHEMA_VERSION}`,
+    ruleSchema: deprecatedBaseline
+      ? "legacy_transformation_engine@deprecated"
+      : `BodySimulatorTransformationRules@${BODY_SIMULATOR_RULES_SCHEMA_VERSION}`,
     scenario: options.scenarioId,
     timeline: rules?.goal.timelineWeeks ?? null,
     intensity: rules?.goal.intensity ?? null,
@@ -538,6 +570,9 @@ export function buildGenerationDiagnostics(options: {
     limitations: [
       ...(options.limitations ?? []),
       ...(rules?.limitations ?? []),
+      ...(deprecatedBaseline
+        ? ["Deprecated legacy baseline — internal comparison only; never production."]
+        : []),
     ],
     providerClassification: options.providerClassification,
     timestamp: options.timestamp ?? new Date().toISOString(),
@@ -554,10 +589,12 @@ export function buildPipelineSnapshot(options: {
   formatted?: FormattedImageRequest | null;
   generationDiagnostics?: GenerationDiagnostics | null;
   formatterComparisonPresent: boolean;
+  generationPath?: "legacy" | "body_simulator" | null;
 }): PipelineSnapshot {
   const rules = options.rules ?? null;
   const formatted = options.formatted ?? null;
   const renderPlan = options.bodySimulatorRenderPlan ?? null;
+  const generationPath = options.generationPath ?? null;
 
   let formatterInput = options.formatterInput ?? null;
   if (formatterInput == null && rules != null) {
@@ -586,6 +623,7 @@ export function buildPipelineSnapshot(options: {
             preservation: structuredClone(rules.preservation),
             realism: structuredClone(rules.realism),
             confidence: structuredClone(rules.confidence),
+            provenance: structuredClone(rules.provenance),
             limitations: [...(rules.limitations ?? [])],
             canonicalAdapterSchemaVersion:
               CANONICAL_BODY_TRANSFORMATION_SCHEMA_VERSION,
@@ -623,7 +661,9 @@ export function buildPipelineSnapshot(options: {
       scenarioId: options.scenarioId,
       bodySimulatorScenarioId: options.bodySimulatorScenarioId ?? null,
       formatterComparisonPresent: options.formatterComparisonPresent,
-      legacyPathSentToProvider: false,
+      legacyPathSentToProvider: generationPath === "legacy",
+      bodySimulatorPathSentToProvider: generationPath === "body_simulator",
+      generationPath,
     },
   };
 }

@@ -52,6 +52,9 @@ const ALLOWED_PROMPT_ISOLATION_VARIANTS = new Set([
   "pre_017c_baseline",
 ]);
 
+const ALLOWED_GENERATION_PATHS = new Set(["legacy", "body_simulator"]);
+const DEFAULT_GENERATION_PATH = "body_simulator";
+
 const DEFAULT_PROMPT_ISOLATION_VARIANT = "current_ai_os";
 
 function promptIsolationRadioLabel(variant: string): string {
@@ -105,6 +108,7 @@ type ImagePreviewServiceModuleShape = {
       billingConfirmed: unknown;
       sourceImageDataUri: unknown;
       promptIsolationVariant?: unknown;
+      generationPath?: unknown;
     }): Promise<unknown>;
   };
   ImagePreviewServiceError: new (
@@ -484,6 +488,13 @@ function mapServiceErrorCode(code: string): {
         message: "Body Simulator preview phase failed.",
         diagnostic: "body_simulator_failed",
       };
+    case "body_simulator_rule_verification_failed":
+      return {
+        status: 400,
+        code: "body_simulator_rule_verification_failed",
+        message: "Body Simulator canonical rule verification failed.",
+        diagnostic: "body_simulator_rule_verification_failed",
+      };
     case "provider_failure":
       return {
         status: 502,
@@ -624,6 +635,7 @@ async function handlePost(
     "billingConfirmed",
     "sourceImageDataUri",
     "promptIsolationVariant",
+    "generationPath",
   ]);
   for (const key of Object.keys(body)) {
     if (!allowedKeys.has(key)) {
@@ -657,6 +669,28 @@ async function handlePost(
       return;
     }
     promptIsolationVariant = body.promptIsolationVariant;
+  }
+
+  let generationPath = DEFAULT_GENERATION_PATH;
+  if (
+    Object.prototype.hasOwnProperty.call(body, "generationPath") &&
+    body.generationPath !== undefined &&
+    body.generationPath !== null &&
+    body.generationPath !== ""
+  ) {
+    if (
+      typeof body.generationPath !== "string" ||
+      !ALLOWED_GENERATION_PATHS.has(body.generationPath)
+    ) {
+      send(res, 400, {
+        ok: false,
+        enabled: true,
+        code: "invalid_request",
+        message: "Invalid generation path.",
+      });
+      return;
+    }
+    generationPath = body.generationPath;
   }
 
   // Confirmations before heavy runtime / rate-limit / provider.
@@ -813,6 +847,7 @@ async function handlePost(
       billingConfirmed: body.billingConfirmed,
       sourceImageDataUri: body.sourceImageDataUri,
       promptIsolationVariant,
+      generationPath,
     });
     send(res, 200, {
       ok: true,

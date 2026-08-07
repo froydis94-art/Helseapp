@@ -25,6 +25,35 @@
   var previewSourceDataUri = null;
   var previewSourceMeta = null;
   var previewObjectUrl = null;
+  /** Demand 022C — browser-memory comparison session (never persisted). */
+  var COMPARISON_MAX_RUNS = 20;
+  var comparisonSessionId =
+    "cmp-sess-" + Date.now().toString(36) + "-" + Math.floor(Math.random() * 1e6).toString(36);
+  var comparisonHistory = [];
+  var previewSourceFingerprint = null;
+  var previewSourceSelectionId = null;
+  var sourceSelectionCounter = 0;
+  var selectedCompareLegacyRunId = null;
+  var selectedCompareBodySimRunId = null;
+  var comparisonEvaluation = {
+    legacy: null,
+    bodySimulator: null,
+    note: null,
+  };
+  var MANUAL_EVAL_CATEGORIES = [
+    { id: "identityPreservation", label: "Identity preservation" },
+    { id: "bodyChangeRealism", label: "Body-change realism" },
+    {
+      id: "goalAlignment",
+      label: "Transformation matches intended goal",
+    },
+    { id: "naturalProportions", label: "Natural proportions" },
+    {
+      id: "presentationPreservation",
+      label: "Clothing/presentation preservation",
+    },
+    { id: "overallUsefulness", label: "Overall usefulness" },
+  ];
 
   var accessStatus = document.getElementById("accessStatus");
   var accessKeyInput = document.getElementById("accessKeyInput");
@@ -156,6 +185,52 @@
     "previewBillingCheckbox"
   );
   var previewGenerateButton = document.getElementById("previewGenerateButton");
+  var generationPathCurrent = document.getElementById("generationPathCurrent");
+  var generationComparisonHistory = document.getElementById(
+    "generationComparisonHistory"
+  );
+  var generationComparisonHistoryEmpty = document.getElementById(
+    "generationComparisonHistoryEmpty"
+  );
+  var generationCompareSelectLegacy = document.getElementById(
+    "generationCompareSelectLegacy"
+  );
+  var generationCompareSelectBodySim = document.getElementById(
+    "generationCompareSelectBodySim"
+  );
+  var generationCompareConditions = document.getElementById(
+    "generationCompareConditions"
+  );
+  var generationCompareWarnings = document.getElementById(
+    "generationCompareWarnings"
+  );
+  var generationCompareSideBySide = document.getElementById(
+    "generationCompareSideBySide"
+  );
+  var generationCompareImgLegacy = document.getElementById(
+    "generationCompareImgLegacy"
+  );
+  var generationCompareImgBodySim = document.getElementById(
+    "generationCompareImgBodySim"
+  );
+  var generationCompareMetaLegacy = document.getElementById(
+    "generationCompareMetaLegacy"
+  );
+  var generationCompareMetaBodySim = document.getElementById(
+    "generationCompareMetaBodySim"
+  );
+  var generationCompareDiffSummary = document.getElementById(
+    "generationCompareDiffSummary"
+  );
+  var generationEvalForm = document.getElementById("generationEvalForm");
+  var generationEvalNote = document.getElementById("generationEvalNote");
+  var generationEvalApplyButton = document.getElementById(
+    "generationEvalApplyButton"
+  );
+  var generationEvalSummary = document.getElementById("generationEvalSummary");
+  var generationCalibrationPreview = document.getElementById(
+    "generationCalibrationPreview"
+  );
   var previewMessage = document.getElementById("previewMessage");
   var previewResultPanel = document.getElementById("previewResultPanel");
   var previewProviderSummary = document.getElementById(
@@ -2423,10 +2498,644 @@
     }
   }
 
+  function getSelectedGenerationPath() {
+    var selected = document.querySelector(
+      'input[name="generationPath"]:checked'
+    );
+    var value = selected && selected.value ? String(selected.value) : "body_simulator";
+    if (value !== "legacy" && value !== "body_simulator") {
+      return "body_simulator";
+    }
+    return value;
+  }
+
+  function updateGenerationPathLabel() {
+    var path = getSelectedGenerationPath();
+    if (!generationPathCurrent) return;
+    setText(
+      generationPathCurrent,
+      path === "legacy"
+        ? "Current path: Legacy (deprecated baseline)"
+        : "Current path: Body Simulator"
+    );
+  }
+
+  function countPromptWords(text) {
+    var trimmed = String(text || "").trim();
+    if (!trimmed) return 0;
+    return trimmed.split(/\s+/).filter(Boolean).length;
+  }
+
+  function hexFromBuffer(buffer) {
+    var bytes = new Uint8Array(buffer);
+    var out = "";
+    for (var i = 0; i < bytes.length; i += 1) {
+      var h = bytes[i].toString(16);
+      out += h.length === 1 ? "0" + h : h;
+    }
+    return out;
+  }
+
+  function fingerprintSourceFile(file) {
+    previewSourceSelectionId = "src-sel-" + String(++sourceSelectionCounter);
+    previewSourceFingerprint = null;
+    if (!file || typeof crypto === "undefined" || !crypto.subtle) {
+      return Promise.resolve(previewSourceSelectionId);
+    }
+    return file
+      .arrayBuffer()
+      .then(function (buf) {
+        return crypto.subtle.digest("SHA-256", buf);
+      })
+      .then(function (digest) {
+        previewSourceFingerprint = "sha256:" + hexFromBuffer(digest);
+        return previewSourceFingerprint;
+      })
+      .catch(function () {
+        return previewSourceSelectionId;
+      });
+  }
+
+  function sourceComparabilityKey() {
+    return previewSourceFingerprint || previewSourceSelectionId || null;
+  }
+
+  function clearComparisonSessionState() {
+    comparisonHistory = [];
+    selectedCompareLegacyRunId = null;
+    selectedCompareBodySimRunId = null;
+    comparisonEvaluation = { legacy: null, bodySimulator: null, note: null };
+    comparisonSessionId =
+      "cmp-sess-" +
+      Date.now().toString(36) +
+      "-" +
+      Math.floor(Math.random() * 1e6).toString(36);
+    if (generationEvalNote) generationEvalNote.value = "";
+    renderComparisonHistory();
+    renderComparisonPair();
+  }
+
+  function findComparisonRun(runId) {
+    for (var i = 0; i < comparisonHistory.length; i += 1) {
+      if (comparisonHistory[i].runId === runId) return comparisonHistory[i];
+    }
+    return null;
+  }
+
+  function pushComparisonHistoryRun(run) {
+    comparisonHistory.push(run);
+    if (comparisonHistory.length > COMPARISON_MAX_RUNS) {
+      comparisonHistory = comparisonHistory.slice(
+        comparisonHistory.length - COMPARISON_MAX_RUNS
+      );
+    }
+  }
+
+  function checkPairComparability(legacyRun, bodyRun) {
+    var warnings = [];
+    var sourceOk =
+      !!legacyRun.sourceImageFingerprint &&
+      !!bodyRun.sourceImageFingerprint &&
+      legacyRun.sourceImageFingerprint === bodyRun.sourceImageFingerprint;
+    if (!sourceOk) warnings.push("source image differs");
+    var scenarioOk = legacyRun.scenarioId === bodyRun.scenarioId;
+    if (!scenarioOk) warnings.push("scenario differs");
+    var providerOk =
+      !!legacyRun.conditions.provider &&
+      !!bodyRun.conditions.provider &&
+      legacyRun.conditions.provider === bodyRun.conditions.provider;
+    if (!providerOk) warnings.push("provider differs");
+    var modelOk =
+      !!legacyRun.conditions.model &&
+      !!bodyRun.conditions.model &&
+      legacyRun.conditions.model === bodyRun.conditions.model;
+    if (!modelOk) warnings.push("model differs");
+    var dimsOk =
+      legacyRun.conditions.width === bodyRun.conditions.width &&
+      legacyRun.conditions.height === bodyRun.conditions.height;
+    if (!dimsOk) warnings.push("dimensions differ");
+    var outOk =
+      legacyRun.conditions.outputCount === bodyRun.conditions.outputCount;
+    if (!outOk) warnings.push("output count differs");
+    var pathOk =
+      legacyRun.generationPath === "legacy" &&
+      bodyRun.generationPath === "body_simulator";
+    if (!pathOk) {
+      warnings.push("generation paths are not Legacy A + Body Simulator B");
+    }
+    return {
+      comparable:
+        sourceOk &&
+        scenarioOk &&
+        providerOk &&
+        modelOk &&
+        dimsOk &&
+        outOk &&
+        pathOk,
+      warnings: warnings,
+    };
+  }
+
+  function averageEvalScores(evalObj) {
+    if (!evalObj) return null;
+    var values = [];
+    for (var i = 0; i < MANUAL_EVAL_CATEGORIES.length; i += 1) {
+      var v = evalObj[MANUAL_EVAL_CATEGORIES[i].id];
+      if (typeof v === "number" && v >= 1 && v <= 5) values.push(v);
+    }
+    if (!values.length) return null;
+    var sum = 0;
+    for (var j = 0; j < values.length; j += 1) sum += values[j];
+    return sum / values.length;
+  }
+
+  function interpretEvalAverages(legacyAvg, bodyAvg) {
+    if (legacyAvg == null || bodyAvg == null) {
+      return "Evaluation is inconclusive.";
+    }
+    if (bodyAvg > legacyAvg) {
+      return "Body Simulator received a higher manual evaluation in this comparison.";
+    }
+    if (legacyAvg > bodyAvg) {
+      return "Legacy received a higher manual evaluation in this comparison.";
+    }
+    return "Evaluation is inconclusive.";
+  }
+
+  function buildCalibrationObservation(legacyRun, bodyRun) {
+    function pair(id) {
+      var l = comparisonEvaluation.legacy
+        ? comparisonEvaluation.legacy[id]
+        : null;
+      var b = comparisonEvaluation.bodySimulator
+        ? comparisonEvaluation.bodySimulator[id]
+        : null;
+      return {
+        legacy: typeof l === "number" ? l : null,
+        bodySimulator: typeof b === "number" ? b : null,
+      };
+    }
+    var comparable =
+      legacyRun && bodyRun
+        ? checkPairComparability(legacyRun, bodyRun).comparable
+        : false;
+    return {
+      schemaVersion: 1,
+      comparable: comparable,
+      bodySimulatorRunId: bodyRun ? bodyRun.runId : null,
+      legacyRunId: legacyRun ? legacyRun.runId : null,
+      scenarioId: bodyRun
+        ? bodyRun.scenarioId
+        : legacyRun
+          ? legacyRun.scenarioId
+          : null,
+      manualEvaluation: {
+        identityPreservation: pair("identityPreservation"),
+        bodyChangeRealism: pair("bodyChangeRealism"),
+        goalAlignment: pair("goalAlignment"),
+        naturalProportions: pair("naturalProportions"),
+        presentationPreservation: pair("presentationPreservation"),
+        overallUsefulness: pair("overallUsefulness"),
+      },
+      note: comparisonEvaluation.note || null,
+    };
+  }
+
+  function fillRunSelect(selectEl, path, selectedId) {
+    if (!selectEl) return;
+    clearChildren(selectEl);
+    var empty = document.createElement("option");
+    empty.value = "";
+    empty.textContent = "—";
+    selectEl.appendChild(empty);
+    for (var i = 0; i < comparisonHistory.length; i += 1) {
+      var run = comparisonHistory[i];
+      if (run.generationPath !== path) continue;
+      var opt = document.createElement("option");
+      opt.value = run.runId;
+      opt.textContent =
+        run.createdAt +
+        " · " +
+        run.scenarioId +
+        " · " +
+        run.generation.outcome;
+      if (selectedId && selectedId === run.runId) opt.selected = true;
+      selectEl.appendChild(opt);
+    }
+  }
+
+  function renderSideMeta(el, run, label) {
+    if (!el || !run) {
+      if (el) setText(el, "");
+      return;
+    }
+    setText(
+      el,
+      [
+        label,
+        "scenario=" + run.scenarioId,
+        "provider/model=" +
+          String(run.conditions.provider || "?") +
+          " / " +
+          String(run.conditions.model || "?"),
+        "durationMs=" + String(run.generation.durationMs),
+        "formatter=" + String(run.versions.formatter || "?"),
+        "promptChars=" + String(run.prompt.totalCharacters),
+        "outcome=" + run.generation.outcome,
+        run.diagnostics && run.diagnostics.length
+          ? "notes=" + run.diagnostics.join("; ")
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n")
+    );
+  }
+
+  function renderComparisonHistory() {
+    if (generationComparisonHistory) clearChildren(generationComparisonHistory);
+    if (generationComparisonHistoryEmpty) {
+      generationComparisonHistoryEmpty.hidden = comparisonHistory.length > 0;
+    }
+    if (!generationComparisonHistory) return;
+    for (var i = 0; i < comparisonHistory.length; i += 1) {
+      var run = comparisonHistory[i];
+      appendKv(
+        generationComparisonHistory,
+        run.generationPath === "legacy" ? "Legacy" : "Body Simulator",
+        [
+          run.createdAt,
+          run.scenarioId,
+          run.generation.outcome,
+          "source=" + String(run.sourceImageFingerprint || "n/a"),
+          "durationMs=" + String(run.generation.durationMs),
+          run.deprecatedBaseline ? "deprecatedBaseline" : "",
+        ]
+          .filter(Boolean)
+          .join(" · ")
+      );
+    }
+    fillRunSelect(
+      generationCompareSelectLegacy,
+      "legacy",
+      selectedCompareLegacyRunId
+    );
+    fillRunSelect(
+      generationCompareSelectBodySim,
+      "body_simulator",
+      selectedCompareBodySimRunId
+    );
+  }
+
+  function renderComparisonPair() {
+    var legacyRun = findComparisonRun(selectedCompareLegacyRunId);
+    var bodyRun = findComparisonRun(selectedCompareBodySimRunId);
+    if (generationCompareConditions) clearChildren(generationCompareConditions);
+    if (generationCompareDiffSummary) clearChildren(generationCompareDiffSummary);
+    if (generationEvalSummary) clearChildren(generationEvalSummary);
+    if (generationCompareWarnings) setText(generationCompareWarnings, "");
+
+    if (!legacyRun || !bodyRun) {
+      if (generationCompareSideBySide) generationCompareSideBySide.hidden = true;
+      if (generationCompareImgLegacy) {
+        generationCompareImgLegacy.hidden = true;
+        generationCompareImgLegacy.removeAttribute("src");
+      }
+      if (generationCompareImgBodySim) {
+        generationCompareImgBodySim.hidden = true;
+        generationCompareImgBodySim.removeAttribute("src");
+      }
+      renderSideMeta(generationCompareMetaLegacy, null, "");
+      renderSideMeta(generationCompareMetaBodySim, null, "");
+      if (generationCalibrationPreview) {
+        setText(
+          generationCalibrationPreview,
+          JSON.stringify(buildCalibrationObservation(null, null), null, 2)
+        );
+      }
+      return;
+    }
+
+    var check = checkPairComparability(legacyRun, bodyRun);
+    if (generationCompareConditions) {
+      appendKv(
+        generationCompareConditions,
+        "Comparable",
+        check.comparable ? "yes" : "no — not comparable"
+      );
+      appendKv(
+        generationCompareConditions,
+        "Source fingerprint",
+        String(legacyRun.sourceImageFingerprint)
+      );
+      appendKv(generationCompareConditions, "Scenario", legacyRun.scenarioId);
+      appendKv(
+        generationCompareConditions,
+        "Provider / model",
+        String(legacyRun.conditions.provider) +
+          " / " +
+          String(legacyRun.conditions.model)
+      );
+      appendKv(
+        generationCompareConditions,
+        "Output count",
+        String(legacyRun.conditions.outputCount)
+      );
+    }
+    if (generationCompareWarnings) {
+      setText(
+        generationCompareWarnings,
+        check.comparable
+          ? "Pair is comparable under same-condition rules. Differences do not prove causation."
+          : "Not comparable: " +
+              check.warnings.join("; ") +
+              ". Do not claim causal conclusions."
+      );
+    }
+
+    var bothSucceeded =
+      legacyRun.generation.outcome === "succeeded" &&
+      bodyRun.generation.outcome === "succeeded" &&
+      !!legacyRun.result.generatedImageUrl &&
+      !!bodyRun.result.generatedImageUrl;
+    if (generationCompareSideBySide) {
+      generationCompareSideBySide.hidden = !bothSucceeded;
+    }
+    if (bothSucceeded) {
+      if (generationCompareImgLegacy) {
+        generationCompareImgLegacy.hidden = false;
+        generationCompareImgLegacy.src = legacyRun.result.generatedImageUrl;
+      }
+      if (generationCompareImgBodySim) {
+        generationCompareImgBodySim.hidden = false;
+        generationCompareImgBodySim.src = bodyRun.result.generatedImageUrl;
+      }
+    }
+    renderSideMeta(generationCompareMetaLegacy, legacyRun, "Legacy result");
+    renderSideMeta(
+      generationCompareMetaBodySim,
+      bodyRun,
+      "Body Simulator result"
+    );
+
+    var charDelta =
+      bodyRun.prompt.totalCharacters - legacyRun.prompt.totalCharacters;
+    var wordDelta = bodyRun.prompt.totalWords - legacyRun.prompt.totalWords;
+    var durationDelta =
+      legacyRun.generation.durationMs != null &&
+      bodyRun.generation.durationMs != null
+        ? bodyRun.generation.durationMs - legacyRun.generation.durationMs
+        : null;
+    var legacyAvg = averageEvalScores(comparisonEvaluation.legacy);
+    var bodyAvg = averageEvalScores(comparisonEvaluation.bodySimulator);
+    if (generationCompareDiffSummary) {
+      appendKv(
+        generationCompareDiffSummary,
+        "Transformation source",
+        "Legacy vs Body Simulator"
+      );
+      appendKv(
+        generationCompareDiffSummary,
+        "Prompt characters (L / B / Δ)",
+        legacyRun.prompt.totalCharacters +
+          " / " +
+          bodyRun.prompt.totalCharacters +
+          " / " +
+          charDelta
+      );
+      appendKv(
+        generationCompareDiffSummary,
+        "Prompt words (L / B / Δ)",
+        legacyRun.prompt.totalWords +
+          " / " +
+          bodyRun.prompt.totalWords +
+          " / " +
+          wordDelta
+      );
+      appendKv(
+        generationCompareDiffSummary,
+        "Duration delta (B − L ms)",
+        durationDelta == null ? "n/a" : String(durationDelta)
+      );
+      appendKv(
+        generationCompareDiffSummary,
+        "Outcomes",
+        legacyRun.generation.outcome + " vs " + bodyRun.generation.outcome
+      );
+      appendKv(
+        generationCompareDiffSummary,
+        "Manual evaluation",
+        interpretEvalAverages(legacyAvg, bodyAvg)
+      );
+    }
+    if (generationEvalSummary) {
+      appendKv(
+        generationEvalSummary,
+        "Legacy average",
+        legacyAvg == null ? "n/a" : legacyAvg.toFixed(2)
+      );
+      appendKv(
+        generationEvalSummary,
+        "Body Simulator average",
+        bodyAvg == null ? "n/a" : bodyAvg.toFixed(2)
+      );
+      appendKv(
+        generationEvalSummary,
+        "Interpretation",
+        interpretEvalAverages(legacyAvg, bodyAvg)
+      );
+    }
+    if (generationCalibrationPreview) {
+      setText(
+        generationCalibrationPreview,
+        JSON.stringify(buildCalibrationObservation(legacyRun, bodyRun), null, 2)
+      );
+    }
+  }
+
+  function ensureEvalForm() {
+    if (!generationEvalForm || generationEvalForm.childNodes.length) return;
+    function addPathBlock(pathKey, title) {
+      var heading = document.createElement("h5");
+      heading.textContent = title;
+      generationEvalForm.appendChild(heading);
+      for (var i = 0; i < MANUAL_EVAL_CATEGORIES.length; i += 1) {
+        var cat = MANUAL_EVAL_CATEGORIES[i];
+        var label = document.createElement("label");
+        label.className = "field";
+        var span = document.createElement("span");
+        span.textContent = cat.label + " (" + title + ")";
+        label.appendChild(span);
+        var select = document.createElement("select");
+        select.setAttribute("data-eval-path", pathKey);
+        select.setAttribute("data-eval-cat", cat.id);
+        var opts = [
+          ["", "—"],
+          ["1", "1"],
+          ["2", "2"],
+          ["3", "3"],
+          ["4", "4"],
+          ["5", "5"],
+          ["not_assessable", "Not assessable"],
+        ];
+        for (var o = 0; o < opts.length; o += 1) {
+          var opt = document.createElement("option");
+          opt.value = opts[o][0];
+          opt.textContent = opts[o][1];
+          select.appendChild(opt);
+        }
+        label.appendChild(select);
+        generationEvalForm.appendChild(label);
+      }
+    }
+    addPathBlock("legacy", "Legacy result");
+    addPathBlock("bodySimulator", "Body Simulator result");
+  }
+
+  function readEvalFromForm() {
+    var legacy = {};
+    var body = {};
+    var selects = generationEvalForm
+      ? generationEvalForm.querySelectorAll("select[data-eval-path]")
+      : [];
+    for (var i = 0; i < selects.length; i += 1) {
+      var sel = selects[i];
+      var path = sel.getAttribute("data-eval-path");
+      var cat = sel.getAttribute("data-eval-cat");
+      var raw = sel.value;
+      var val =
+        raw === "not_assessable"
+          ? "not_assessable"
+          : raw === ""
+            ? null
+            : Number(raw);
+      if (path === "legacy") legacy[cat] = val;
+      else body[cat] = val;
+    }
+    return {
+      legacy: legacy,
+      bodySimulator: body,
+      note: generationEvalNote ? String(generationEvalNote.value || "").trim() || null : null,
+    };
+  }
+
+  function recordComparisonRunFromPreview(result, generationPath) {
+    if (!result) return;
+    var fmt = result.artifacts && result.artifacts.formattedRequestSummary;
+    var provider = result.provider || {};
+    var positive = (fmt && fmt.positivePrompt) || "";
+    var negative = (fmt && fmt.negativePrompt) || "";
+    var run =
+      result.comparisonRun && typeof result.comparisonRun === "object"
+        ? JSON.parse(JSON.stringify(result.comparisonRun))
+        : {
+            schemaVersion: 1,
+            comparisonSessionId: comparisonSessionId,
+            runId:
+              "cmp-run-" +
+              Date.now().toString(36) +
+              "-" +
+              Math.floor(Math.random() * 1e6).toString(36),
+            createdAt: new Date().toISOString(),
+            generationPath: generationPath,
+            deprecatedBaseline: generationPath === "legacy",
+            sourceImageFingerprint: null,
+            scenarioId: result.scenarioId,
+            bodySimulatorScenarioId: null,
+            conditions: {
+              provider: provider.providerFamily || null,
+              model: provider.model || null,
+              width: null,
+              height: null,
+              outputCount: 1,
+            },
+            versions: {
+              bodySimulatorRules:
+                generationPath === "legacy"
+                  ? null
+                  : (result.generationDiagnostics &&
+                      result.generationDiagnostics.bodySimulatorRules) ||
+                    null,
+              formatter: (fmt && fmt.formatterVersion) || null,
+              formatterSchema: null,
+              pipeline: "ai-os-image-preview/1.0",
+            },
+            prompt: {
+              positive: positive,
+              negative: negative,
+              totalCharacters: positive.length + negative.length,
+              totalWords: countPromptWords(positive) + countPromptWords(negative),
+            },
+            generation: {
+              outcome: result.success ? "succeeded" : "runtime_failed",
+              durationMs:
+                typeof provider.durationMs === "number"
+                  ? provider.durationMs
+                  : null,
+              httpStatus: result.success ? 200 : null,
+              providerPredictionId: provider.predictionId || null,
+            },
+            result: {
+              generatedImageAvailable: !!(
+                result.generatedImage && result.generatedImage.url
+              ),
+              generatedImageUrl:
+                (result.generatedImage && result.generatedImage.url) || null,
+            },
+            diagnostics: [],
+          };
+    run.comparisonSessionId = comparisonSessionId;
+    run.sourceImageFingerprint = sourceComparabilityKey();
+    run.generationPath = generationPath;
+    run.deprecatedBaseline = generationPath === "legacy";
+    if (generationPath === "legacy") {
+      run.versions.bodySimulatorRules = null;
+      run.bodySimulatorScenarioId = null;
+    }
+    if (
+      (!run.prompt || !run.prompt.positive) &&
+      fmt &&
+      fmt.positivePrompt
+    ) {
+      run.prompt = {
+        positive: fmt.positivePrompt,
+        negative: fmt.negativePrompt || "",
+        totalCharacters:
+          (fmt.positivePrompt || "").length +
+          (fmt.negativePrompt || "").length,
+        totalWords:
+          countPromptWords(fmt.positivePrompt || "") +
+          countPromptWords(fmt.negativePrompt || ""),
+      };
+    }
+    if (
+      !run.result.generatedImageUrl &&
+      result.generatedImage &&
+      result.generatedImage.url
+    ) {
+      run.result.generatedImageAvailable = true;
+      run.result.generatedImageUrl = result.generatedImage.url;
+    }
+    // Never keep source binary / data URI / keys in history.
+    delete run.sourceImageDataUri;
+    delete run.accessKey;
+    delete run.apiToken;
+    delete run.token;
+    pushComparisonHistoryRun(run);
+    if (generationPath === "legacy") {
+      selectedCompareLegacyRunId = run.runId;
+    } else {
+      selectedCompareBodySimRunId = run.runId;
+    }
+    renderComparisonHistory();
+    renderComparisonPair();
+  }
+
   function clearPreviewState() {
     previewInFlight = false;
     previewSourceDataUri = null;
     previewSourceMeta = null;
+    previewSourceFingerprint = null;
+    previewSourceSelectionId = null;
     if (previewObjectUrl) {
       try {
         URL.revokeObjectURL(previewObjectUrl);
@@ -2468,6 +3177,10 @@
     }
     var defaultVariant = document.getElementById("promptIsolationVariantB");
     if (defaultVariant) defaultVariant.checked = true;
+    var defaultPath = document.getElementById("generationPathBodySimulator");
+    if (defaultPath) defaultPath.checked = true;
+    updateGenerationPathLabel();
+    clearComparisonSessionState();
     clearPromptExperimentHistoryState();
     updatePreviewGenerateEnabled();
   }
@@ -4203,6 +4916,8 @@
       previewFileInput && previewFileInput.files && previewFileInput.files[0];
     previewSourceDataUri = null;
     previewSourceMeta = null;
+    previewSourceFingerprint = null;
+    previewSourceSelectionId = null;
     // Source removal/replacement clears adult + consent (not persisted).
     clearAdultAndConsentOnSourceRemoval();
     if (previewGeneratedImg) {
@@ -4237,7 +4952,10 @@
       return;
     }
     setMessage(previewMessage, "Preparing source image…", null);
-    compressSourceThroughCanvas(file)
+    fingerprintSourceFile(file)
+      .then(function () {
+        return compressSourceThroughCanvas(file);
+      })
       .then(function (prepared) {
         previewSourceDataUri = prepared.dataUri;
         previewSourceMeta = prepared;
@@ -4250,7 +4968,10 @@
             String(prepared.height) +
             " · ~" +
             String(Math.round(prepared.byteLength / 1024)) +
-            " KB (JPEG canvas, EXIF stripped)"
+            " KB (JPEG canvas, EXIF stripped)" +
+            (previewSourceFingerprint
+              ? " · fp " + previewSourceFingerprint.slice(0, 18) + "…"
+              : "")
         );
         setMessage(previewMessage, "Source image ready.", "ok");
         updatePreviewGenerateEnabled();
@@ -4498,6 +5219,9 @@
     var variant = fromIsolationLab
       ? getSelectedPromptIsolationVariant()
       : "current_ai_os";
+    var generationPath = fromIsolationLab
+      ? "body_simulator"
+      : getSelectedGenerationPath();
     previewInFlight = true;
     updatePreviewGenerateEnabled();
     runButton.disabled = true;
@@ -4506,7 +5230,9 @@
       messageEl,
       fromIsolationLab
         ? "Running one paid Prompt Isolation Lab diagnostic preview…"
-        : "Running AI OS v2 and generating one paid internal preview…",
+        : generationPath === "legacy"
+          ? "Running one paid Legacy baseline preview (deprecated, internal only)…"
+          : "Running one paid Body Simulator internal preview…",
       null
     );
     if (fromIsolationLab && promptIsolationResultSummary) {
@@ -4521,6 +5247,7 @@
       billingConfirmed: true,
       sourceImageDataUri: previewSourceDataUri,
       promptIsolationVariant: variant,
+      generationPath: generationPath,
     })
       .then(function (outcome) {
         var status = outcome.response.status;
@@ -4591,6 +5318,9 @@
         unauthorizedStreak = 0;
         if (previewCompare) previewCompare.hidden = false;
         renderPreviewResult(payload.result);
+        if (!fromIsolationLab) {
+          recordComparisonRunFromPreview(payload.result, generationPath);
+        }
         if (fromIsolationLab) {
           recordIsolationLabExperiment(payload, {
             variant: variant,
@@ -4601,7 +5331,11 @@
           messageEl,
           fromIsolationLab
             ? "Prompt Isolation Lab diagnostic complete."
-            : "Internal preview complete.",
+            : "Internal preview complete (" +
+                (generationPath === "legacy"
+                  ? "Legacy baseline"
+                  : "Body Simulator") +
+                ").",
           "ok"
         );
       })
@@ -4702,6 +5436,38 @@
       copySessionJson(sessionPipelineSnapshot, "Pipeline Snapshot JSON");
     });
   }
+  var generationPathRadios = document.querySelectorAll(
+    'input[name="generationPath"]'
+  );
+  for (var gpi = 0; gpi < generationPathRadios.length; gpi += 1) {
+    generationPathRadios[gpi].addEventListener("change", function () {
+      updateGenerationPathLabel();
+      // Path change never auto-generates.
+    });
+  }
+  if (generationCompareSelectLegacy) {
+    generationCompareSelectLegacy.addEventListener("change", function () {
+      selectedCompareLegacyRunId = generationCompareSelectLegacy.value || null;
+      renderComparisonPair();
+    });
+  }
+  if (generationCompareSelectBodySim) {
+    generationCompareSelectBodySim.addEventListener("change", function () {
+      selectedCompareBodySimRunId =
+        generationCompareSelectBodySim.value || null;
+      renderComparisonPair();
+    });
+  }
+  if (generationEvalApplyButton) {
+    generationEvalApplyButton.addEventListener("click", function () {
+      comparisonEvaluation = readEvalFromForm();
+      renderComparisonPair();
+    });
+  }
+  ensureEvalForm();
+  updateGenerationPathLabel();
+  renderComparisonHistory();
+  renderComparisonPair();
   renderPromptExperimentHistory();
   updatePreviewGenerateEnabled();
 })();

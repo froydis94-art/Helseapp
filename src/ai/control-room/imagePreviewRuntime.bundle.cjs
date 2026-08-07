@@ -284,6 +284,28 @@ function applyCanonicalBodyTransformation(renderPlan, canonical) {
   };
   return next;
 }
+function buildFormatterInputInspectionView(rules, canonical) {
+  return {
+    receivedCanonicalRules: {
+      simulationId: rules.simulationId,
+      rulesVersion: rules.rulesVersion,
+      goalType: rules.goal.effectiveType,
+      timelineWeeks: rules.goal.timelineWeeks,
+      intensity: rules.goal.intensity,
+      regionCount: rules.regions.length
+    },
+    generatedFormatterObject: {
+      source: canonical.source,
+      schemaVersion: canonical.schemaVersion,
+      visualIntensity: canonical.visualIntensity,
+      changeVisibility: canonical.changeVisibility,
+      approvedChangeIds: canonical.approvedChanges.map((c) => c.id),
+      approvedChangeCount: canonical.approvedChanges.length
+    },
+    preservationMetadata: structuredClone(rules.preservation),
+    summary: `Body Simulator ${rules.goal.effectiveType} / ${rules.goal.timelineWeeks}w / ${rules.goal.intensity} \u2192 ${canonical.approvedChanges.length} approved formatter changes (${canonical.changeVisibility} visibility).`
+  };
+}
 var CONTROL_ROOM_TO_BODY_SIMULATOR_SCENARIO = Object.freeze({
   balanced_recomposition_12w: "body_recomposition_16w",
   upper_body_definition_8w: "fat_loss_muscle_preservation",
@@ -7631,6 +7653,567 @@ function getControlRoomScenario(id) {
   return cloneScenario(record);
 }
 
+// src/ai/control-room/BodySimulatorComparison.ts
+var BODY_SIMULATOR_COMPARISON_SCHEMA_VERSION = 1;
+var GENERATION_PATH_LEGACY = "legacy";
+var GENERATION_PATH_BODY_SIMULATOR = "body_simulator";
+var GENERATION_PATHS = Object.freeze([
+  GENERATION_PATH_LEGACY,
+  GENERATION_PATH_BODY_SIMULATOR
+]);
+var DEFAULT_GENERATION_PATH = GENERATION_PATH_BODY_SIMULATOR;
+var MANUAL_EVAL_CATEGORIES = Object.freeze([
+  { id: "identityPreservation", label: "Identity preservation" },
+  { id: "bodyChangeRealism", label: "Body-change realism" },
+  {
+    id: "goalAlignment",
+    label: "Transformation matches intended goal"
+  },
+  { id: "naturalProportions", label: "Natural proportions" },
+  {
+    id: "presentationPreservation",
+    label: "Clothing/presentation preservation"
+  },
+  { id: "overallUsefulness", label: "Overall usefulness" }
+]);
+var PRESERVATION_KEYS = [
+  "identity",
+  "originalPresentation",
+  "pose",
+  "cameraFraming",
+  "clothing",
+  "clothingCoverage",
+  "background",
+  "lightingCharacter",
+  "ageAppearance",
+  "ethnicityAppearance",
+  "personalStyle",
+  "faceGeometry",
+  "skinTone",
+  "hairstyle",
+  "bodyHeight",
+  "handAndFootScale",
+  "skeletalProportions"
+];
+var CONFIDENCE_LEVELS = /* @__PURE__ */ new Set([
+  "high",
+  "medium",
+  "low",
+  "not_applicable",
+  "unknown"
+]);
+function resolveGenerationPath(raw) {
+  if (raw === void 0 || raw === null || raw === "") {
+    return DEFAULT_GENERATION_PATH;
+  }
+  if (typeof raw !== "string") return null;
+  if (raw === GENERATION_PATH_LEGACY) return GENERATION_PATH_LEGACY;
+  if (raw === GENERATION_PATH_BODY_SIMULATOR) {
+    return GENERATION_PATH_BODY_SIMULATOR;
+  }
+  return null;
+}
+function countWords(text) {
+  const trimmed = text.trim();
+  if (!trimmed) return 0;
+  return trimmed.split(/\s+/).filter(Boolean).length;
+}
+function verifyCanonicalBodySimulatorRules(rules) {
+  const errors = [];
+  if (rules == null || typeof rules !== "object") {
+    return { ok: false, errors: ["rules_missing"] };
+  }
+  const r = rules;
+  if (r.schemaVersion !== BODY_SIMULATOR_RULES_SCHEMA_VERSION) {
+    errors.push("unsupported_rules_schema");
+  }
+  if (typeof r.rulesVersion !== "string" || r.rulesVersion.trim() === "") {
+    errors.push("missing_rules_version");
+  }
+  if (typeof r.simulationId !== "string" || r.simulationId.trim() === "") {
+    errors.push("missing_simulation_id");
+  }
+  const goal = r.goal;
+  if (goal == null || typeof goal !== "object") {
+    errors.push("invalid_goal");
+  } else {
+    const g = goal;
+    if (typeof g.effectiveType !== "string" || !BODY_SIMULATION_GOAL_TYPES.includes(g.effectiveType)) {
+      errors.push("unsupported_goal");
+    }
+    if (typeof g.timelineWeeks !== "number" || !Number.isFinite(g.timelineWeeks) || g.timelineWeeks < BODY_SIMULATOR_TIMELINE_MIN_WEEKS || g.timelineWeeks > BODY_SIMULATOR_TIMELINE_MAX_WEEKS) {
+      errors.push("unsupported_timeline");
+    }
+    if (typeof g.intensity !== "string" || !BODY_SIMULATION_INTENSITIES.includes(g.intensity)) {
+      errors.push("invalid_intensity");
+    }
+  }
+  const preservation = r.preservation;
+  if (preservation == null || typeof preservation !== "object") {
+    errors.push("preservation_missing");
+  } else {
+    const p = preservation;
+    for (const key of PRESERVATION_KEYS) {
+      if (p[key] !== "preserve") {
+        errors.push(`preservation_${key}_invalid`);
+      }
+    }
+  }
+  if (!Array.isArray(r.regions) || r.regions.length === 0) {
+    errors.push("regions_invalid");
+  } else {
+    for (const region of r.regions) {
+      if (region == null || typeof region !== "object") {
+        errors.push("region_entry_invalid");
+        continue;
+      }
+      const reg = region;
+      if (typeof reg.region !== "string" || !BODY_SIMULATOR_REGIONS.includes(reg.region)) {
+        errors.push("region_id_invalid");
+      }
+      const mag = reg.visualMagnitude;
+      if (mag == null || typeof mag !== "object") {
+        errors.push("region_magnitude_invalid");
+      } else {
+        const m = mag;
+        for (const k of ["lower", "expected", "upper"]) {
+          if (typeof m[k] !== "number" || !Number.isFinite(m[k])) {
+            errors.push("region_magnitude_invalid");
+            break;
+          }
+        }
+      }
+      if (reg.preserveNaturalProportions !== true) {
+        errors.push("region_preservation_invalid");
+      }
+    }
+  }
+  const confidence = r.confidence;
+  if (confidence == null || typeof confidence !== "object") {
+    errors.push("confidence_invalid");
+  } else {
+    const c = confidence;
+    if (typeof c.overall !== "string" || !CONFIDENCE_LEVELS.has(c.overall)) {
+      errors.push("confidence_invalid");
+    }
+    if (!Array.isArray(c.reasons)) {
+      errors.push("confidence_reasons_invalid");
+    }
+  }
+  if (!Array.isArray(r.provenance)) {
+    errors.push("provenance_invalid");
+  }
+  const realism = r.realism;
+  if (realism == null || typeof realism !== "object") {
+    errors.push("realism_invalid");
+  } else {
+    const real = realism;
+    if (typeof real.requestedTargetModerated !== "boolean") {
+      errors.push("realism_moderation_invalid");
+    }
+    if (typeof real.unrealisticChangePrevented !== "boolean") {
+      errors.push("realism_moderation_invalid");
+    }
+    if (real.expectedVisualizationNotGuarantee !== true) {
+      errors.push("realism_guarantee_flag_invalid");
+    }
+    if (!Array.isArray(real.moderationReasons)) {
+      errors.push("realism_moderation_invalid");
+    }
+  }
+  const forbiddenKeys = ["provider", "model", "prompt", "negativePrompt"];
+  for (const key of forbiddenKeys) {
+    if (Object.prototype.hasOwnProperty.call(r, key)) {
+      errors.push(`forbidden_field_${key}`);
+    }
+  }
+  const serialized = safeJson(r);
+  if (/"provider"\s*:|"model"\s*:|"positivePrompt"\s*:|"replicate"/i.test(
+    serialized
+  )) {
+    errors.push("provider_or_prompt_embedded");
+  }
+  return { ok: errors.length === 0, errors };
+}
+function safeJson(value) {
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return "";
+  }
+}
+function createComparisonSessionId(nowMs = Date.now()) {
+  return `cmp-sess-${nowMs.toString(36)}`;
+}
+function createComparisonRunId(nowMs = Date.now()) {
+  const rand = Math.floor(Math.random() * 1e9).toString(36);
+  return `cmp-run-${nowMs.toString(36)}-${rand}`;
+}
+function buildComparisonRunFromPreview(options) {
+  const positive = options.positivePrompt ?? "";
+  const negative = options.negativePrompt ?? "";
+  return {
+    schemaVersion: BODY_SIMULATOR_COMPARISON_SCHEMA_VERSION,
+    comparisonSessionId: options.comparisonSessionId,
+    runId: options.runId ?? createComparisonRunId(),
+    createdAt: options.createdAt ?? (/* @__PURE__ */ new Date()).toISOString(),
+    generationPath: options.generationPath,
+    deprecatedBaseline: options.generationPath === GENERATION_PATH_LEGACY,
+    sourceImageFingerprint: options.sourceImageFingerprint,
+    scenarioId: options.scenarioId,
+    bodySimulatorScenarioId: options.generationPath === GENERATION_PATH_LEGACY ? null : options.bodySimulatorScenarioId,
+    conditions: {
+      provider: options.provider,
+      model: options.model,
+      width: options.width ?? null,
+      height: options.height ?? null,
+      outputCount: options.outputCount ?? 1
+    },
+    versions: {
+      bodySimulatorRules: options.generationPath === GENERATION_PATH_LEGACY ? null : options.bodySimulatorRulesVersion,
+      formatter: options.formatterVersion,
+      formatterSchema: options.formatterSchema,
+      pipeline: options.pipelineVersion ?? "ai-os-image-preview/1.0"
+    },
+    prompt: {
+      positive,
+      negative,
+      totalCharacters: positive.length + negative.length,
+      totalWords: countWords(positive) + countWords(negative)
+    },
+    generation: {
+      outcome: options.outcome,
+      durationMs: options.durationMs,
+      httpStatus: options.httpStatus,
+      providerPredictionId: options.providerPredictionId
+    },
+    result: {
+      generatedImageAvailable: options.generatedImageUrl != null,
+      generatedImageUrl: options.generatedImageUrl
+    },
+    diagnostics: [...options.diagnostics ?? []]
+  };
+}
+
+// src/ai/control-room/FormatterComparisonDiagnostics.ts
+var FORMATTER_COMPARISON_SCHEMA_VERSION = 1;
+var GENERATION_DIAGNOSTICS_SCHEMA_VERSION = 1;
+var PIPELINE_SNAPSHOT_SCHEMA_VERSION = 1;
+var LEGACY_FORMATTER_PATH_ID = "legacy_formatter";
+var BODY_SIMULATOR_FORMATTER_PATH_ID = "body_simulator_formatter";
+var TOKEN_ESTIMATE_CHARS_PER_TOKEN = 4;
+var PREVIEW_CHARS = 180;
+function truncatePreview(text) {
+  if (text.length <= PREVIEW_CHARS) return text;
+  return `${text.slice(0, PREVIEW_CHARS)}\u2026`;
+}
+function preservationKeysFromRenderPlan(plan) {
+  const keys = [];
+  for (const [k, v] of Object.entries(plan.identity)) {
+    keys.push(`identity.${k}=${String(v)}`);
+  }
+  for (const [k, v] of Object.entries(plan.scene)) {
+    keys.push(`scene.${k}=${String(v)}`);
+  }
+  return keys.sort();
+}
+function buildPathSide(options) {
+  const positive = options.formatted.prompt ?? "";
+  const negative = options.formatted.negativePrompt ?? "";
+  const ids = options.renderPlan.transformation.approvedChanges.map((c) => c.id);
+  return {
+    pathId: options.pathId,
+    deprecated: options.deprecated,
+    productionEligible: false,
+    neverProduction: options.neverProduction,
+    promptSummary: {
+      positiveLength: positive.length,
+      negativeLength: negative.length,
+      totalLength: positive.length + negative.length,
+      positivePreview: truncatePreview(positive),
+      approvedChangeIds: [...ids]
+    },
+    formatterSummary: {
+      formatterName: options.formatted.metadata.formatterName,
+      formatterVersion: options.formatted.metadata.formatterVersion,
+      visualIntensity: options.renderPlan.transformation.visualIntensity,
+      changeVisibility: options.renderPlan.transformation.changeVisibility,
+      approvedChangeCount: ids.length,
+      approvedChangeIds: [...ids],
+      preservationKeys: preservationKeysFromRenderPlan(options.renderPlan)
+    }
+  };
+}
+function runLegacyFormatterComparisonPath(options) {
+  const engine = new TransformationEngine();
+  const plan = engine.compute(options.profile, options.goal);
+  const direction = directVisual(options.profile, options.goal, plan);
+  const renderPlan = buildRenderPlan(plan, direction);
+  const formatter = new FluxFormatter();
+  const formatted = formatter.format(renderPlan, options.formatterOptions);
+  return {
+    renderPlan,
+    formatted,
+    providerCalls: 0
+  };
+}
+function runBodySimulatorFormatterComparisonPath(options) {
+  const canonical = adaptBodySimulatorRulesToFormatterInput(options.rules);
+  const engine = new TransformationEngine();
+  const plan = engine.compute(options.profile, options.goal);
+  const direction = directVisual(options.profile, options.goal, plan);
+  const base = buildRenderPlan(plan, direction);
+  const renderPlan = applyCanonicalBodyTransformation(base, canonical);
+  const formatter = new FluxFormatter();
+  const formatted = formatter.format(renderPlan, options.formatterOptions);
+  return {
+    renderPlan,
+    formatted,
+    canonicalApprovedChangeIds: canonical.approvedChanges.map((c) => c.id),
+    providerCalls: 0
+  };
+}
+function flattenTransformationFieldMap(plan) {
+  const map = /* @__PURE__ */ new Map();
+  map.set(
+    "transformation.visualIntensity",
+    String(plan.transformation.visualIntensity)
+  );
+  map.set(
+    "transformation.changeVisibility",
+    String(plan.transformation.changeVisibility)
+  );
+  for (const change of plan.transformation.approvedChanges) {
+    map.set(
+      `transformation.approvedChanges.${change.id}`,
+      `${change.kind}|${change.direction}|${change.visibility}|${change.description}`
+    );
+  }
+  return map;
+}
+function flattenPreservationFieldMap(plan) {
+  const map = /* @__PURE__ */ new Map();
+  for (const [k, v] of Object.entries(plan.identity)) {
+    map.set(`identity.${k}`, String(v));
+  }
+  for (const [k, v] of Object.entries(plan.scene)) {
+    map.set(`scene.${k}`, String(v));
+  }
+  map.set(
+    "anatomy.preserveSkeletalFrame",
+    String(plan.anatomy.preserveSkeletalFrame)
+  );
+  return map;
+}
+function diffFieldMaps(legacy, bodySim) {
+  const added = [];
+  const removed = [];
+  const changed = [];
+  for (const key of bodySim.keys()) {
+    if (!legacy.has(key)) {
+      added.push(key);
+    } else if (legacy.get(key) !== bodySim.get(key)) {
+      changed.push(key);
+    }
+  }
+  for (const key of legacy.keys()) {
+    if (!bodySim.has(key)) {
+      removed.push(key);
+    }
+  }
+  added.sort();
+  removed.sort();
+  changed.sort();
+  return { added, removed, changed };
+}
+function estimateTokensFromPromptLength(promptLength) {
+  if (typeof promptLength !== "number" || !Number.isFinite(promptLength)) {
+    return {
+      value: null,
+      labeling: "estimate",
+      note: "Prompt length unavailable; token estimate not computed."
+    };
+  }
+  return {
+    value: Math.ceil(promptLength / TOKEN_ESTIMATE_CHARS_PER_TOKEN),
+    labeling: "estimate",
+    note: `Heuristic chars/${TOKEN_ESTIMATE_CHARS_PER_TOKEN}; not a provider billing API.`
+  };
+}
+function estimateProviderCostPlaceholder() {
+  return {
+    value: null,
+    labeling: "estimate",
+    note: "No billing API wired; provider cost left unset (estimate placeholder)."
+  };
+}
+function buildFormatterComparison(options) {
+  const legacyPath = buildPathSide({
+    pathId: LEGACY_FORMATTER_PATH_ID,
+    deprecated: true,
+    neverProduction: true,
+    renderPlan: options.legacyRenderPlan,
+    formatted: options.legacyFormatted
+  });
+  const bodySimulatorPath = buildPathSide({
+    pathId: BODY_SIMULATOR_FORMATTER_PATH_ID,
+    deprecated: false,
+    neverProduction: false,
+    renderPlan: options.bodySimulatorRenderPlan,
+    formatted: options.bodySimulatorFormatted
+  });
+  bodySimulatorPath.neverProduction = true;
+  const transformDiff = diffFieldMaps(
+    flattenTransformationFieldMap(options.legacyRenderPlan),
+    flattenTransformationFieldMap(options.bodySimulatorRenderPlan)
+  );
+  const preservationDiff = diffFieldMaps(
+    flattenPreservationFieldMap(options.legacyRenderPlan),
+    flattenPreservationFieldMap(options.bodySimulatorRenderPlan)
+  );
+  const promptLengthDelta = bodySimulatorPath.promptSummary.totalLength - legacyPath.promptSummary.totalLength;
+  const summaryDifferences = [];
+  if (legacyPath.formatterSummary.approvedChangeCount !== bodySimulatorPath.formatterSummary.approvedChangeCount) {
+    summaryDifferences.push(
+      `approvedChangeCount: legacy=${legacyPath.formatterSummary.approvedChangeCount} bodySimulator=${bodySimulatorPath.formatterSummary.approvedChangeCount}`
+    );
+  }
+  if (legacyPath.formatterSummary.visualIntensity !== bodySimulatorPath.formatterSummary.visualIntensity) {
+    summaryDifferences.push(
+      `visualIntensity: legacy=${legacyPath.formatterSummary.visualIntensity} bodySimulator=${bodySimulatorPath.formatterSummary.visualIntensity}`
+    );
+  }
+  if (legacyPath.formatterSummary.changeVisibility !== bodySimulatorPath.formatterSummary.changeVisibility) {
+    summaryDifferences.push(
+      `changeVisibility: legacy=${legacyPath.formatterSummary.changeVisibility} bodySimulator=${bodySimulatorPath.formatterSummary.changeVisibility}`
+    );
+  }
+  if (promptLengthDelta !== 0) {
+    summaryDifferences.push(`promptLengthDelta=${promptLengthDelta}`);
+  }
+  if (transformDiff.added.length > 0) {
+    summaryDifferences.push(
+      `addedTransformationFields=${transformDiff.added.length}`
+    );
+  }
+  if (transformDiff.removed.length > 0) {
+    summaryDifferences.push(
+      `removedTransformationFields=${transformDiff.removed.length}`
+    );
+  }
+  return {
+    schemaVersion: FORMATTER_COMPARISON_SCHEMA_VERSION,
+    purpose: "internal_comparison_only",
+    lifetime: "session_only",
+    persisted: false,
+    legacyPath,
+    bodySimulatorPath,
+    addedFields: transformDiff.added,
+    removedFields: transformDiff.removed,
+    changedTransformationFields: transformDiff.changed,
+    changedPreservationFields: preservationDiff.changed,
+    promptLengthDelta,
+    summaryDifferences,
+    providerCallsFromComparison: 0
+  };
+}
+function buildGenerationDiagnostics(options) {
+  const rules = options.rules ?? null;
+  const promptLength = typeof options.promptLength === "number" ? options.promptLength : null;
+  const dry = options.providerClassification === "dry_run_no_provider" || options.providerClassification === "comparison_only" || options.providerClassification === "not_run";
+  const generationPath = options.generationPath ?? null;
+  const deprecatedBaseline = options.deprecatedBaseline === true || generationPath === "legacy";
+  const bodySimulatorRules = deprecatedBaseline || rules == null ? null : rules.rulesVersion ?? null;
+  return {
+    schemaVersion: GENERATION_DIAGNOSTICS_SCHEMA_VERSION,
+    lifetime: "session_only",
+    persisted: false,
+    generationPath,
+    bodySimulatorRules,
+    deprecatedBaseline,
+    bodySimulatorVersion: bodySimulatorRules ?? (deprecatedBaseline ? "legacy_baseline_no_body_simulator_rules" : BODY_SIMULATOR_RULES_VERSION),
+    formatterVersion: options.formatterVersion ?? FLUX_FORMATTER_VERSION,
+    formatterSchema: `FormattedImageRequest@flux/${FLUX_FORMATTER_VERSION}`,
+    ruleSchema: deprecatedBaseline ? "legacy_transformation_engine@deprecated" : `BodySimulatorTransformationRules@${BODY_SIMULATOR_RULES_SCHEMA_VERSION}`,
+    scenario: options.scenarioId,
+    timeline: rules?.goal.timelineWeeks ?? null,
+    intensity: rules?.goal.intensity ?? null,
+    promptLength,
+    estimatedTokens: estimateTokensFromPromptLength(promptLength),
+    estimatedProviderCost: estimateProviderCostPlaceholder(),
+    generationDurationMs: dry ? null : options.generationDurationMs ?? null,
+    provider: dry ? null : options.provider ?? null,
+    model: dry ? null : options.model ?? null,
+    httpStatus: dry ? "not_run" : options.httpStatus ?? null,
+    retryCount: dry ? "not_run" : options.retryCount ?? 0,
+    warnings: [...options.warnings ?? []],
+    limitations: [
+      ...options.limitations ?? [],
+      ...rules?.limitations ?? [],
+      ...deprecatedBaseline ? ["Deprecated legacy baseline \u2014 internal comparison only; never production."] : []
+    ],
+    providerClassification: options.providerClassification,
+    timestamp: options.timestamp ?? (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+function buildPipelineSnapshot(options) {
+  const rules = options.rules ?? null;
+  const formatted = options.formatted ?? null;
+  const renderPlan = options.bodySimulatorRenderPlan ?? null;
+  const generationPath = options.generationPath ?? null;
+  let formatterInput = options.formatterInput ?? null;
+  if (formatterInput == null && rules != null) {
+    const canonical = adaptBodySimulatorRulesToFormatterInput(rules);
+    formatterInput = buildFormatterInputInspectionView(rules, canonical);
+  }
+  const positive = formatted?.prompt ?? "";
+  const negative = formatted?.negativePrompt ?? "";
+  return {
+    schemaVersion: PIPELINE_SNAPSHOT_SCHEMA_VERSION,
+    lifetime: "session_only",
+    persisted: false,
+    downloadAvailable: false,
+    transformationRules: rules == null ? null : {
+      schemaVersion: rules.schemaVersion,
+      rulesVersion: rules.rulesVersion,
+      simulationId: rules.simulationId,
+      goal: structuredClone(rules.goal),
+      wholeBodyChange: structuredClone(rules.wholeBodyChange),
+      regions: structuredClone(rules.regions),
+      preservation: structuredClone(rules.preservation),
+      realism: structuredClone(rules.realism),
+      confidence: structuredClone(rules.confidence),
+      provenance: structuredClone(rules.provenance),
+      limitations: [...rules.limitations ?? []],
+      canonicalAdapterSchemaVersion: CANONICAL_BODY_TRANSFORMATION_SCHEMA_VERSION
+    },
+    formatterInput: formatterInput == null ? null : structuredClone(formatterInput),
+    formatterOutput: formatted == null ? null : {
+      formatterName: formatted.metadata.formatterName ?? null,
+      formatterVersion: formatted.metadata.formatterVersion ?? null,
+      providerFamily: formatted.providerFamily ?? null,
+      approvedChangeIds: renderPlan?.transformation.approvedChanges.map((c) => c.id) ?? [],
+      visualIntensity: renderPlan?.transformation.visualIntensity ?? null,
+      changeVisibility: renderPlan?.transformation.changeVisibility ?? null
+    },
+    prompt: formatted == null ? null : {
+      positivePrompt: positive,
+      negativePrompt: negative,
+      totalLength: positive.length + negative.length
+    },
+    generationDiagnostics: options.generationDiagnostics == null ? null : structuredClone(options.generationDiagnostics),
+    previewMetadata: {
+      mode: options.mode,
+      scenarioId: options.scenarioId,
+      bodySimulatorScenarioId: options.bodySimulatorScenarioId ?? null,
+      formatterComparisonPresent: options.formatterComparisonPresent,
+      legacyPathSentToProvider: generationPath === "legacy",
+      bodySimulatorPathSentToProvider: generationPath === "body_simulator",
+      generationPath
+    }
+  };
+}
+
 // src/ai/control-room/PromptIsolationVariants.ts
 var PROMPT_ISOLATION_VARIANTS = [
   "minimal",
@@ -7960,6 +8543,12 @@ function projectImagePreviewResult(input) {
     safety: { ...IMAGE_PREVIEW_SAFETY_STATUS },
     inputAssurances: assurancesOk ? { ...IMAGE_PREVIEW_INPUT_ASSURANCES } : { ...input.inputAssurances },
     promptIsolation: structuredClone(input.promptIsolation),
+    formatterComparison: input.formatterComparison == null ? null : structuredClone(input.formatterComparison),
+    generationDiagnostics: input.generationDiagnostics == null ? null : structuredClone(input.generationDiagnostics),
+    pipelineSnapshot: input.pipelineSnapshot == null ? null : structuredClone(input.pipelineSnapshot),
+    generationPath: input.generationPath ?? DEFAULT_GENERATION_PATH,
+    deprecatedBaseline: input.deprecatedBaseline === true || input.generationPath === "legacy",
+    comparisonRun: input.comparisonRun == null ? null : structuredClone(input.comparisonRun),
     warnings,
     errors: [...runtimeResult.errors].slice(0, 20)
   };
@@ -8076,6 +8665,12 @@ function sanitizeImagePreviewProjection(result) {
     safety: { ...IMAGE_PREVIEW_SAFETY_STATUS },
     inputAssurances: { ...IMAGE_PREVIEW_INPUT_ASSURANCES },
     promptIsolation: fallbackIsolation,
+    formatterComparison: null,
+    generationDiagnostics: null,
+    pipelineSnapshot: null,
+    generationPath: clone.generationPath ?? DEFAULT_GENERATION_PATH,
+    deprecatedBaseline: clone.deprecatedBaseline === true,
+    comparisonRun: null,
     warnings: [],
     errors: [IMAGE_PREVIEW_FORBIDDEN_CONTENT_ERROR]
   };
@@ -8390,32 +8985,52 @@ var ImagePreviewService = class {
         "Invalid prompt isolation variant."
       );
     }
+    const generationPath = resolveGenerationPath(input.generationPath);
+    if (generationPath == null) {
+      throw new ImagePreviewServiceError(
+        "invalid_request",
+        "Invalid generation path."
+      );
+    }
+    const deprecatedBaseline = generationPath === "legacy";
     const bodySimScenarioId = resolveBodySimulatorScenarioForPreview(
       scenarioId,
       typeof input.bodySimulatorScenarioId === "string" ? input.bodySimulatorScenarioId : null
     );
-    let bodySimPhase;
-    try {
-      bodySimPhase = runBodySimulatorShadowPhase({
-        enabled: true,
-        scenarioId: bodySimScenarioId
-      });
-    } catch {
-      throw new ImagePreviewServiceError(
-        "body_simulator_failed",
-        "Body Simulator preview phase failed."
+    let bodySimRules = null;
+    let canonicalBodyTransformation;
+    if (generationPath === "body_simulator") {
+      let bodySimPhase;
+      try {
+        bodySimPhase = runBodySimulatorShadowPhase({
+          enabled: true,
+          scenarioId: bodySimScenarioId
+        });
+      } catch {
+        throw new ImagePreviewServiceError(
+          "body_simulator_failed",
+          "Body Simulator preview phase failed."
+        );
+      }
+      const bodySimView = bodySimPhase.view;
+      if (bodySimView.rules == null || bodySimView.status !== "succeeded" && bodySimView.status !== "ready_with_limitations") {
+        throw new ImagePreviewServiceError(
+          "body_simulator_failed",
+          "Body Simulator did not produce transformation rules for preview."
+        );
+      }
+      const verification = verifyCanonicalBodySimulatorRules(bodySimView.rules);
+      if (!verification.ok) {
+        throw new ImagePreviewServiceError(
+          "body_simulator_rule_verification_failed",
+          "Body Simulator canonical rule verification failed."
+        );
+      }
+      bodySimRules = bodySimView.rules;
+      canonicalBodyTransformation = adaptBodySimulatorRulesToFormatterInput(
+        bodySimView.rules
       );
     }
-    const bodySimView = bodySimPhase.view;
-    if (bodySimView.rules == null || bodySimView.status !== "succeeded" && bodySimView.status !== "ready_with_limitations") {
-      throw new ImagePreviewServiceError(
-        "body_simulator_failed",
-        "Body Simulator did not produce transformation rules for preview."
-      );
-    }
-    const canonicalBodyTransformation = adaptBodySimulatorRulesToFormatterInput(
-      bodySimView.rules
-    );
     const source = validatePreviewSourceImage(input.sourceImageDataUri);
     const env = this.deps.env ?? process.env;
     const model = resolvePreviewModel(env);
@@ -8457,7 +9072,7 @@ var ImagePreviewService = class {
       profile: resolved.runtimeInput.profile,
       goal: resolved.runtimeInput.goal,
       formatterOptions,
-      canonicalBodyTransformation,
+      ...canonicalBodyTransformation != null ? { canonicalBodyTransformation } : {},
       sourceImage: {
         kind: "data_uri",
         value: source.dataUri,
@@ -8539,6 +9154,92 @@ var ImagePreviewService = class {
       requestId,
       seed
     });
+    const legacyCompare = runLegacyFormatterComparisonPath({
+      profile: resolved.runtimeInput.profile,
+      goal: resolved.runtimeInput.goal,
+      formatterOptions
+    });
+    let formatterComparison = null;
+    let bodySimCompareRenderPlan = runtimeResult.artifacts.renderPlan ?? null;
+    if (bodySimRules != null) {
+      const bodySimCompare = runBodySimulatorFormatterComparisonPath({
+        rules: bodySimRules,
+        profile: resolved.runtimeInput.profile,
+        goal: resolved.runtimeInput.goal,
+        formatterOptions
+      });
+      bodySimCompareRenderPlan = bodySimCompare.renderPlan;
+      formatterComparison = buildFormatterComparison({
+        legacyRenderPlan: legacyCompare.renderPlan,
+        legacyFormatted: legacyCompare.formatted,
+        bodySimulatorRenderPlan: bodySimCompare.renderPlan,
+        bodySimulatorFormatted: bodySimCompare.formatted
+      });
+    }
+    const positiveLen = formatted?.prompt?.length ?? 0;
+    const negativeLen = formatted?.negativePrompt?.length ?? 0;
+    const generationDiagnostics = buildGenerationDiagnostics({
+      scenarioId: resolved.summary.id,
+      rules: bodySimRules,
+      formatterName: formatted?.metadata?.formatterName ?? null,
+      formatterVersion: formatted?.metadata?.formatterVersion ?? null,
+      promptLength: positiveLen + negativeLen,
+      warnings: [
+        ...bodySimRules?.warnings ?? [],
+        ...formatterComparison?.summaryDifferences ?? [],
+        ...deprecatedBaseline ? [
+          "022C: Deprecated legacy baseline was sent to the provider (internal comparison only)."
+        ] : [
+          "022C: Body Simulator path was sent to the provider; legacy formatter comparison (if present) ran in-memory only."
+        ]
+      ],
+      limitations: [...bodySimRules?.limitations ?? []],
+      providerClassification: "internal_preview",
+      generationDurationMs: typeof transport.generationTimeMs === "number" ? transport.generationTimeMs : null,
+      provider: transport.provider ?? "replicate",
+      model: transport.model ?? model,
+      httpStatus: transport.success ? 200 : null,
+      retryCount: 0,
+      generationPath,
+      deprecatedBaseline
+    });
+    const pipelineSnapshot = buildPipelineSnapshot({
+      mode: "transport_mock",
+      scenarioId: resolved.summary.id,
+      bodySimulatorScenarioId: generationPath === "body_simulator" ? bodySimScenarioId : null,
+      rules: bodySimRules,
+      bodySimulatorRenderPlan: bodySimCompareRenderPlan,
+      formatted: formatted ?? null,
+      generationDiagnostics,
+      formatterComparisonPresent: formatterComparison != null,
+      generationPath
+    });
+    const comparisonRun = buildComparisonRunFromPreview({
+      comparisonSessionId: createComparisonSessionId(now()),
+      generationPath,
+      sourceImageFingerprint: null,
+      scenarioId: resolved.summary.id,
+      bodySimulatorScenarioId: generationPath === "body_simulator" ? bodySimScenarioId : null,
+      provider: transport.provider ?? "replicate",
+      model: transport.model ?? model,
+      width: null,
+      height: null,
+      outputCount: 1,
+      bodySimulatorRulesVersion: bodySimRules?.rulesVersion ?? null,
+      formatterVersion: formatted?.metadata?.formatterVersion ?? null,
+      formatterSchema: `FormattedImageRequest@flux/${formatted?.metadata?.formatterVersion ?? "1.0"}`,
+      positivePrompt: formatted?.prompt ?? "",
+      negativePrompt: formatted?.negativePrompt ?? "",
+      outcome: "succeeded",
+      durationMs: typeof transport.generationTimeMs === "number" ? transport.generationTimeMs : null,
+      httpStatus: 200,
+      providerPredictionId: transport.predictionId ?? null,
+      generatedImageUrl: null,
+      diagnostics: [
+        deprecatedBaseline ? "deprecatedBaseline=true" : "generationPath=body_simulator",
+        "providerCalls=1"
+      ]
+    });
     let projected;
     try {
       projected = projectImagePreviewResult({
@@ -8551,10 +9252,17 @@ var ImagePreviewService = class {
         model,
         inputAssurances: { ...IMAGE_PREVIEW_INPUT_ASSURANCES },
         promptIsolation,
+        formatterComparison,
+        generationDiagnostics,
+        pipelineSnapshot,
+        generationPath,
+        deprecatedBaseline,
+        comparisonRun,
         extraWarnings: [
           "Preview laboratory: ResultValidator used provisional evidence; real vision analysis is deferred to Demand 018.",
           "No automatic retry was performed.",
-          "Prompt Isolation Lab: only prompt construction differs across variants; provider, model, and transport stay fixed."
+          "Prompt Isolation Lab: only prompt construction differs across variants; provider, model, and transport stay fixed.",
+          deprecatedBaseline ? "022C: Legacy generation path (deprecated baseline) \u2014 one provider request; never production." : "022C: Body Simulator generation path \u2014 one provider request; legacy comparison (if any) stayed in-memory."
         ]
       });
     } catch (error) {

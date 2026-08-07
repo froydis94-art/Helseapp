@@ -32,6 +32,11 @@ import type {
   GenerationDiagnostics,
   PipelineSnapshot,
 } from "./FormatterComparisonDiagnostics";
+import type {
+  BodySimulatorComparisonRun,
+  GenerationPath,
+} from "./BodySimulatorComparison";
+import { DEFAULT_GENERATION_PATH } from "./BodySimulatorComparison";
 
 const STAGE_LABELS: Record<string, string> = {
   input_validation: "Input validation",
@@ -221,6 +226,9 @@ export interface ImagePreviewProjectionInput {
   formatterComparison?: FormatterComparison | null;
   generationDiagnostics?: GenerationDiagnostics | null;
   pipelineSnapshot?: PipelineSnapshot | null;
+  generationPath?: GenerationPath;
+  deprecatedBaseline?: boolean;
+  comparisonRun?: BodySimulatorComparisonRun | null;
 }
 
 /**
@@ -328,6 +336,14 @@ export function projectImagePreviewResult(
       input.pipelineSnapshot == null
         ? null
         : structuredClone(input.pipelineSnapshot),
+    generationPath: input.generationPath ?? DEFAULT_GENERATION_PATH,
+    deprecatedBaseline:
+      input.deprecatedBaseline === true ||
+      input.generationPath === "legacy",
+    comparisonRun:
+      input.comparisonRun == null
+        ? null
+        : structuredClone(input.comparisonRun),
     warnings,
     errors: [...runtimeResult.errors].slice(0, 20),
   };
@@ -502,6 +518,9 @@ export function sanitizeImagePreviewProjection(
     formatterComparison: null,
     generationDiagnostics: null,
     pipelineSnapshot: null,
+    generationPath: clone.generationPath ?? DEFAULT_GENERATION_PATH,
+    deprecatedBaseline: clone.deprecatedBaseline === true,
+    comparisonRun: null,
     warnings: [],
     errors: [IMAGE_PREVIEW_FORBIDDEN_CONTENT_ERROR],
   };

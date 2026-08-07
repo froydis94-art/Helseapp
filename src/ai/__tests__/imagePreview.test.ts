@@ -778,6 +778,9 @@ describe("imagePreview — DEMAND_017", () => {
                   formatterComparison: null,
                   generationDiagnostics: null,
                   pipelineSnapshot: null,
+                  generationPath: "body_simulator",
+                  deprecatedBaseline: false,
+                  comparisonRun: null,
                   warnings: [],
                   errors: [],
                 } satisfies ImagePreviewResult;
@@ -1231,6 +1234,9 @@ describe("imagePreview — DEMAND_017", () => {
         formatterComparison: null,
         generationDiagnostics: null,
         pipelineSnapshot: null,
+        generationPath: "body_simulator",
+        deprecatedBaseline: false,
+        comparisonRun: null,
         warnings: [],
         errors: [],
       };

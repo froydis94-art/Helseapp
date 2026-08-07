@@ -11,6 +11,10 @@ import type {
   GenerationDiagnostics,
   PipelineSnapshot,
 } from "./FormatterComparisonDiagnostics";
+import type {
+  BodySimulatorComparisonRun,
+  GenerationPath,
+} from "./BodySimulatorComparison";
 
 export type {
   PromptIsolationVariant,
@@ -142,8 +146,9 @@ export interface ImagePreviewResult {
   promptIsolation: PromptIsolationSummary;
 
   /**
-   * Demand 022B-A — Legacy vs Body Simulator formatter comparison (prep only).
-   * Legacy path is never sent to the provider.
+   * Demand 022B-A / 022C — Legacy vs Body Simulator formatter comparison.
+   * Prep comparison may still run in-memory; provider receives only the
+   * explicitly selected generationPath (at most one call).
    */
   formatterComparison: FormatterComparison | null;
 
@@ -152,6 +157,21 @@ export interface ImagePreviewResult {
 
   /** Demand 022B-A — Session-only pipeline snapshot (not persisted). */
   pipelineSnapshot: PipelineSnapshot | null;
+
+  /**
+   * Demand 022C — which transformation path was bound to the single provider call.
+   * Explicit allowlisted value; never auto-selected by availability.
+   */
+  generationPath: GenerationPath;
+
+  /** Demand 022C — true when generationPath is the deprecated legacy baseline. */
+  deprecatedBaseline: boolean;
+
+  /**
+   * Demand 022C — session comparison record projection (no source binary / tokens).
+   * Browser may enrich with source fingerprint after response.
+   */
+  comparisonRun: BodySimulatorComparisonRun | null;
 
   warnings: string[];
   errors: string[];
@@ -181,7 +201,8 @@ export interface ImagePreviewApiFailure {
     | "runtime_failure"
     | "provider_failure"
     | "validation_rejected"
-    | "unsafe_result";
+    | "unsafe_result"
+    | "body_simulator_rule_verification_failed";
   message: string;
   /** Allowlisted safe diagnostic category — never a raw provider payload. */
   diagnostic?:
@@ -200,7 +221,8 @@ export interface ImagePreviewApiFailure {
     | "token_missing"
     | "validation_failed"
     | "projection_failed"
-    | "body_simulator_failed";
+    | "body_simulator_failed"
+    | "body_simulator_rule_verification_failed";
   /** Selected Prompt Isolation Lab variant when relevant (never secrets). */
   promptIsolation?: Pick<PromptIsolationSummary, "variant" | "radioLabel" | "promptSource">;
 }

@@ -192,6 +192,115 @@
           >
         </label>
 
+        <article class="subpanel" id="generationComparisonLab">
+          <h3>Generation Comparison</h3>
+          <p class="panel-copy">
+            Internal manual A/B only. Choose Legacy (deprecated baseline) or Body
+            Simulator (default), then click Generate once. Same source image,
+            scenario, provider, model, dimensions, and output count — only the
+            transformation source differs. No Run Both. No automatic pair
+            generation. Session memory only.
+          </p>
+          <fieldset class="field" id="generationPathField">
+            <legend>Generation path</legend>
+            <label class="checkbox-field">
+              <input
+                type="radio"
+                name="generationPath"
+                value="legacy"
+                id="generationPathLegacy"
+              />
+              <span
+                >A — Legacy (deprecated baseline; internal comparison only; never
+                production)</span
+              >
+            </label>
+            <label class="checkbox-field">
+              <input
+                type="radio"
+                name="generationPath"
+                value="body_simulator"
+                id="generationPathBodySimulator"
+                checked
+              />
+              <span>B — Body Simulator (default)</span>
+            </label>
+          </fieldset>
+          <p id="generationPathCurrent" class="scenario-meta" role="status">
+            Current path: Body Simulator
+          </p>
+          <p class="panel-copy warn-copy">
+            Each click creates at most one paid AI provider request for the
+            selected path.
+          </p>
+
+          <h4>Comparison history (session)</h4>
+          <div id="generationComparisonHistory" class="kv-grid"></div>
+          <p id="generationComparisonHistoryEmpty" class="scenario-meta">
+            No comparison runs yet in this session.
+          </p>
+
+          <h4>Pair selection</h4>
+          <label class="field">
+            <span>Select Legacy A</span>
+            <select id="generationCompareSelectLegacy"></select>
+          </label>
+          <label class="field">
+            <span>Select Body Simulator B</span>
+            <select id="generationCompareSelectBodySim"></select>
+          </label>
+          <div id="generationCompareConditions" class="kv-grid"></div>
+          <p id="generationCompareWarnings" class="panel-copy" role="status"></p>
+
+          <h4>Side-by-side result</h4>
+          <div class="preview-compare" id="generationCompareSideBySide" hidden>
+            <div class="preview-frame">
+              <div class="preview-frame-label">Legacy result</div>
+              <img id="generationCompareImgLegacy" alt="Legacy result" hidden />
+              <p id="generationCompareMetaLegacy" class="scenario-meta"></p>
+            </div>
+            <div class="preview-frame">
+              <div class="preview-frame-label">Body Simulator result</div>
+              <img
+                id="generationCompareImgBodySim"
+                alt="Body Simulator result"
+                hidden
+              />
+              <p id="generationCompareMetaBodySim" class="scenario-meta"></p>
+            </div>
+          </div>
+          <div id="generationCompareDiffSummary" class="kv-grid"></div>
+
+          <h4>Manual evaluation</h4>
+          <p class="panel-copy">
+            Rate simulator quality — not the person’s body. Scale 1–5 or Not
+            assessable. Session only; not sent to provider or external tracking.
+          </p>
+          <div id="generationEvalForm"></div>
+          <label class="field">
+            <span>Internal evaluation note (optional)</span>
+            <input
+              id="generationEvalNote"
+              type="text"
+              maxlength="500"
+            />
+          </label>
+          <button type="button" id="generationEvalApplyButton" class="btn">
+            Apply evaluation to pair
+          </button>
+          <div id="generationEvalSummary" class="kv-grid"></div>
+
+          <h4>Calibration observation preview</h4>
+          <p class="panel-copy">
+            Current-session contract only. Not persisted, uploaded, or used to
+            train or modify coefficients.
+          </p>
+          <pre
+            id="generationCalibrationPreview"
+            class="code-block"
+          ></pre>
+        </article>
+
         <article class="subpanel" id="promptIsolationLab">
           <h3>Prompt Isolation Lab</h3>
           <p class="panel-copy">
