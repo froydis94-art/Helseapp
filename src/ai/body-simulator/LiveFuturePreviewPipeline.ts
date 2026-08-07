@@ -39,6 +39,12 @@ import {
   type PublicFuturePayload,
   type PublicFutureAdapterResult,
 } from "./PublicFutureToBodySimulatorAdapter";
+import {
+  conditionAnatomicalProviderPrompt,
+  type NeutralPromptDiagnostics,
+  type OptionalNoteProviderConditioning,
+  type ProviderPromptLexemeSuppression,
+} from "./NeutralAnatomicalPromptConditioner";
 
 /** Proven Flux Kontext Pro transport helpers from legacy lib/replicate.js */
 export interface ProvenFluxKontextProHelpers {
@@ -267,6 +273,18 @@ export interface LiveBodySimulatorDiagnostics {
   formatterConsumedAnatomicalRules: boolean;
   anatomicalTranslatedChangeCount: number;
   promptContainsAnatomicalIntent: boolean;
+  /** Patch 022E-B — safe provider-prompt metrics (no raw prompt). */
+  neutralPromptConditioningApplied: boolean;
+  providerPromptCharacterCount: number | null;
+  providerPromptWordCount: number | null;
+  providerPromptAnatomicalTermCount: number | null;
+  providerPromptSensitiveLexemeCount: number | null;
+  providerPromptPreservationTermCount: number | null;
+  providerPromptLexemeSuppressed: ProviderPromptLexemeSuppression[];
+  removedReplacedTokenCategories: string[];
+  originalProviderPromptCharacterCount: number | null;
+  compressedAnatomicalRuleIds: string[];
+  optionalNoteConditioning: OptionalNoteProviderConditioning[];
   providerRequestAttempted: boolean;
   providerRequestCount: number;
   providerContract: "flux_kontext_pro_legacy_parity" | "none";
@@ -333,6 +351,17 @@ function emptyDiagnostics(
     formatterConsumedAnatomicalRules: false,
     anatomicalTranslatedChangeCount: 0,
     promptContainsAnatomicalIntent: false,
+    neutralPromptConditioningApplied: false,
+    providerPromptCharacterCount: null,
+    providerPromptWordCount: null,
+    providerPromptAnatomicalTermCount: null,
+    providerPromptSensitiveLexemeCount: null,
+    providerPromptPreservationTermCount: null,
+    providerPromptLexemeSuppressed: [],
+    removedReplacedTokenCategories: [],
+    originalProviderPromptCharacterCount: null,
+    compressedAnatomicalRuleIds: [],
+    optionalNoteConditioning: [],
     providerRequestAttempted: false,
     providerRequestCount: 0,
     providerContract: "none",
@@ -344,6 +373,35 @@ function emptyDiagnostics(
     warnings: [],
     providerDiagnostics: null,
   };
+}
+
+function applyNeutralPromptDiagnostics(
+  target: LiveBodySimulatorDiagnostics,
+  conditioned: NeutralPromptDiagnostics
+): void {
+  target.neutralPromptConditioningApplied =
+    conditioned.neutralPromptConditioningApplied;
+  target.providerPromptCharacterCount =
+    conditioned.providerPromptCharacterCount;
+  target.providerPromptWordCount = conditioned.providerPromptWordCount;
+  target.providerPromptAnatomicalTermCount =
+    conditioned.providerPromptAnatomicalTermCount;
+  target.providerPromptSensitiveLexemeCount =
+    conditioned.providerPromptSensitiveLexemeCount;
+  target.providerPromptPreservationTermCount =
+    conditioned.providerPromptPreservationTermCount;
+  target.providerPromptLexemeSuppressed = [
+    ...conditioned.providerPromptLexemeSuppressed,
+  ];
+  target.removedReplacedTokenCategories = [
+    ...conditioned.removedReplacedTokenCategories,
+  ];
+  target.originalProviderPromptCharacterCount =
+    conditioned.originalProviderPromptCharacterCount;
+  target.compressedAnatomicalRuleIds = [
+    ...conditioned.compressedAnatomicalRuleIds,
+  ];
+  target.optionalNoteConditioning = [...conditioned.optionalNoteConditioning];
 }
 
 function noteDispositionFromAnatomical(
@@ -561,6 +619,24 @@ export function buildLiveFuturePreviewTraceStages(
         consumed: diagnostics.formatterConsumedAnatomicalRules,
         translatedCount: diagnostics.anatomicalTranslatedChangeCount,
         promptIntent: diagnostics.promptContainsAnatomicalIntent,
+      },
+      warnings: [],
+    },
+    {
+      id: "neutral_prompt_conditioning",
+      label: "Neutral Prompt Conditioning",
+      status: diagnostics.neutralPromptConditioningApplied ? "ok" : "pending",
+      values: {
+        applied: diagnostics.neutralPromptConditioningApplied,
+        characterCount: diagnostics.providerPromptCharacterCount,
+        wordCount: diagnostics.providerPromptWordCount,
+        anatomicalTermCount: diagnostics.providerPromptAnatomicalTermCount,
+        sensitiveLexemeCount: diagnostics.providerPromptSensitiveLexemeCount,
+        preservationTermCount: diagnostics.providerPromptPreservationTermCount,
+        removedCategories: diagnostics.removedReplacedTokenCategories.join(","),
+        lexemeSuppressedCount: diagnostics.providerPromptLexemeSuppressed.length,
+        originalCharacterCount:
+          diagnostics.originalProviderPromptCharacterCount,
       },
       warnings: [],
     },
@@ -958,6 +1034,21 @@ export async function runLiveFuturePreview(
     );
   }
 
+  // Patch 022E-B: condition provider-facing prompt only (canonical rules unchanged).
+  const conditioned = conditionAnatomicalProviderPrompt({
+    formattedPrompt: anatomicalPrompt,
+    canonical: prep.canonical,
+    anatomicalRules: prep.rules.anatomicalTransformation?.rules ?? [],
+    optionalNotes: prep.adapter.input.optionalNotes ?? [],
+  });
+  const providerPrompt = conditioned.conditionedPrompt;
+  formatted.prompt = providerPrompt;
+  // Avoid appending sensitive denial stacks via transport EXCLUSIONS appendix.
+  if (typeof formatted.negativePrompt === "string") {
+    delete formatted.negativePrompt;
+  }
+
+  applyNeutralPromptDiagnostics(prep.diagnostics, conditioned.diagnostics);
   prep.diagnostics.promptContainsAnatomicalIntent = true;
   prep.diagnostics.providerRequestAttempted = true;
   prep.diagnostics.providerContract = "flux_kontext_pro_legacy_parity";
@@ -1064,7 +1155,7 @@ export async function runLiveFuturePreview(
   try {
     generated = await runOnce({
       imageDataUri: input.sourceImageDataUri,
-      prompt: anatomicalPrompt,
+      prompt: providerPrompt,
       token,
       model: DEFAULT_REPLICATE_TRANSPORT_MODEL,
       bfNow: prep.diagnostics.bodyFat.current,

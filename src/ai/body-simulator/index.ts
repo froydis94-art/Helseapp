@@ -5,6 +5,7 @@
  * Formatter adapter (022B) is internal-preview only — not production cutover.
  * Anatomical Transformation Engine v2 (022D) is the higher-detail canonical intent.
  * Live Future preview bridge (022E) is feature-flagged; default OFF.
+ * Neutral anatomical prompt conditioning (022E-B) is provider-facing only.
  */
 
 export {
@@ -190,6 +191,23 @@ export type {
   ProvenFluxKontextProHelpers,
   ProviderErrorCategory,
 } from "./LiveFuturePreviewPipeline";
+
+export {
+  BANNED_SEMANTIC_SUPPORT_TERMS,
+  CLOTHING_COVERAGE_PRESERVATION_PHRASE,
+  PROVIDER_SENSITIVE_LEXEMES,
+  conditionAnatomicalProviderPrompt,
+  conditionOptionalNoteForProvider,
+  measureProviderPromptDiagnostics,
+} from "./NeutralAnatomicalPromptConditioner";
+export type {
+  NeutralPromptConditioningInput,
+  NeutralPromptConditioningResult,
+  NeutralPromptDiagnostics,
+  OptionalNoteProviderConditioning,
+  ProviderPromptLexemeSuppression,
+  ProviderPromptLexemeSuppressionReason,
+} from "./NeutralAnatomicalPromptConditioner";
 
 export {
   BODY_SIMULATOR_FIXTURE_BUILDERS,

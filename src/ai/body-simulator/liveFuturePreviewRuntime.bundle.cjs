@@ -7255,6 +7255,489 @@ function adaptPublicFutureToBodySimulator(payload, options) {
   }
 }
 
+// src/ai/body-simulator/NeutralAnatomicalPromptConditioner.ts
+var CLOTHING_COVERAGE_PRESERVATION_PHRASE = "Preserve the subject's original clothing and coverage.";
+var PROVIDER_SENSITIVE_LEXEMES = [
+  "erotic",
+  "sexual",
+  "sexy",
+  "sensual",
+  "fetish",
+  "lingerie",
+  "underwear",
+  "nude",
+  "naked",
+  "nipples",
+  "groin",
+  "cleavage",
+  "breasts",
+  "buttocks",
+  "seductive",
+  "provocative"
+];
+var BANNED_SEMANTIC_SUPPORT_TERMS = [
+  "shredded",
+  "ripped",
+  "sexy",
+  "hot",
+  "glamour",
+  "provocative"
+];
+var MIDSECTION_FEATURES = /* @__PURE__ */ new Set([
+  "subcutaneous_fat",
+  "waist_width",
+  "abdominal_definition",
+  "oblique_definition",
+  "serratus_definition"
+]);
+var ANATOMICAL_COUNT_TERMS = [
+  "midsection",
+  "abdomen",
+  "abdominal",
+  "waist",
+  "oblique",
+  "serratus",
+  "chest",
+  "shoulder",
+  "arm",
+  "thigh",
+  "glute",
+  "back",
+  "lat",
+  "muscle",
+  "fat",
+  "subcutaneous",
+  "definition",
+  "volume"
+];
+var PRESERVATION_COUNT_TERMS = [
+  "preserve",
+  "clothing",
+  "coverage",
+  "identity",
+  "pose",
+  "lighting",
+  "background",
+  "camera"
+];
+function wordCount(text) {
+  const parts = text.trim().split(/\s+/).filter(Boolean);
+  return parts.length;
+}
+function countTermHits(text, terms) {
+  const lower = text.toLowerCase();
+  let count = 0;
+  for (const term of terms) {
+    const re = new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi");
+    const matches = lower.match(re);
+    if (matches) count += matches.length;
+  }
+  return count;
+}
+function findSensitiveLexemes(text) {
+  const lower = text.toLowerCase();
+  const found = [];
+  for (const term of PROVIDER_SENSITIVE_LEXEMES) {
+    const re = new RegExp(
+      `\\b${term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`,
+      "i"
+    );
+    if (re.test(lower)) found.push(term);
+  }
+  return found;
+}
+function measureProviderPromptDiagnostics(text) {
+  return {
+    providerPromptCharacterCount: text.length,
+    providerPromptWordCount: wordCount(text),
+    providerPromptAnatomicalTermCount: countTermHits(text, ANATOMICAL_COUNT_TERMS),
+    providerPromptSensitiveLexemeCount: findSensitiveLexemes(text).length,
+    providerPromptPreservationTermCount: countTermHits(
+      text,
+      PRESERVATION_COUNT_TERMS
+    )
+  };
+}
+function isDecrease(direction) {
+  return direction.includes("decrease");
+}
+function isIncrease(direction) {
+  return direction.includes("increase") || direction === "more_defined";
+}
+function isProviderEmitRule(rule2) {
+  if (rule2.direction === "stable" && rule2.source === "realism_constraint") {
+    return false;
+  }
+  if (rule2.direction === "stable" || rule2.direction === "unknown") {
+    return false;
+  }
+  return true;
+}
+function conditionOptionalNoteForProvider(note) {
+  const original = String(note || "").trim();
+  const suppressions = [];
+  if (!original) {
+    return {
+      original,
+      disposition: "skipped_covered",
+      providerText: null,
+      suppressions
+    };
+  }
+  const lower = original.toLowerCase();
+  if (/defined\s+abs|abs\s+definition|six[\s-]?pack/.test(lower)) {
+    suppressions.push({
+      term: "defined abs",
+      reason: "optional_note_neutralized"
+    });
+    return {
+      original,
+      disposition: "neutralized",
+      providerText: "increase natural abdominal definition",
+      suppressions
+    };
+  }
+  const sensitive = findSensitiveLexemes(original);
+  if (sensitive.length > 0) {
+    for (const term of sensitive) {
+      suppressions.push({
+        term,
+        reason: "optional_note_sexualized_suppressed"
+      });
+    }
+    return {
+      original,
+      disposition: "suppressed",
+      providerText: null,
+      suppressions
+    };
+  }
+  if (BANNED_SEMANTIC_SUPPORT_TERMS.some(
+    (t) => new RegExp(`\\b${t}\\b`, "i").test(lower)
+  )) {
+    for (const term of BANNED_SEMANTIC_SUPPORT_TERMS) {
+      if (new RegExp(`\\b${term}\\b`, "i").test(lower)) {
+        suppressions.push({
+          term,
+          reason: "banned_semantic_support"
+        });
+      }
+    }
+    if (/shred|ripped|cut|etch/.test(lower)) {
+      return {
+        original,
+        disposition: "neutralized",
+        providerText: "increase natural abdominal definition",
+        suppressions
+      };
+    }
+    return {
+      original,
+      disposition: "suppressed",
+      providerText: null,
+      suppressions
+    };
+  }
+  return {
+    original,
+    disposition: "skipped_covered",
+    providerText: null,
+    suppressions
+  };
+}
+function scrubSensitiveLexemes(text, suppressions) {
+  let out = text;
+  for (const term of PROVIDER_SENSITIVE_LEXEMES) {
+    const re = new RegExp(
+      `\\b${term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`,
+      "gi"
+    );
+    if (re.test(out)) {
+      suppressions.push({
+        term,
+        reason: "provider_false_positive_risk"
+      });
+      out = out.replace(re, "");
+    }
+  }
+  return out.replace(/\s{2,}/g, " ").replace(/\s+([,.])/g, "$1").replace(/\(\s*\)/g, "").trim();
+}
+function pickSemanticSupport(terms, suppressions) {
+  const out = [];
+  for (const raw of terms) {
+    const term = String(raw || "").trim().toLowerCase();
+    if (!term) continue;
+    if (BANNED_SEMANTIC_SUPPORT_TERMS.includes(term) || PROVIDER_SENSITIVE_LEXEMES.includes(term)) {
+      suppressions.push({
+        term,
+        reason: "banned_semantic_support"
+      });
+      continue;
+    }
+    if (term !== "lean" && term !== "defined" && term !== "athletic") {
+      continue;
+    }
+    if (out.includes(term)) continue;
+    out.push(term);
+    if (out.length >= 2) break;
+  }
+  return out;
+}
+function compressAnatomicalRules(rules) {
+  const emit = rules.filter(isProviderEmitRule);
+  const compressedRuleIds = emit.map((r) => r.id);
+  const categories = [];
+  const featureKeys = [];
+  const lines = [];
+  const usedFeature = /* @__PURE__ */ new Set();
+  const mid = emit.filter(
+    (r) => MIDSECTION_FEATURES.has(r.feature) || r.feature === "subcutaneous_fat" && (r.region === "abdomen" || r.region === "whole_body")
+  );
+  const rest = emit.filter((r) => !mid.includes(r));
+  if (mid.length > 0) {
+    categories.push("midsection_merged");
+    for (const r of mid) {
+      featureKeys.push(r.feature);
+      usedFeature.add(r.feature);
+    }
+    const fatDecrease = mid.some(
+      (r) => (r.feature === "subcutaneous_fat" || r.feature === "waist_width") && isDecrease(r.direction)
+    );
+    const fatIncrease = mid.some(
+      (r) => r.feature === "subcutaneous_fat" && isIncrease(r.direction)
+    );
+    const defParts = [];
+    if (mid.some((r) => r.feature === "abdominal_definition" && isIncrease(r.direction))) {
+      defParts.push("abdominal");
+    }
+    if (mid.some((r) => r.feature === "oblique_definition" && isIncrease(r.direction))) {
+      defParts.push("oblique");
+    }
+    if (mid.some(
+      (r) => r.feature === "waist_width" && isDecrease(r.direction) || r.feature === "serratus_definition" && isIncrease(r.direction)
+    )) {
+      if (!defParts.includes("waist")) defParts.push("waist");
+    }
+    if (mid.some((r) => r.feature === "serratus_definition" && isIncrease(r.direction))) {
+      if (!defParts.includes("serratus")) defParts.push("serratus");
+    }
+    if (fatDecrease && defParts.length > 0) {
+      lines.push(
+        `Reduce midsection subcutaneous fat while increasing natural ${defParts.join(", ")} definition.`
+      );
+    } else if (fatDecrease) {
+      lines.push(
+        "Reduce overall subcutaneous fat in the midsection and slightly narrow the waist."
+      );
+    } else if (fatIncrease) {
+      lines.push(
+        "Increase midsection soft-tissue fullness modestly while preserving natural proportions."
+      );
+    } else if (defParts.length > 0) {
+      lines.push(
+        `Increase natural ${defParts.join(", ")} definition in the midsection.`
+      );
+    }
+  }
+  const muscleVol = rest.filter(
+    (r) => r.feature === "whole_body_muscle_volume" || r.feature.endsWith("_volume")
+  );
+  const musclePreserve = muscleVol.filter(
+    (r) => r.direction === "stable" || !isIncrease(r.direction)
+  );
+  const muscleIncrease = muscleVol.filter((r) => isIncrease(r.direction));
+  if (muscleIncrease.length > 0 && !usedFeature.has("muscle_volume_increase")) {
+    usedFeature.add("muscle_volume_increase");
+    featureKeys.push("whole_body_muscle_volume");
+    categories.push("muscle_volume");
+    for (const r of muscleIncrease) compressedRuleIds.includes(r.id) || compressedRuleIds.push(r.id);
+    lines.push(
+      "Increase natural muscle volume proportionally while preserving the original skeletal frame."
+    );
+  } else if ((musclePreserve.length > 0 || emit.some((r) => r.feature === "whole_body_muscle_volume")) && !usedFeature.has("muscle_volume_preserve")) {
+    usedFeature.add("muscle_volume_preserve");
+    featureKeys.push("whole_body_muscle_volume");
+    categories.push("muscle_volume");
+    lines.push("Preserve existing muscle volume and natural proportions.");
+  }
+  function addOnce(featureKey2, phrase, matched) {
+    if (matched.length === 0) return;
+    if (usedFeature.has(featureKey2)) return;
+    usedFeature.add(featureKey2);
+    featureKeys.push(featureKey2);
+    categories.push(featureKey2);
+    lines.push(phrase);
+  }
+  addOnce(
+    "chest_shoulder_definition",
+    "Improve shoulder and chest definition.",
+    rest.filter(
+      (r) => (r.feature === "chest_definition" || r.feature === "shoulder_definition") && isIncrease(r.direction)
+    )
+  );
+  addOnce(
+    "chest_volume",
+    "Preserve natural chest muscle volume with modest refinement.",
+    rest.filter(
+      (r) => r.feature === "chest_volume" && isIncrease(r.direction)
+    )
+  );
+  addOnce(
+    "arm_definition",
+    "Increase natural arm definition.",
+    rest.filter(
+      (r) => (r.feature === "arm_definition" || r.feature === "arm_volume") && isIncrease(r.direction)
+    )
+  );
+  addOnce(
+    "thigh_definition",
+    "Increase natural thigh definition.",
+    rest.filter(
+      (r) => (r.feature === "thigh_definition" || r.feature === "thigh_volume") && isIncrease(r.direction)
+    )
+  );
+  addOnce(
+    "glute_volume",
+    "Increase natural glute muscle volume with realistic proportions.",
+    rest.filter(
+      (r) => r.feature === "glute_volume" && isIncrease(r.direction)
+    )
+  );
+  addOnce(
+    "back_definition",
+    "Increase natural upper-back definition.",
+    rest.filter(
+      (r) => (r.feature === "upper_back_definition" || r.feature === "lat_width") && isIncrease(r.direction)
+    )
+  );
+  addOnce(
+    "whole_body_definition",
+    "Increase natural whole-body muscle definition.",
+    rest.filter(
+      (r) => r.feature === "whole_body_definition" && isIncrease(r.direction)
+    )
+  );
+  if (lines.length === 0) {
+    lines.push(
+      "Apply the approved body-composition change with natural proportions."
+    );
+    categories.push("fallback_summary");
+  }
+  return {
+    lines,
+    compressedRuleIds: [...new Set(compressedRuleIds)],
+    categories: [...new Set(categories)],
+    featureKeys: [...new Set(featureKeys)]
+  };
+}
+function conditionAnatomicalProviderPrompt(input) {
+  const original = String(input.formattedPrompt || "");
+  const originalMetrics = measureProviderPromptDiagnostics(original);
+  const suppressions = [];
+  const removedReplacedTokenCategories = [];
+  const optionalNoteConditioning = [];
+  if (originalMetrics.providerPromptSensitiveLexemeCount > 0) {
+    removedReplacedTokenCategories.push("sensitive_lexemes");
+  }
+  if (/\bPreserve\b/i.test(original)) {
+    const preserveHits = (original.match(/\bPreserve\b/gi) || []).length;
+    if (preserveHits > 2) {
+      removedReplacedTokenCategories.push("repeated_preservation");
+      suppressions.push({
+        term: "Preserve",
+        reason: "duplicate_preservation_compressed"
+      });
+    }
+  }
+  if (/shredded|ripped|toned,\s*athletic|lean,\s*shredded/i.test(original)) {
+    removedReplacedTokenCategories.push("synonym_stack");
+    suppressions.push({
+      term: "synonym_stack",
+      reason: "synonym_stack_compressed"
+    });
+  }
+  const compressed = compressAnatomicalRules(input.anatomicalRules);
+  if (compressed.categories.includes("midsection_merged")) {
+    removedReplacedTokenCategories.push("midsection_duplicates_merged");
+  }
+  const notes = input.optionalNotes ?? [];
+  const notePhrases = [];
+  for (const note of notes) {
+    const conditioned = conditionOptionalNoteForProvider(note);
+    optionalNoteConditioning.push({
+      original: conditioned.original,
+      disposition: conditioned.disposition,
+      providerText: conditioned.providerText
+    });
+    suppressions.push(...conditioned.suppressions);
+    if (conditioned.disposition === "neutralized" && conditioned.providerText) {
+      removedReplacedTokenCategories.push("optional_note_neutralized");
+      const already = compressed.lines.some((l) => /abdominal definition/i.test(l)) || notePhrases.some((l) => /abdominal definition/i.test(l));
+      if (!already) notePhrases.push(conditioned.providerText);
+    } else if (conditioned.disposition === "suppressed") {
+      removedReplacedTokenCategories.push("optional_note_suppressed");
+    }
+  }
+  const semantic = pickSemanticSupport(
+    input.canonical.semanticSupportTerms ?? [],
+    suppressions
+  );
+  if ((input.canonical.semanticSupportTerms?.length ?? 0) > semantic.length) {
+    removedReplacedTokenCategories.push("semantic_support_capped");
+  }
+  const weeks = input.canonical.goal.timelineWeeks;
+  const intensity = input.canonical.goal.intensity;
+  const goalType = input.canonical.goal.effectiveType.replace(/_/g, " ");
+  const sections = [
+    "Preserve the same adult person, identity, face, hairstyle, pose, camera framing, lighting and background.",
+    CLOTHING_COVERAGE_PRESERVATION_PHRASE,
+    `Simulate the requested future ${goalType} body-composition change over ${weeks} weeks at ${intensity} intensity.`,
+    ...compressed.lines,
+    ...notePhrases,
+    "Keep the result realistic, photographic and consistent with the source image."
+  ];
+  if (semantic.length > 0) {
+    sections.push(
+      semantic.length === 1 ? `Secondary visual cue: ${semantic[0]}.` : `Secondary visual cues: ${semantic[0]} and ${semantic[1]}.`
+    );
+  }
+  let conditionedPrompt = sections.filter(Boolean).join("\n\n");
+  conditionedPrompt = scrubSensitiveLexemes(conditionedPrompt, suppressions);
+  const remaining = findSensitiveLexemes(conditionedPrompt);
+  for (const term of remaining) {
+    suppressions.push({
+      term,
+      reason: "provider_false_positive_risk"
+    });
+    conditionedPrompt = scrubSensitiveLexemes(conditionedPrompt, []);
+  }
+  const finalMetrics = measureProviderPromptDiagnostics(conditionedPrompt);
+  return {
+    conditionedPrompt,
+    diagnostics: {
+      ...finalMetrics,
+      providerPromptLexemeSuppressed: dedupeSuppressions(suppressions),
+      neutralPromptConditioningApplied: true,
+      removedReplacedTokenCategories: [...new Set(removedReplacedTokenCategories)],
+      originalProviderPromptCharacterCount: originalMetrics.providerPromptCharacterCount,
+      originalProviderPromptWordCount: originalMetrics.providerPromptWordCount,
+      compressedAnatomicalRuleIds: compressed.compressedRuleIds,
+      optionalNoteConditioning
+    }
+  };
+}
+function dedupeSuppressions(items) {
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
+  for (const item of items) {
+    const key = `${item.term}|${item.reason}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
 // src/ai/body-simulator/LiveFuturePreviewPipeline.ts
 function loadProvenFluxKontextProHelpers() {
   const req = (0, import_node_module.createRequire)((0, import_node_path.join)(process.cwd(), "package.json"));
@@ -7364,6 +7847,17 @@ function emptyDiagnostics(livePreviewTraceId, enabled) {
     formatterConsumedAnatomicalRules: false,
     anatomicalTranslatedChangeCount: 0,
     promptContainsAnatomicalIntent: false,
+    neutralPromptConditioningApplied: false,
+    providerPromptCharacterCount: null,
+    providerPromptWordCount: null,
+    providerPromptAnatomicalTermCount: null,
+    providerPromptSensitiveLexemeCount: null,
+    providerPromptPreservationTermCount: null,
+    providerPromptLexemeSuppressed: [],
+    removedReplacedTokenCategories: [],
+    originalProviderPromptCharacterCount: null,
+    compressedAnatomicalRuleIds: [],
+    optionalNoteConditioning: [],
     providerRequestAttempted: false,
     providerRequestCount: 0,
     providerContract: "none",
@@ -7373,6 +7867,25 @@ function emptyDiagnostics(livePreviewTraceId, enabled) {
     warnings: [],
     providerDiagnostics: null
   };
+}
+function applyNeutralPromptDiagnostics(target, conditioned) {
+  target.neutralPromptConditioningApplied = conditioned.neutralPromptConditioningApplied;
+  target.providerPromptCharacterCount = conditioned.providerPromptCharacterCount;
+  target.providerPromptWordCount = conditioned.providerPromptWordCount;
+  target.providerPromptAnatomicalTermCount = conditioned.providerPromptAnatomicalTermCount;
+  target.providerPromptSensitiveLexemeCount = conditioned.providerPromptSensitiveLexemeCount;
+  target.providerPromptPreservationTermCount = conditioned.providerPromptPreservationTermCount;
+  target.providerPromptLexemeSuppressed = [
+    ...conditioned.providerPromptLexemeSuppressed
+  ];
+  target.removedReplacedTokenCategories = [
+    ...conditioned.removedReplacedTokenCategories
+  ];
+  target.originalProviderPromptCharacterCount = conditioned.originalProviderPromptCharacterCount;
+  target.compressedAnatomicalRuleIds = [
+    ...conditioned.compressedAnatomicalRuleIds
+  ];
+  target.optionalNoteConditioning = [...conditioned.optionalNoteConditioning];
 }
 function noteDispositionFromAnatomical(rules) {
   const outcomes = rules.anatomicalTransformation?.noteOutcomes ?? [];
@@ -7525,6 +8038,23 @@ function buildLiveFuturePreviewTraceStages(diagnostics, outcome = "pending") {
         consumed: diagnostics.formatterConsumedAnatomicalRules,
         translatedCount: diagnostics.anatomicalTranslatedChangeCount,
         promptIntent: diagnostics.promptContainsAnatomicalIntent
+      },
+      warnings: []
+    },
+    {
+      id: "neutral_prompt_conditioning",
+      label: "Neutral Prompt Conditioning",
+      status: diagnostics.neutralPromptConditioningApplied ? "ok" : "pending",
+      values: {
+        applied: diagnostics.neutralPromptConditioningApplied,
+        characterCount: diagnostics.providerPromptCharacterCount,
+        wordCount: diagnostics.providerPromptWordCount,
+        anatomicalTermCount: diagnostics.providerPromptAnatomicalTermCount,
+        sensitiveLexemeCount: diagnostics.providerPromptSensitiveLexemeCount,
+        preservationTermCount: diagnostics.providerPromptPreservationTermCount,
+        removedCategories: diagnostics.removedReplacedTokenCategories.join(","),
+        lexemeSuppressedCount: diagnostics.providerPromptLexemeSuppressed.length,
+        originalCharacterCount: diagnostics.originalProviderPromptCharacterCount
       },
       warnings: []
     },
@@ -7801,6 +8331,18 @@ async function runLiveFuturePreview(input) {
       }
     );
   }
+  const conditioned = conditionAnatomicalProviderPrompt({
+    formattedPrompt: anatomicalPrompt,
+    canonical: prep.canonical,
+    anatomicalRules: prep.rules.anatomicalTransformation?.rules ?? [],
+    optionalNotes: prep.adapter.input.optionalNotes ?? []
+  });
+  const providerPrompt = conditioned.conditionedPrompt;
+  formatted.prompt = providerPrompt;
+  if (typeof formatted.negativePrompt === "string") {
+    delete formatted.negativePrompt;
+  }
+  applyNeutralPromptDiagnostics(prep.diagnostics, conditioned.diagnostics);
   prep.diagnostics.promptContainsAnatomicalIntent = true;
   prep.diagnostics.providerRequestAttempted = true;
   prep.diagnostics.providerContract = "flux_kontext_pro_legacy_parity";
@@ -7878,7 +8420,7 @@ async function runLiveFuturePreview(input) {
   try {
     generated = await runOnce({
       imageDataUri: input.sourceImageDataUri,
-      prompt: anatomicalPrompt,
+      prompt: providerPrompt,
       token,
       model: DEFAULT_REPLICATE_TRANSPORT_MODEL,
       bfNow: prep.diagnostics.bodyFat.current,

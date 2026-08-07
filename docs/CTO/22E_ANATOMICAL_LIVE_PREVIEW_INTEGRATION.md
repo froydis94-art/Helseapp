@@ -368,6 +368,73 @@ No code rollback required. Legacy path resumes immediately.
 
 ---
 
+## Neutral Anatomical Prompt Conditioning — Patch 022E-B
+
+### Why
+
+After 022E-A fixed transport contract parity, the live anatomical path reached Flux successfully and returned **E005** (provider sensitive-content flag). The same source image previously succeeded on the legacy Flux reservedrift path.
+
+E005 therefore appeared only after the new anatomical prompt wording reached the provider — not because HelseApp prohibited underwear, and not because Body Simulator physiology changed.
+
+### What 022E-B changes
+
+Provider-facing prompt conditioning only:
+
+| Layer | Change |
+| --- | --- |
+| Module | `src/ai/body-simulator/NeutralAnatomicalPromptConditioner.ts` |
+| Wire-in | After FluxFormatter, before `runFluxKontextProOnce` / transport |
+| Canonical anatomy | **Unchanged** (rules, BF delta, focus, magnitudes kept) |
+| Body Simulator coefficients | **Unchanged** |
+| Provider / model | **Unchanged** (`flux-kontext-pro`) |
+| Provider moderation / safety bypass | **None** — external provider rules remain external |
+| HelseApp clothing policy | **No regression** — ordinary adult underwear progress photos are not prohibited |
+
+### Inspected prompt characteristics (repository, no paid calls)
+
+Legacy slim path (`lib/visuellPrompt.js` `byggVisuellPrompt`):
+
+- Short commanding English block
+- Identity + clothing lock in one sentence
+- Athletic / non-NSFW framing
+- Zone and timeline sentences; fewer repeated `Preserve` lines
+
+Anatomical FluxFormatter path (before 022E-B conditioning):
+
+- Structured SOURCE / IDENTITY / SCENE / TRANSFORM / ANATOMY / REALISM sections
+- Many repeated `Preserve …` lines
+- Per-rule anatomical descriptions (`Apply anatomical subcutaneous fat on abdomen…`) with feature/region/priority metadata
+- Longer character count and higher preservation-term repetition than legacy slim
+
+Conditioned provider text (after 022E-B):
+
+- Identity/preservation → transformation summary → compressed anatomical changes → realism
+- One clothing phrase: `Preserve the subject's original clothing and coverage.`
+- Midsection rules merged (fat + abdominal/oblique/waist definition)
+- Max two neutral semantic support terms (`lean` / `defined` / `athletic`)
+- Sensitive lexemes scrubbed from provider text only (`underwear`, `lingerie`, `sexy`, `erotic`, …)
+- Optional notes: `defined abs` → `increase natural abdominal definition`; sexualized notes suppressed; stored canonical note unchanged
+
+### Diagnostics (safe; no raw prompt / no image)
+
+- `neutralPromptConditioningApplied`
+- `providerPromptCharacterCount` / `WordCount` / `AnatomicalTermCount` / `SensitiveLexemeCount` / `PreservationTermCount`
+- `providerPromptLexemeSuppressed` (machine-readable reasons)
+- `removedReplacedTokenCategories`
+- Control Room Live Future Preview Trace stage: **Neutral Prompt Conditioning** (counts + categories only)
+
+### Manual retest (owner)
+
+Do **not** run paid calls from Cursor. After deploy, with flag `=1`, retest BF 22→10 / 12 months / abs+thighs / strict. Expect:
+
+- `neutralPromptConditioningApplied = true`
+- `providerPromptSensitiveLexemeCount = 0`
+- `providerRequestCount = 1`
+
+If E005 persists: report provider error + prompt diagnostics; do **not** change Body Simulator physiology.
+
+---
+
 ## Next milestone
 
 If manual retest proves the new pipeline visibly responds to body-fat / timeline / focus:
