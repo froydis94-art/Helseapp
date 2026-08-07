@@ -136,7 +136,7 @@ Documentation only. Do not create buttons, UI, camera logic, body analysis, or c
 
 These capture modes are reserved for a future milestone.
 
-See also: [21_VISUAL_BODY_ANALYSIS_RESERVATIONS.md](./21_VISUAL_BODY_ANALYSIS_RESERVATIONS.md) — owner-approved multi-view analysis and visual body-fat estimation (contracts only).
+See also: [21_BODY_ANALYSIS_ENGINE_FOUNDATION.md](./21_BODY_ANALYSIS_ENGINE_FOUNDATION.md) — owner-approved multi-view analysis and visual body-fat estimation (contracts only).
 
 ## Permanent rule
 

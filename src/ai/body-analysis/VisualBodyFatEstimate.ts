@@ -1,5 +1,5 @@
 /**
- * Visual body-fat estimation — approved future direction, not implemented.
+ * Visual body-fat estimation — approved future capability, not implemented.
  *
  * Distinct from user_estimate, device_measurement, and professional_measurement.
  * Never treat estimates as measured facts or medical diagnosis.
@@ -29,6 +29,8 @@ export interface VisualBodyFatEstimate {
 
   confidence: BodyAnalysisConfidence;
 
+  confidenceReasons: string[];
+
   origin: "future_model_estimate" | "unknown";
 
   evidenceSourceIds: string[];
@@ -53,6 +55,7 @@ export function createDefaultVisualBodyFatEstimate(): VisualBodyFatEstimate {
       upperPercent: null,
     },
     confidence: "not_applicable",
+    confidenceReasons: [],
     origin: "unknown",
     evidenceSourceIds: [],
     modelMetadata: {
@@ -62,7 +65,7 @@ export function createDefaultVisualBodyFatEstimate(): VisualBodyFatEstimate {
       calibrationVersion: null,
     },
     limitations: [
-      "Visual body-fat estimation is reserved but not implemented.",
+      "Visual body-fat estimation is approved as a future capability but is not implemented.",
     ],
   };
 }
@@ -101,7 +104,7 @@ export const VISUAL_BODY_FAT_ROADMAP_STATUS =
   "approved_future_direction" as const;
 
 export const VISUAL_BODY_FAT_ROADMAP_LABEL =
-  "Approved future direction — not implemented." as const;
+  "Approved future capability — not implemented." as const;
 
 /** Origins that must stay distinct from visual model estimates. */
 export const NON_VISUAL_BODY_FAT_ORIGINS = [

@@ -1,5 +1,5 @@
 /**
- * Body-analysis reservations for Demand 021.
+ * Body-analysis foundation for Demand 021.
  * Approved future directions only — no analysis, providers, or UI.
  */
 
