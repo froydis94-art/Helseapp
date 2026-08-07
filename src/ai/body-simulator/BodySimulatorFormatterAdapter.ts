@@ -11,6 +11,11 @@
 
 import type { RenderChange, RenderPlan } from "../render/RenderPlan";
 import type {
+  AnatomicalChangeDirection,
+  AnatomicalMagnitude,
+  AnatomicalTransformationRule,
+} from "./AnatomicalTransformationTypes";
+import type {
   BodySimulationIntensity,
   BodySimulatorRegionRule,
   BodySimulatorTransformationRules,
@@ -54,6 +59,12 @@ export interface CanonicalBodyTransformation {
 
   wholeBodySummary: string;
   regionalSummaries: string[];
+
+  /** Anatomical rule summaries when Demand 022D result is present. */
+  anatomicalSummaries: string[];
+
+  /** Secondary semantic support only — never primary transformation intent. */
+  semanticSupportTerms: string[];
 
   realism: {
     requestedTargetModerated: boolean;
@@ -270,6 +281,120 @@ function buildRegionalChange(
   };
 }
 
+function anatomicalDirectionPhrase(direction: AnatomicalChangeDirection): string {
+  return direction.replace(/_/g, " ");
+}
+
+function anatomicalMagnitudePhrase(magnitude: AnatomicalMagnitude): string {
+  return magnitude;
+}
+
+function anatomicalToRenderKind(
+  rule: AnatomicalTransformationRule
+): RenderChange["kind"] {
+  if (
+    rule.feature.includes("volume") ||
+    rule.feature === "lat_width" ||
+    rule.feature === "whole_body_muscle_volume"
+  ) {
+    return "muscle_development";
+  }
+  if (
+    rule.feature === "subcutaneous_fat" ||
+    rule.feature === "waist_width"
+  ) {
+    if (
+      rule.direction.includes("decrease") ||
+      rule.direction === "more_defined"
+    ) {
+      return "fat_reduction";
+    }
+    if (rule.direction.includes("increase")) {
+      return "fat_increase";
+    }
+  }
+  if (
+    rule.direction === "more_defined" ||
+    rule.feature.includes("definition")
+  ) {
+    return "regional_change";
+  }
+  return "regional_change";
+}
+
+function anatomicalToDirection(
+  direction: AnatomicalChangeDirection
+): RenderChange["direction"] {
+  if (
+    direction.includes("decrease") ||
+    direction === "more_defined"
+  ) {
+    return direction === "more_defined" ? "refine" : "decrease";
+  }
+  if (direction.includes("increase") || direction === "less_defined") {
+    return direction === "less_defined" ? "refine" : "increase";
+  }
+  if (direction === "stable") return "maintain";
+  return "refine";
+}
+
+function anatomicalVisibility(
+  magnitude: AnatomicalMagnitude,
+  fallback: CanonicalChangeVisibility
+): CanonicalChangeVisibility {
+  switch (magnitude) {
+    case "subtle":
+      return "restrained";
+    case "pronounced":
+      return "pronounced";
+    case "clear":
+      return "clear";
+    case "moderate":
+    default:
+      return fallback;
+  }
+}
+
+/**
+ * Translate anatomical rules → RenderChanges (translate-only).
+ * Priority order preserved. No physiology math.
+ */
+function buildAnatomicalChanges(
+  anatomicalRules: AnatomicalTransformationRule[],
+  fallbackVisibility: CanonicalChangeVisibility
+): { changes: RenderChange[]; summaries: string[] } {
+  const changes: RenderChange[] = [];
+  const summaries: string[] = [];
+  const sorted = [...anatomicalRules].sort(
+    (a, b) => b.priority - a.priority || a.id.localeCompare(b.id)
+  );
+
+  for (const rule of sorted) {
+    if (rule.direction === "stable" && rule.source === "realism_constraint") {
+      summaries.push(
+        `${regionLabel(rule.region)} ${rule.feature}: ${anatomicalDirectionPhrase(rule.direction)} (${anatomicalMagnitudePhrase(rule.magnitude)}; source ${rule.source}; priority ${rule.priority})`
+      );
+      continue;
+    }
+    const visibility = anatomicalVisibility(rule.magnitude, fallbackVisibility);
+    const description = `Apply anatomical ${rule.feature.replace(/_/g, " ")} on ${regionLabel(rule.region)}: ${anatomicalDirectionPhrase(rule.direction)} at ${anatomicalMagnitudePhrase(rule.magnitude)} magnitude (source ${rule.source}, priority ${rule.priority}). Preserve natural proportions and identity.`;
+    summaries.push(
+      `${regionLabel(rule.region)} ${rule.feature}: ${anatomicalDirectionPhrase(rule.direction)}; ${anatomicalMagnitudePhrase(rule.magnitude)}; priority ${rule.priority}; source ${rule.source}`
+    );
+    changes.push({
+      id: `body-sim-anatomical-${rule.id}`,
+      kind: anatomicalToRenderKind(rule),
+      direction: anatomicalToDirection(rule.direction),
+      region: rule.region,
+      visibility,
+      description,
+      sourcePlanField: "bodySimulator.anatomicalTransformation",
+    });
+  }
+
+  return { changes, summaries };
+}
+
 function buildWholeBodyChanges(
   rules: BodySimulatorTransformationRules,
   visibility: CanonicalChangeVisibility
@@ -326,6 +451,7 @@ function buildWholeBodyChanges(
 /**
  * Translate Body Simulator Transformation Rules → CanonicalBodyTransformation.
  * Deterministic. Does not mutate input. Does not recalculate physiology.
+ * Prefer anatomical rules when present; broad region mapping is deprecated fallback.
  */
 export function adaptBodySimulatorRulesToFormatterInput(
   rules: BodySimulatorTransformationRules
@@ -340,9 +466,28 @@ export function adaptBodySimulatorRulesToFormatterInput(
     regionalSummaries.push(
       `${regionLabel(region.region)}: ${fatChangePhrase(region.fatChange)}; ${muscleChangePhrase(region.muscleChange)}; magnitude expected ${region.visualMagnitude.expected}; visibility ${region.visibility}`
     );
-    const regional = buildRegionalChange(region, visibility);
-    if (regional) {
-      approvedChanges.push(regional);
+  }
+
+  const anatomical = rules.anatomicalTransformation;
+  let anatomicalSummaries: string[] = [];
+  const semanticSupportTerms = anatomical?.semanticSupportTerms
+    ? [...anatomical.semanticSupportTerms]
+    : [];
+
+  if (anatomical && anatomical.rules.length > 0) {
+    const { changes, summaries } = buildAnatomicalChanges(
+      anatomical.rules,
+      visibility
+    );
+    approvedChanges.push(...changes);
+    anatomicalSummaries = summaries;
+  } else {
+    // Deprecated compatibility fallback for old fixtures / missing anatomical block only.
+    for (const region of rules.regions) {
+      const regional = buildRegionalChange(region, visibility);
+      if (regional) {
+        approvedChanges.push(regional);
+      }
     }
   }
 
@@ -370,6 +515,8 @@ export function adaptBodySimulatorRulesToFormatterInput(
     preservation: structuredClone(rules.preservation),
     wholeBodySummary,
     regionalSummaries,
+    anatomicalSummaries,
+    semanticSupportTerms,
     realism: {
       requestedTargetModerated: rules.realism.requestedTargetModerated,
       unrealisticChangePrevented: rules.realism.unrealisticChangePrevented,

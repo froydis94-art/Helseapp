@@ -9,6 +9,10 @@ import type {
   BodyAnalysisConfidence,
   BodyAnalysisEvidence,
 } from "../body-analysis/types";
+import type {
+  AnatomicalTransformationResult,
+  BodySimulatorFocusZone,
+} from "./AnatomicalTransformationTypes";
 
 /** Input schema version — bump only with a versioned migration. */
 export const BODY_SIMULATOR_INPUT_SCHEMA_VERSION = 1 as const;
@@ -19,6 +23,7 @@ export const BODY_SIMULATOR_RULES_SCHEMA_VERSION = 1 as const;
 /**
  * Physiology / simulation coefficient rules version (traceability).
  * Bump when BodySimulatorRules heuristics change materially.
+ * Anatomical Transformation (022D) attaches without changing v1 physiology version.
  */
 export const BODY_SIMULATOR_RULES_VERSION = "1.0" as const;
 
@@ -215,6 +220,13 @@ export interface BodySimulatorInput {
     targetMuscleChangeKg: number | null;
 
     intensity: BodySimulationIntensity;
+
+    /**
+     * Absolute target body-fat % when known (Demand 022D).
+     * Optional for migration safety; when set with currentBodyFatPercent,
+     * drives anatomical body-fat delta.
+     */
+    targetBodyFatPercent?: number | null;
   };
 
   profile: BodySimulatorProfile;
@@ -244,6 +256,12 @@ export interface BodySimulatorInput {
     preserveBackground: true;
     preserveLightingCharacter: true;
   };
+
+  /** Optional focus zones (Demand 022D). Absent → empty. */
+  focusZones?: readonly BodySimulatorFocusZone[];
+
+  /** Optional free-text notes (Demand 022D). Lowest structured priority. */
+  optionalNotes?: readonly string[];
 }
 
 export interface SimulationRange {
@@ -355,6 +373,12 @@ export interface BodySimulatorTransformationRules {
   };
 
   regions: BodySimulatorRegionRule[];
+
+  /**
+   * Higher-detail canonical anatomical transformation (Demand 022D).
+   * Broad `regions` remain for compatibility; anatomical is authoritative detail.
+   */
+  anatomicalTransformation: AnatomicalTransformationResult;
 
   preservation: {
     identity: "preserve";

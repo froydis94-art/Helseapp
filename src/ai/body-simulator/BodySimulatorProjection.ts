@@ -4,6 +4,7 @@
  * For inspector / diagnostics / library metadata — not wired to production.
  */
 
+import type { AnatomicalTransformationResult } from "./AnatomicalTransformationTypes";
 import type {
   BodySimulatorTransformationRules,
 } from "./BodySimulatorTypes";
@@ -17,6 +18,7 @@ export interface BodySimulatorSafeProjection {
   timelineWeeks: number;
   wholeBodyChange: BodySimulatorTransformationRules["wholeBodyChange"];
   regions: BodySimulatorTransformationRules["regions"];
+  anatomicalTransformation: AnatomicalTransformationResult;
   preservation: BodySimulatorTransformationRules["preservation"];
   realism: BodySimulatorTransformationRules["realism"];
   confidence: BodySimulatorTransformationRules["confidence"];
@@ -60,6 +62,7 @@ export function projectBodySimulatorRules(
       confidenceReasons: [...r.confidenceReasons],
       provenanceSourcePaths: [...r.provenanceSourcePaths],
     })),
+    anatomicalTransformation: structuredClone(rules.anatomicalTransformation),
     preservation: { ...rules.preservation },
     realism: {
       ...rules.realism,

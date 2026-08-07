@@ -1,9 +1,52 @@
 /**
- * Body Simulator v1 — public barrel (Demand 022 / 022B).
+ * Body Simulator v1 — public barrel (Demand 022 / 022B / 022D).
  *
  * Deterministic provider-independent Transformation Engine.
  * Formatter adapter (022B) is internal-preview only — not production cutover.
+ * Anatomical Transformation Engine v2 (022D) is the higher-detail canonical intent.
  */
+
+export {
+  ANATOMICAL_TRANSFORMATION_SCHEMA_VERSION,
+  BODY_SIMULATOR_FOCUS_ZONES,
+} from "./AnatomicalTransformationTypes";
+
+export type {
+  AnatomicalChangeDirection,
+  AnatomicalFeature,
+  AnatomicalMagnitude,
+  AnatomicalSuppressionReason,
+  AnatomicalTransformationResult,
+  AnatomicalTransformationRule,
+  BodySimulatorFocusZone,
+  GoalConsistencyIssue,
+  GoalConsistencySeverity,
+  MuscleGainMode,
+  OptionalNoteOutcome,
+} from "./AnatomicalTransformationTypes";
+
+export {
+  ANATOMICAL_EFFORT_HARD,
+  ANATOMICAL_EFFORT_MODERATE,
+  ANATOMICAL_EFFORT_STRICT,
+  ANATOMICAL_BF_DELTA_CLEAR_PP,
+  ANATOMICAL_BF_DELTA_MODEST_PP,
+  ANATOMICAL_FOCUS_PRIORITY_BOOST,
+  ANATOMICAL_PRIORITY_BODY_FAT,
+  ANATOMICAL_PRIORITY_OPTIONAL_NOTE,
+  effortCoefficientForIntensity,
+  magnitudeFromScore,
+  magnitudeOrdinal,
+} from "./AnatomicalTransformationRules";
+
+export {
+  anatomicalMagnitudeScore,
+  buildAnatomicalTransformation,
+  deriveMuscleGainMode,
+  resolveBodyFatContext,
+} from "./AnatomicalTransformationEngine";
+
+export { validateGoalConsistency } from "./GoalConsistencyValidator";
 
 export {
   BODY_SIMULATION_GOAL_TYPES,

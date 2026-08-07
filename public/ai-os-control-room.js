@@ -86,6 +86,24 @@
   var bodySimulatorRegionsBody = document.getElementById(
     "bodySimulatorRegionsBody"
   );
+  var bodySimulatorAnatomicalInputBody = document.getElementById(
+    "bodySimulatorAnatomicalInputBody"
+  );
+  var bodySimulatorAnatomicalAppliedBody = document.getElementById(
+    "bodySimulatorAnatomicalAppliedBody"
+  );
+  var bodySimulatorAnatomicalSuppressedBody = document.getElementById(
+    "bodySimulatorAnatomicalSuppressedBody"
+  );
+  var bodySimulatorAnatomicalConsistencyBody = document.getElementById(
+    "bodySimulatorAnatomicalConsistencyBody"
+  );
+  var bodySimulatorAnatomicalSemanticBody = document.getElementById(
+    "bodySimulatorAnatomicalSemanticBody"
+  );
+  var bodySimulatorAnatomicalSummaryBody = document.getElementById(
+    "bodySimulatorAnatomicalSummaryBody"
+  );
   var bodySimulatorMedicationBody = document.getElementById(
     "bodySimulatorMedicationBody"
   );
@@ -3643,6 +3661,12 @@
       bodySimulatorGoalBody,
       bodySimulatorWholeBodyBody,
       bodySimulatorRegionsBody,
+      bodySimulatorAnatomicalInputBody,
+      bodySimulatorAnatomicalAppliedBody,
+      bodySimulatorAnatomicalSuppressedBody,
+      bodySimulatorAnatomicalConsistencyBody,
+      bodySimulatorAnatomicalSemanticBody,
+      bodySimulatorAnatomicalSummaryBody,
       bodySimulatorMedicationBody,
       bodySimulatorPreservationBody,
       bodySimulatorRealismBody,
@@ -4368,6 +4392,194 @@
       });
     } else {
       appendKv(bodySimulatorRegionsBody, "regions", "Unavailable");
+    }
+
+    var anatomical =
+      rules && rules.anatomicalTransformation
+        ? rules.anatomicalTransformation
+        : null;
+    if (anatomical) {
+      var bfCtx = anatomical.bodyFatContext || {};
+      appendKv(
+        bodySimulatorAnatomicalInputBody,
+        "current body fat",
+        bfCtx.currentPercent == null ? "Not provided" : String(bfCtx.currentPercent)
+      );
+      appendKv(
+        bodySimulatorAnatomicalInputBody,
+        "target body fat",
+        bfCtx.targetPercent == null ? "Not provided" : String(bfCtx.targetPercent)
+      );
+      appendKv(
+        bodySimulatorAnatomicalInputBody,
+        "delta",
+        bfCtx.deltaPercentagePoints == null
+          ? "Not provided"
+          : String(bfCtx.deltaPercentagePoints)
+      );
+      appendKv(
+        bodySimulatorAnatomicalInputBody,
+        "goal",
+        rules.goal && rules.goal.effectiveType
+          ? rules.goal.effectiveType
+          : "Not provided"
+      );
+      appendKv(
+        bodySimulatorAnatomicalInputBody,
+        "timeline",
+        anatomical.timelineWeeks == null
+          ? "Not provided"
+          : String(anatomical.timelineWeeks) + " weeks"
+      );
+      appendKv(
+        bodySimulatorAnatomicalInputBody,
+        "effort",
+        anatomical.effortLabel
+          ? anatomical.effortLabel +
+              " (" +
+              String(anatomical.effortCoefficient) +
+              ")"
+          : "Not provided"
+      );
+      appendKv(
+        bodySimulatorAnatomicalInputBody,
+        "focus zones",
+        Array.isArray(anatomical.focusZones) && anatomical.focusZones.length
+          ? anatomical.focusZones.join(", ")
+          : "None"
+      );
+      appendKv(
+        bodySimulatorAnatomicalInputBody,
+        "optional notes present",
+        formatYesNo(!!anatomical.optionalNotesPresent)
+      );
+      appendKv(
+        bodySimulatorAnatomicalInputBody,
+        "muscle gain mode",
+        anatomical.muscleGainMode || "Not provided"
+      );
+
+      if (Array.isArray(anatomical.rules) && anatomical.rules.length) {
+        anatomical.rules.forEach(function (rule) {
+          var key =
+            (rule.region || "region") + " / " + (rule.feature || "feature");
+          appendKv(
+            bodySimulatorAnatomicalAppliedBody,
+            key,
+            [
+              rule.direction || "—",
+              rule.magnitude || "—",
+              "priority " + String(rule.priority),
+              "source " + (rule.source || "—"),
+              "confidence " + (rule.confidence || "—"),
+            ].join("; ")
+          );
+        });
+      } else {
+        appendKv(bodySimulatorAnatomicalAppliedBody, "applied", "None");
+      }
+
+      if (
+        Array.isArray(anatomical.suppressedRuleIds) &&
+        anatomical.suppressedRuleIds.length
+      ) {
+        anatomical.suppressedRuleIds.forEach(function (id) {
+          var reason =
+            anatomical.suppressionReasons && anatomical.suppressionReasons[id]
+              ? anatomical.suppressionReasons[id]
+              : "unspecified";
+          appendKv(bodySimulatorAnatomicalSuppressedBody, id, reason);
+        });
+      } else {
+        appendKv(bodySimulatorAnatomicalSuppressedBody, "suppressed", "None");
+      }
+
+      if (Array.isArray(anatomical.conflicts) && anatomical.conflicts.length) {
+        anatomical.conflicts.forEach(function (issue) {
+          appendKv(
+            bodySimulatorAnatomicalConsistencyBody,
+            issue.code || "issue",
+            [
+              issue.severity || "info",
+              issue.message || "—",
+              issue.suggestedInterpretation
+                ? "suggestion: " + issue.suggestedInterpretation
+                : "no suggestion",
+            ].join(" | ")
+          );
+        });
+      } else {
+        appendKv(
+          bodySimulatorAnatomicalConsistencyBody,
+          "consistency",
+          "No issues"
+        );
+      }
+
+      appendKv(
+        bodySimulatorAnatomicalSemanticBody,
+        "semantic support terms",
+        Array.isArray(anatomical.semanticSupportTerms) &&
+          anatomical.semanticSupportTerms.length
+          ? anatomical.semanticSupportTerms.join(", ")
+          : "None"
+      );
+
+      var summaryFlags = anatomical.summary || {};
+      appendKv(
+        bodySimulatorAnatomicalSummaryBody,
+        "body-fat driven",
+        formatYesNo(!!summaryFlags.bodyFatDriven)
+      );
+      appendKv(
+        bodySimulatorAnatomicalSummaryBody,
+        "muscle driven",
+        formatYesNo(!!summaryFlags.muscleDriven)
+      );
+      appendKv(
+        bodySimulatorAnatomicalSummaryBody,
+        "focus-zone driven",
+        formatYesNo(!!summaryFlags.focusZoneDriven)
+      );
+      appendKv(
+        bodySimulatorAnatomicalSummaryBody,
+        "optional notes used",
+        formatYesNo(!!summaryFlags.optionalNotesUsed)
+      );
+      appendKv(
+        bodySimulatorAnatomicalSummaryBody,
+        "confidence",
+        anatomical.confidence || "Unknown"
+      );
+      appendKv(
+        bodySimulatorAnatomicalSummaryBody,
+        "confidence reasons",
+        (anatomical.confidenceReasons || []).join("; ") || "—"
+      );
+      appendKv(
+        bodySimulatorAnatomicalSummaryBody,
+        "limitations",
+        (anatomical.limitations || []).join("; ") || "—"
+      );
+      if (Array.isArray(anatomical.noteOutcomes) && anatomical.noteOutcomes.length) {
+        anatomical.noteOutcomes.forEach(function (outcome, idx) {
+          appendKv(
+            bodySimulatorAnatomicalSummaryBody,
+            "note " + String(idx + 1),
+            [
+              outcome.status || "—",
+              outcome.note || "—",
+              outcome.reason || "—",
+            ].join(" | ")
+          );
+        });
+      }
+    } else {
+      appendKv(
+        bodySimulatorAnatomicalInputBody,
+        "anatomical transformation",
+        "Unavailable"
+      );
     }
 
     var med = summary && summary.medication ? summary.medication : null;

@@ -64,6 +64,7 @@ import {
   type SimulationRange,
   type TransformationRuleProvenance,
 } from "./BodySimulatorTypes";
+import { buildAnatomicalTransformation } from "./AnatomicalTransformationEngine";
 import { validateBodySimulatorInput } from "./BodySimulatorValidation";
 
 export interface TimelineMagnitudeResult {
@@ -919,6 +920,22 @@ export function buildBodySimulatorTransformationRules(
     });
   }
 
+  // Demand 022D — canonical anatomical transformation (higher-detail intent)
+  const anatomicalTransformation = buildAnatomicalTransformation(input);
+  provenance.push({
+    rulePath: "anatomicalTransformation",
+    source: "derived",
+    sourcePath: "anatomicalTransformation",
+  });
+  for (const lim of anatomicalTransformation.limitations) {
+    if (!limitations.includes(lim)) limitations.push(lim);
+  }
+  for (const issue of anatomicalTransformation.conflicts) {
+    if (issue.severity === "warning") {
+      warnings.push(issue.message);
+    }
+  }
+
   // Medication cannot dominate: primary magnitude from goal/timeline
   // (enforced by BODY_SIM_MED_MAX_* caps)
 
@@ -946,6 +963,7 @@ export function buildBodySimulatorTransformationRules(
       confidenceReasons: [...confidenceReasons],
     },
     regions,
+    anatomicalTransformation,
     preservation: {
       identity: "preserve",
       originalPresentation: "preserve",
