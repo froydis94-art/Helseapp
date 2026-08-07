@@ -35,6 +35,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, "..", "..", "..");
 const controlRoomDir = join(__dirname, "..", "control-room");
 const apiPath = join(repoRoot, "api", "ai-os-control-room.ts");
+const sharedAccessPath = join(
+  repoRoot,
+  "api",
+  "_shared",
+  "controlRoomAccess.ts"
+);
 const apiJsPath = join(repoRoot, "api", "ai-os-control-room.js");
 const runtimeBridgePath = join(repoRoot, "api", "_control-room-runtime.ts");
 const imageRoutePath = join(repoRoot, "api", "generate-future-you.js");
@@ -734,19 +740,21 @@ describe("DEMAND_016 Control Room", () => {
     });
 
     it("51. Timing-safe fixed-length digest comparison is used", () => {
-      assert.match(apiSource, /timingSafeEqual/);
-      assert.match(apiSource, /createHash\("sha256"\)/);
+      const sharedSource = read(sharedAccessPath);
+      assert.match(sharedSource, /timingSafeEqual/);
+      assert.match(sharedSource, /createHash\("sha256"\)/);
+      assert.match(sharedSource, /digestAccessKey/);
       assert.match(apiSource, /digestAccessKey/);
       assert.equal(
-        /left\.length\s*!==\s*right\.length/.test(apiSource),
+        /left\.length\s*!==\s*right\.length/.test(sharedSource),
         false
       );
       assert.equal(
-        /if\s*\(\s*left\.length\s*!==\s*right\.length\s*\)/.test(apiSource),
+        /if\s*\(\s*left\.length\s*!==\s*right\.length\s*\)/.test(sharedSource),
         false
       );
       assert.equal(
-        /Buffer\.from\(\s*[ab]\s*,\s*["']utf8["']\s*\)/.test(apiSource),
+        /Buffer\.from\(\s*[ab]\s*,\s*["']utf8["']\s*\)/.test(sharedSource),
         false
       );
     });
@@ -943,19 +951,18 @@ describe("DEMAND_016 Control Room", () => {
       const { timingSafeStringEqual } = await loadAccessKeyAuthHelpers();
       assert.equal(timingSafeStringEqual("", expectedKey), false);
       assert.equal(timingSafeStringEqual(expectedKey, ""), false);
-      const apiSource = read(apiPath);
+      const sharedSource = read(sharedAccessPath);
       assert.match(
-        apiSource,
+        sharedSource,
         /provided == null \|\| provided\.length === 0\) return false;\r?\n\s*return timingSafeStringEqual/
       );
     });
 
     it("93. Comparison source contains no early original-length equality branch", () => {
-      const apiSource = read(apiPath);
-      const compareFn = apiSource.slice(
-        apiSource.indexOf("function timingSafeStringEqual"),
-        apiSource.indexOf("function isAuthorized")
-      );
+      const sharedSource = read(sharedAccessPath);
+      const start = sharedSource.indexOf("export function timingSafeStringEqual");
+      const end = sharedSource.indexOf("function normalizeHeaderToken");
+      const compareFn = sharedSource.slice(start, end);
       assert.ok(compareFn.length > 0);
       assert.equal(/provided\.length|expected\.length/.test(compareFn), false);
       assert.equal(/left\.length|right\.length/.test(compareFn), false);
@@ -965,10 +972,10 @@ describe("DEMAND_016 Control Room", () => {
 
     it("94. Comparison uses fixed-length SHA-256 digests", async () => {
       const { digestAccessKey } = await loadAccessKeyAuthHelpers();
-      const apiSource = read(apiPath);
-      assert.match(apiSource, /createHash\("sha256"\)/);
-      assert.match(apiSource, /\.update\(value,\s*"utf8"\)/);
-      assert.match(apiSource, /\.digest\(\)/);
+      const sharedSource = read(sharedAccessPath);
+      assert.match(sharedSource, /createHash\("sha256"\)/);
+      assert.match(sharedSource, /\.update\(value,\s*"utf8"\)/);
+      assert.match(sharedSource, /\.digest\(\)/);
       const a = digestAccessKey("alpha");
       const b = digestAccessKey("beta-longer-value");
       assert.equal(a.length, 32);
@@ -986,16 +993,17 @@ describe("DEMAND_016 Control Room", () => {
       assert.equal(providedDigest.length, expectedDigest.length);
       assert.equal(providedDigest.length, 32);
       assert.equal(timingSafeStringEqual(provided, expected), false);
-      const apiSource = read(apiPath);
+      const sharedSource = read(sharedAccessPath);
       assert.match(
-        apiSource,
+        sharedSource,
         /timingSafeEqual\(\s*providedDigest\s*,\s*expectedDigest\s*\)/
       );
     });
 
     it("96. Key and digest are never returned in API responses", () => {
       const apiSource = read(apiPath);
-      assert.equal(apiSource.includes("providedDigest"), true);
+      const sharedSource = read(sharedAccessPath);
+      assert.equal(sharedSource.includes("providedDigest"), true);
       assert.equal(/json\([^)]*digest/i.test(apiSource), false);
       assert.equal(/message:.*digest/i.test(apiSource), false);
       assert.equal(
@@ -1014,7 +1022,7 @@ describe("DEMAND_016 Control Room", () => {
       for (const code of responseBodies) {
         assert.match(apiSource, new RegExp(code));
       }
-      assert.equal(apiSource.includes("digestAccessKey(provided)"), true);
+      assert.equal(sharedSource.includes("digestAccessKey(provided)"), true);
       // Digests must never appear inside a json(...) response argument.
       // Keep the window tight so later `module.exports.digestAccessKey` is not a false positive.
       assert.equal(
@@ -1383,8 +1391,9 @@ describe("DEMAND_016 Control Room", () => {
     it("14. Fixed-length digest comparison remains intact", async () => {
       const { digestAccessKey, timingSafeStringEqual } =
         await loadAccessKeyAuthHelpers();
-      assert.match(apiSource, /createHash\("sha256"\)/);
-      assert.match(apiSource, /timingSafeEqual/);
+      const sharedSource = read(sharedAccessPath);
+      assert.match(sharedSource, /createHash\("sha256"\)/);
+      assert.match(sharedSource, /timingSafeEqual/);
       const a = digestAccessKey("alpha");
       const b = digestAccessKey("beta-longer");
       assert.equal(a.length, 32);
@@ -1569,9 +1578,12 @@ describe("DEMAND_016 Control Room", () => {
       assert.equal(/maxDuration\s*:\s*60/.test(apiSource), false);
     });
 
-    it("3. Crypto import uses CommonJS broad compatibility form", () => {
-      assert.match(apiSource, /require\("crypto"\)/);
+    it("3. Crypto import uses Node crypto module (shared access helpers)", () => {
+      const sharedSource = read(sharedAccessPath);
+      assert.match(sharedSource, /from ["']crypto["']/);
+      assert.equal(/node:crypto/.test(sharedSource), false);
       assert.equal(/node:crypto/.test(apiSource), false);
+      assert.match(apiSource, /controlRoomAccess/);
     });
 
     it("4. Response meta identity remains 1.1", async () => {
@@ -1636,8 +1648,9 @@ describe("DEMAND_016 Control Room", () => {
     it("9. SHA-256 timing-safe auth remains intact", async () => {
       const { digestAccessKey, timingSafeStringEqual } =
         await loadAccessKeyAuthHelpers();
-      assert.match(apiSource, /createHash\("sha256"\)/);
-      assert.match(apiSource, /timingSafeEqual/);
+      const sharedSource = read(sharedAccessPath);
+      assert.match(sharedSource, /createHash\("sha256"\)/);
+      assert.match(sharedSource, /timingSafeEqual/);
       assert.equal(digestAccessKey("x").length, 32);
       assert.equal(
         timingSafeStringEqual(PATCH_016B_TEST_KEY, PATCH_016B_TEST_KEY),
@@ -2103,8 +2116,9 @@ describe("DEMAND_016 Control Room", () => {
     it("12. SHA-256 timing-safe auth remains unchanged", async () => {
       const { digestAccessKey, timingSafeStringEqual } =
         await loadAccessKeyAuthHelpers();
-      assert.match(apiSource, /createHash\("sha256"\)/);
-      assert.match(apiSource, /timingSafeEqual/);
+      const sharedSource = read(sharedAccessPath);
+      assert.match(sharedSource, /createHash\("sha256"\)/);
+      assert.match(sharedSource, /timingSafeEqual/);
       assert.equal(digestAccessKey("x").length, 32);
       assert.equal(
         timingSafeStringEqual(PATCH_016B_TEST_KEY, PATCH_016B_TEST_KEY),
@@ -2474,8 +2488,9 @@ describe("DEMAND_016 Control Room", () => {
     it("9. SHA-256 timing-safe header auth remains unchanged", async () => {
       const { digestAccessKey, timingSafeStringEqual } =
         await loadAccessKeyAuthHelpers();
-      assert.match(apiSource, /createHash\("sha256"\)/);
-      assert.match(apiSource, /timingSafeEqual/);
+      const sharedSource = read(sharedAccessPath);
+      assert.match(sharedSource, /createHash\("sha256"\)/);
+      assert.match(sharedSource, /timingSafeEqual/);
       assert.equal(apiSource.includes("cookie"), false);
       assert.equal(
         timingSafeStringEqual(PATCH_016B_TEST_KEY, PATCH_016B_TEST_KEY),
@@ -2791,9 +2806,10 @@ describe("DEMAND_016 Control Room", () => {
 
     it("10. Auth rejection paths preserve header-only SHA-256 model", async () => {
       const mod = await loadAccessKeyAuthHelpers();
-      assert.match(apiSource, /createHash\("sha256"\)/);
-      assert.match(apiSource, /timingSafeEqual/);
-      assert.match(apiSource, /X-AI-OS-Control-Room-Key|x-ai-os-control-room-key/);
+      const sharedSource = read(sharedAccessPath);
+      assert.match(sharedSource, /createHash\("sha256"\)/);
+      assert.match(sharedSource, /timingSafeEqual/);
+      assert.match(apiSource, /X-AI-OS-Control-Room-Key|x-ai-os-control-room-key|controlRoomAccess/);
       assert.equal(apiSource.includes("cookie"), false);
       assert.equal(apiSource.includes("document.cookie"), false);
       await withControlRoomEnv(

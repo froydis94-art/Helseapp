@@ -5,8 +5,8 @@
  * Access key: AI_OS_CONTROL_ROOM_ACCESS_KEY (header X-AI-OS-Control-Room-Key)
  *
  * Disabled by default. No CORS wildcard. No secrets returned.
- * Auth helpers are duplicated (not imported from Control Room route) so the
- * existing Control Room unlock path stays untouched.
+ * Access-key helpers are shared via api/_shared/controlRoomAccess.ts so
+ * Vercel/api typecheck does not collide with Control Room route symbols.
  *
  * Vercel Node cannot runtime-load the src TypeScript AI OS graph (dynamic
  * import of the service module fails with ERR_UNSUPPORTED_DIR_IMPORT on
@@ -17,13 +17,15 @@
  * No api sibling runtime bridge. No JS shim. No legacy Replicate helper bypass.
  */
 
-// CJS crypto require kept for broad Vercel Node compatibility.
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const crypto = require("crypto") as typeof import("crypto");
-
-const ACCESS_HEADER = "x-ai-os-control-room-key";
-const ACCESS_HEADER_CANONICAL = "X-AI-OS-Control-Room-Key";
-const MIN_ACCESS_KEY_LENGTH = 24;
+import {
+  digestAccessKey,
+  getConfiguredAccessKey,
+  isAuthorized,
+  readEnv,
+  resolveControlRoomAccessHeader,
+  timingSafeStringEqual,
+  type VercelLikeResponse,
+} from "./_shared/controlRoomAccess";
 
 const PREVIEW_RESPONSE_META = {
   service: "ai-os-image-preview",
@@ -38,7 +40,7 @@ const RATE_WINDOW_MS = 60 * 60 * 1000;
 /** Best-effort in-memory hourly cap (per serverless instance). */
 const rateBuckets = new Map<string, number[]>();
 
-const ALLOWED_SCENARIO_IDS = new Set([
+const ALLOWED_SCENARIO_IDS: Set<string> = new Set([
   "balanced_recomposition_12w",
   "upper_body_definition_8w",
   "gradual_fat_loss_16w",
@@ -120,13 +122,6 @@ type ImagePreviewServiceModuleShape = {
 
 const PROVIDER_SAFETY_BLOCKED_MESSAGE =
   "The AI provider declined this image under its safety policy. HelseApp did not bypass the safety filter. Clearly adult, neutral and non-sexual underwear or fitness photos are supported by HelseApp, but an external provider may still decline some images.";
-
-type VercelLikeResponse = {
-  setHeader(name: string, value: string): void;
-  status(code: number): { json(body: unknown): void; end(): void };
-  json?(body: unknown): void;
-  end?(): void;
-};
 
 const apiHelpers = {
   /**
@@ -212,20 +207,8 @@ function isImagePreviewServiceError(
   );
 }
 
-function readEnv(name: string): string | undefined {
-  if (typeof process === "undefined" || process.env == null) return undefined;
-  const value = process.env[name];
-  return typeof value === "string" ? value : undefined;
-}
-
 function isPreviewEnabled(): boolean {
   return readEnv("AI_OS_IMAGE_PREVIEW_ENABLED") === "1";
-}
-
-function getConfiguredAccessKey(): string | undefined {
-  const key = readEnv("AI_OS_CONTROL_ROOM_ACCESS_KEY");
-  if (key == null || key.length < MIN_ACCESS_KEY_LENGTH) return undefined;
-  return key;
 }
 
 function parseMaxRequestsPerHour(): number {
@@ -235,98 +218,6 @@ function parseMaxRequestsPerHour(): number {
   if (!Number.isFinite(n) || !Number.isInteger(n)) return DEFAULT_MAX_PER_HOUR;
   if (n < MIN_MAX_PER_HOUR || n > MAX_MAX_PER_HOUR) return DEFAULT_MAX_PER_HOUR;
   return n;
-}
-
-function digestAccessKey(value: string): Buffer {
-  return crypto.createHash("sha256").update(value, "utf8").digest();
-}
-
-function timingSafeStringEqual(provided: string, expected: string): boolean {
-  const providedDigest = digestAccessKey(provided);
-  const expectedDigest = digestAccessKey(expected);
-  return crypto.timingSafeEqual(providedDigest, expectedDigest);
-}
-
-function normalizeHeaderToken(value: unknown): string | undefined {
-  if (typeof value === "string") return value;
-  if (Array.isArray(value)) {
-    const first = value[0];
-    return typeof first === "string" ? first : undefined;
-  }
-  return undefined;
-}
-
-function resolveControlRoomAccessHeader(headers: unknown): string | undefined {
-  if (headers == null) return undefined;
-  const target = ACCESS_HEADER;
-
-  const headersObj = headers as {
-    get?: (name: string) => unknown;
-    entries?: () => IterableIterator<[string, unknown]> | Array<[string, unknown]>;
-    forEach?: (cb: (value: unknown, key: string) => void) => void;
-    [key: string]: unknown;
-  };
-
-  if (typeof headersObj.get === "function") {
-    const viaGet =
-      normalizeHeaderToken(headersObj.get(ACCESS_HEADER_CANONICAL)) ??
-      normalizeHeaderToken(headersObj.get(ACCESS_HEADER)) ??
-      normalizeHeaderToken(headersObj.get(target));
-    if (viaGet != null) return viaGet;
-  }
-
-  const direct =
-    normalizeHeaderToken(headersObj[ACCESS_HEADER_CANONICAL]) ??
-    normalizeHeaderToken(headersObj[ACCESS_HEADER]) ??
-    normalizeHeaderToken(headersObj[target]);
-  if (direct != null) return direct;
-
-  if (typeof headersObj.entries === "function") {
-    try {
-      for (const entry of headersObj.entries() as Iterable<[string, unknown]>) {
-        const key = entry?.[0];
-        const value = entry?.[1];
-        if (typeof key === "string" && key.toLowerCase() === target) {
-          const resolved = normalizeHeaderToken(value);
-          if (resolved != null) return resolved;
-        }
-      }
-    } catch {
-      // Fall through.
-    }
-  }
-
-  if (typeof headersObj.forEach === "function") {
-    let found: string | undefined;
-    try {
-      headersObj.forEach((value, key) => {
-        if (found != null) return;
-        if (typeof key === "string" && key.toLowerCase() === target) {
-          found = normalizeHeaderToken(value);
-        }
-      });
-    } catch {
-      found = undefined;
-    }
-    if (found != null) return found;
-  }
-
-  for (const key of Object.keys(headersObj)) {
-    if (key.toLowerCase() === target) {
-      const resolved = normalizeHeaderToken(headersObj[key]);
-      if (resolved != null) return resolved;
-    }
-  }
-
-  return undefined;
-}
-
-function isAuthorized(req: { headers?: unknown }): boolean {
-  const expected = getConfiguredAccessKey();
-  if (expected == null) return false;
-  const provided = resolveControlRoomAccessHeader(req.headers);
-  if (provided == null || provided.length === 0) return false;
-  return timingSafeStringEqual(provided, expected);
 }
 
 function rateKeyFromHeaders(headers: unknown): string | undefined {
@@ -823,6 +714,7 @@ async function handlePost(
       billingConfirmed: unknown;
       sourceImageDataUri: unknown;
       promptIsolationVariant?: unknown;
+      generationPath?: unknown;
     }): Promise<unknown>;
   };
   try {

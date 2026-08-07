@@ -504,12 +504,13 @@ describe("imagePreview — DEMAND_017", () => {
       assert.equal(a.length, 32);
       assert.equal(b.length, 32);
       assert.equal(a.length, b.length);
-      const previewSrc = read(apiPath);
-      const controlSrc = read(controlRoomApiPath);
-      assert.match(previewSrc, /createHash\("sha256"\)/);
-      assert.match(controlSrc, /createHash\("sha256"\)/);
-      assert.match(previewSrc, /timingSafeEqual/);
-      assert.match(controlSrc, /timingSafeEqual/);
+      const sharedSrc = read(
+        join(repoRoot, "api", "_shared", "controlRoomAccess.ts")
+      );
+      assert.match(sharedSrc, /createHash\("sha256"\)/);
+      assert.match(sharedSrc, /timingSafeEqual/);
+      assert.match(read(apiPath), /controlRoomAccess/);
+      assert.match(read(controlRoomApiPath), /controlRoomAccess/);
     });
   });
 
