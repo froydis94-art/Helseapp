@@ -526,6 +526,18 @@ If E005 persists: remaining issue is likely outside authorized HelseApp repair (
 
 ---
 
+## Provider capability evaluation (022E-D)
+
+Investigation-only report (no routing/provider implementation):
+
+→ [22E-D — Provider Capability & Fallback Evaluation](./22E_D_PROVIDER_CAPABILITY_EVALUATION.md)
+
+Typed freeze: `src/ai/body-simulator/ProviderCapabilityEvaluationReport.ts`.
+
+Key finding: legacy `generateWithReplicate` may cascade to Max/Dev after E005; live Body Simulator path uses one Flux Kontext Pro request and does not fall back. Architecture recommendation (not implemented): ordered fallback after owner-run single-model experiments.
+
+---
+
 ## Next milestone
 
 If manual retest proves the new pipeline visibly responds to body-fat / timeline / focus:

@@ -7,6 +7,7 @@
  * Live Future preview bridge (022E) is feature-flagged; default OFF.
  * Neutral anatomical prompt conditioning (022E-B) is provider-facing only.
  * Provider safety attribution diagnostics (022E-C) are secret-free.
+ * Provider capability evaluation report (022E-D) is investigation-only.
  */
 
 export {
@@ -229,6 +230,32 @@ export type {
   ProviderSafetyAttributionDiagnostic,
   SafeSourceImageInspection,
 } from "./ProviderSafetyAttributionDiagnostic";
+
+export {
+  OPENAI_DEFAULT_EDIT_MODEL,
+  PROVIDER_CAPABILITY_EVALUATION_SCHEMA_VERSION,
+  REPLICATE_FLUX_KONTEXT_DEV,
+  REPLICATE_FLUX_KONTEXT_MAX,
+  REPLICATE_FLUX_KONTEXT_PRO,
+  REPLICATE_SDXL_VERSIONED,
+  buildLegacyGenerationCascadeReport,
+  buildLiveBodySimulatorProviderPathReport,
+  buildProviderCapabilityEvaluationReport,
+  buildProviderInventory,
+  listInventoriedModelIds,
+} from "./ProviderCapabilityEvaluationReport";
+export type {
+  ArchitectureOptionEvaluation,
+  ArchitectureOptionId,
+  CapabilityRating,
+  CapabilityRow,
+  LegacyCascadeAttemptSpec,
+  LegacyGenerationCascadeReport,
+  LiveBodySimulatorProviderPathReport,
+  ProviderCapabilityEvaluationReport,
+  ProviderInventoryEntry,
+  ProviderModelRole,
+} from "./ProviderCapabilityEvaluationReport";
 
 export {
   BODY_SIMULATOR_FIXTURE_BUILDERS,
