@@ -123,6 +123,15 @@
     "bodySimulatorLimitationsBody"
   );
   var bodySimulatorJsonView = document.getElementById("bodySimulatorJsonView");
+  var liveFuturePreviewTraceStatus = document.getElementById(
+    "liveFuturePreviewTraceStatus"
+  );
+  var liveFuturePreviewTraceStages = document.getElementById(
+    "liveFuturePreviewTraceStages"
+  );
+  var liveFuturePreviewTraceJsonView = document.getElementById(
+    "liveFuturePreviewTraceJsonView"
+  );
   var formatterInputReceivedBody = document.getElementById(
     "formatterInputReceivedBody"
   );
@@ -3680,6 +3689,189 @@
     setBodySimulatorStatusChip("not_run");
   }
 
+  function clearLiveFuturePreviewTraceViews() {
+    if (liveFuturePreviewTraceStatus) clearChildren(liveFuturePreviewTraceStatus);
+    if (liveFuturePreviewTraceStages) clearChildren(liveFuturePreviewTraceStages);
+    if (liveFuturePreviewTraceJsonView) setText(liveFuturePreviewTraceJsonView, "");
+  }
+
+  function synthesizeLiveFuturePreviewTrace(bodySimulator) {
+    var anat =
+      bodySimulator &&
+      bodySimulator.projection &&
+      bodySimulator.projection.anatomicalTransformation
+        ? bodySimulator.projection.anatomicalTransformation
+        : null;
+    var summary =
+      bodySimulator && bodySimulator.inputSummary
+        ? bodySimulator.inputSummary
+        : null;
+    var bf =
+      anat && anat.bodyFatContext
+        ? anat.bodyFatContext
+        : {
+            currentPercent: null,
+            targetPercent: null,
+            deltaPercentagePoints: null,
+          };
+    return [
+      {
+        id: "public_future_input",
+        label: "Public Future Input",
+        status: "ok",
+        values: {
+          note: "Control Room dry-run / shadow fixture path (not public form)",
+        },
+        warnings: [],
+      },
+      {
+        id: "body_simulator_input",
+        label: "Body Simulator Input",
+        status: bodySimulator && bodySimulator.rules ? "ok" : "pending",
+        values: {
+          goalType: summary && summary.goalType ? summary.goalType : null,
+          timelineWeeks:
+            summary && summary.timelineWeeks != null
+              ? summary.timelineWeeks
+              : null,
+        },
+        warnings: [],
+      },
+      {
+        id: "body_fat_delta",
+        label: "Body Fat Delta",
+        status: bf.deltaPercentagePoints != null ? "ok" : "warn",
+        values: {
+          current: bf.currentPercent,
+          target: bf.targetPercent,
+          delta: bf.deltaPercentagePoints,
+        },
+        warnings: [],
+      },
+      {
+        id: "timeline_mapping",
+        label: "Timeline Mapping",
+        status: summary && summary.timelineWeeks != null ? "ok" : "pending",
+        values: {
+          weeks:
+            summary && summary.timelineWeeks != null
+              ? summary.timelineWeeks
+              : null,
+        },
+        warnings: [],
+      },
+      {
+        id: "focus_mapping",
+        label: "Focus Mapping",
+        status: "ok",
+        values: {
+          mapped:
+            anat && Array.isArray(anat.focusZones)
+              ? anat.focusZones.join(",")
+              : "",
+        },
+        warnings: [],
+      },
+      {
+        id: "anatomical_rules",
+        label: "Anatomical Rules",
+        status:
+          anat &&
+          Array.isArray(anat.appliedRuleIds) &&
+          anat.appliedRuleIds.length
+            ? "ok"
+            : "warn",
+        values: {
+          appliedCount:
+            anat && Array.isArray(anat.appliedRuleIds)
+              ? anat.appliedRuleIds.length
+              : 0,
+          features:
+            anat && Array.isArray(anat.rules)
+              ? anat.rules
+                  .map(function (r) {
+                    return r.feature;
+                  })
+                  .join(",")
+              : "",
+        },
+        warnings: [],
+      },
+      {
+        id: "formatter_translation",
+        label: "Formatter Translation",
+        status: "pending",
+        values: { note: "See Formatter Input / Preview panels" },
+        warnings: [],
+      },
+      {
+        id: "provider_attempt",
+        label: "Provider Attempt",
+        status: "skipped",
+        values: {
+          attempted: false,
+          note: "Dry-run / shadow — zero provider calls",
+        },
+        warnings: [],
+      },
+      {
+        id: "outcome",
+        label: "Outcome",
+        status: bodySimulator && bodySimulator.rules ? "ok" : "pending",
+        values: { generationPath: "control_room_shadow_dry_run" },
+        warnings: [],
+      },
+    ];
+  }
+
+  function renderLiveFuturePreviewTrace(trace, bodySimulator) {
+    clearLiveFuturePreviewTraceViews();
+    if (!liveFuturePreviewTraceStatus || !liveFuturePreviewTraceStages) return;
+
+    var stages =
+      Array.isArray(trace) && trace.length
+        ? trace
+        : synthesizeLiveFuturePreviewTrace(bodySimulator);
+
+    appendKv(liveFuturePreviewTraceStatus, "stages", String(stages.length));
+    appendKv(
+      liveFuturePreviewTraceStatus,
+      "source",
+      Array.isArray(trace) && trace.length
+        ? "liveFuturePreviewTrace"
+        : "synthesized_from_body_simulator"
+    );
+    appendKv(liveFuturePreviewTraceStatus, "editable", "no");
+
+    stages.forEach(function (stage) {
+      if (!stage || typeof stage !== "object") return;
+      var label = stage.label || stage.id || "stage";
+      var status = stage.status || "pending";
+      appendKv(liveFuturePreviewTraceStages, label + " status", String(status));
+      var values =
+        stage.values && typeof stage.values === "object" ? stage.values : {};
+      Object.keys(values).forEach(function (key) {
+        var val = values[key];
+        appendKv(
+          liveFuturePreviewTraceStages,
+          label + " / " + key,
+          val == null || val === "" ? "—" : String(val)
+        );
+      });
+      if (Array.isArray(stage.warnings) && stage.warnings.length) {
+        appendKv(
+          liveFuturePreviewTraceStages,
+          label + " warnings",
+          stage.warnings.join("; ")
+        );
+      }
+    });
+
+    if (liveFuturePreviewTraceJsonView) {
+      setText(liveFuturePreviewTraceJsonView, pretty(stages));
+    }
+  }
+
   function clearFormatterBridgeViews() {
     [
       formatterInputReceivedBody,
@@ -4793,6 +4985,10 @@
     renderFormatter(result.artifacts && result.artifacts.formattedRequest);
     renderVersions(result.runtime && result.runtime.versions);
     renderBodySimulatorInspector(result.bodySimulator);
+    renderLiveFuturePreviewTrace(
+      result.liveFuturePreviewTrace,
+      result.bodySimulator
+    );
     renderFormatterInputInspector(result.formatterInput);
     renderFormatterPreviewInspector(result.formatterPreview);
     renderFormatterComparisonInspector(result.formatterComparison);

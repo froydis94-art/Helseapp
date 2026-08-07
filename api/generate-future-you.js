@@ -6,6 +6,27 @@ function setCors(res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 }
 
+/**
+ * Demand 022E — server-authoritative live preview flag.
+ * Enabled only when env is exactly "1". Default OFF when absent.
+ * Browser cannot enable this.
+ */
+function isBodySimulatorLivePreviewEnabled() {
+  return process.env.BODY_SIMULATOR_LIVE_PREVIEW_ENABLED === "1";
+}
+
+function loadLiveFuturePreviewRuntime() {
+  // Lazy-load bundled AI OS graph only when flag is ON (Vercel Node cannot
+  // resolve src TypeScript barrel imports at runtime).
+  // eslint-disable-next-line import/no-dynamic-require, global-require
+  return require("../src/ai/body-simulator/liveFuturePreviewRuntime.bundle.cjs");
+}
+
+function toDataUri(imageBuffer, mimeType) {
+  const mime = mimeType || "image/jpeg";
+  return `data:${mime};base64,${imageBuffer.toString("base64")}`;
+}
+
 async function handler(req, res) {
   setCors(res);
 
@@ -49,6 +70,9 @@ async function handler(req, res) {
     const goalTitle = String(req.body?.goalTitle || "").trim();
     const horizonDate = String(req.body?.horizonDate || "").trim();
     const occasionLabel = String(req.body?.occasionLabel || "").trim();
+    const heightCm = req.body?.heightCm;
+    const weightKg = req.body?.weightKg;
+    const ageYears = req.body?.ageYears;
 
     const imageBase64 = req.body?.imageBase64;
     if (!imageBase64) {
@@ -63,6 +87,66 @@ async function handler(req, res) {
 
     if (!imageBuffer.length) {
       return res.status(400).json({ error: "Tomt bilde." });
+    }
+
+    // Demand 022E — single live Body Simulator / Anatomical path when flag ON.
+    // No dual provider requests. No silent legacy fallback on failure.
+    if (isBodySimulatorLivePreviewEnabled()) {
+      const runtime = loadLiveFuturePreviewRuntime();
+      const publicPayload = {
+        maal,
+        intensity,
+        horizon,
+        horizonDate,
+        focus,
+        zone,
+        zones: zones.length ? zones : zone ? [zone] : [],
+        fat,
+        muscle,
+        gender,
+        bfNow,
+        bfGoal,
+        medicine,
+        bmi,
+        heightCm,
+        weightKg,
+        ageYears,
+        goalTitle,
+      };
+
+      try {
+        const live = await runtime.runLiveFuturePreview({
+          payload: publicPayload,
+          sourceImageDataUri: toDataUri(imageBuffer, mimeType),
+          mimeType,
+          env: process.env,
+        });
+
+        return res.status(200).json({
+          ok: true,
+          imageUrl: live.imageUrl,
+          attempt: live.attempt,
+          usedFallback: false,
+          model: live.model,
+          livePreviewTraceId: live.livePreviewTraceId,
+          livePreviewDiagnostics: live.livePreviewDiagnostics,
+          liveFuturePreviewTrace: live.liveFuturePreviewTrace,
+          bodySimulatorPreviewActive: true,
+          disclaimer: live.disclaimer,
+        });
+      } catch (liveError) {
+        const errorClass =
+          liveError?.errorClass || "live_preview_provider_failed";
+        const status = liveError?.status || 500;
+        console.error("[generate-future-you] live-preview", errorClass, liveError);
+        return res.status(status).json({
+          error: liveError?.message || "Live Future preview failed.",
+          errorClass,
+          livePreviewTraceId: liveError?.livePreviewTraceId || null,
+          livePreviewDiagnostics: liveError?.diagnostics || null,
+          providerRequestCount: liveError?.providerCalls ?? 0,
+        });
+      }
     }
 
     const generated = await generateWithReplicate({

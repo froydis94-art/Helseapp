@@ -1,9 +1,10 @@
 /**
- * Body Simulator v1 — public barrel (Demand 022 / 022B / 022D).
+ * Body Simulator v1 — public barrel (Demand 022 / 022B / 022D / 022E).
  *
  * Deterministic provider-independent Transformation Engine.
  * Formatter adapter (022B) is internal-preview only — not production cutover.
  * Anatomical Transformation Engine v2 (022D) is the higher-detail canonical intent.
+ * Live Future preview bridge (022E) is feature-flagged; default OFF.
  */
 
 export {
@@ -146,6 +147,43 @@ export type {
   FormatterInputInspectionView,
   FormatterPreviewView,
 } from "./BodySimulatorFormatterAdapter";
+
+export {
+  BODY_SIMULATOR_LIVE_PREVIEW_ENV,
+  PUBLIC_FOCUS_ZONE_MAP,
+  adaptPublicFutureToBodySimulator,
+  isBodySimulatorLivePreviewEnabled,
+  mapPublicBodyFat,
+  mapPublicEffort,
+  mapPublicFocusZones,
+  mapPublicTimeline,
+} from "./PublicFutureToBodySimulatorAdapter";
+export type {
+  PublicBodyFatMappingResult,
+  PublicEffortMappingResult,
+  PublicFocusZoneMappingResult,
+  PublicFutureAdapterFailure,
+  PublicFutureAdapterResult,
+  PublicFuturePayload,
+  PublicTimelineMappingResult,
+} from "./PublicFutureToBodySimulatorAdapter";
+
+export {
+  LiveFuturePreviewError,
+  assertAnatomicalRulesTranslated,
+  buildLiveFuturePreviewTraceStages,
+  prepareLiveFuturePreview,
+  runLiveFuturePreview,
+  sha256FileBytes,
+} from "./LiveFuturePreviewPipeline";
+export type {
+  LiveBodySimulatorDiagnostics,
+  LiveFuturePreviewPreparation,
+  LiveFuturePreviewRunInput,
+  LiveFuturePreviewSuccess,
+  LiveFuturePreviewTraceStage,
+  LivePreviewErrorClass,
+} from "./LiveFuturePreviewPipeline";
 
 export {
   BODY_SIMULATOR_FIXTURE_BUILDERS,

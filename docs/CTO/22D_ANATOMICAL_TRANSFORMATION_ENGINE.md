@@ -296,7 +296,9 @@ Do not decide here:
 
 ## Next milestone
 
-After manual re-test:
+After manual re-test of Demand 022D anatomical rules, Demand 022E connects the Anatomical Engine to the real public Future path behind `BODY_SIMULATOR_LIVE_PREVIEW_ENABLED` — see [22E — Anatomical Live Preview Integration](./22E_ANATOMICAL_LIVE_PREVIEW_INTEGRATION.md).
+
+Then:
 
 **Demand 023 — Simulator Evaluation & Calibration v1**
 
