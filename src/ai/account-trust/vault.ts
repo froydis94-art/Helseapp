@@ -1,5 +1,8 @@
 /**
- * Private Progress Vault contracts — disabled without approved private storage.
+ * Private Progress Vault — secure storage and authorization layer under the
+ * Personal Progress Library (Patch 019A terminology).
+ *
+ * Disabled without approved private storage.
  * Never persist images to local disk, public/, or browser storage from this module.
  */
 

@@ -75,6 +75,17 @@ import {
   scheduleVaultDeletionOnAccountClosure,
   sourceImageMayAppearInLogs,
   authorizeVaultOwnerAccess,
+  PERSONAL_PROGRESS_LIBRARY_SCHEMA_VERSION,
+  LIBRARY_SAVE_LABEL,
+  LIBRARY_DISCARD_LABEL,
+  toPersonalProgressLibraryItem,
+  getPersonalProgressLibraryCapabilities,
+  isPersonalProgressTimelineImplemented,
+  isPersonalProgressDataExportImplemented,
+  libraryItemRejectsBrowserOwnerAuthority,
+  libraryMetadataMayContainDataUri,
+  libraryMetadataMayContainProviderToken,
+  libraryContractIncludesPublicObjectUrl,
 } from "../account-trust";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -677,6 +688,217 @@ describe("DEMAND_019 Personal Account Trust", () => {
       });
       assert.equal(state.package, "personal");
       assert.equal(state.privateVaultAllowed, false);
+    });
+  });
+
+  describe("PATCH_019A Personal Progress Library", () => {
+    it("1–3. Library / Vault / Timeline concepts", () => {
+      assert.equal(PERSONAL_PROGRESS_LIBRARY_SCHEMA_VERSION, 1);
+      assert.equal(VAULT_STORAGE_STATUS, "blocked_pending_approved_private_storage");
+      assert.equal(isVaultPersistenceEnabled(), false);
+      assert.equal(isPersonalProgressTimelineImplemented(), false);
+      const docs = read("docs/CTO/19_PERSONAL_ACCOUNT_TRUST_AND_VAULT.md");
+      assert.match(docs, /Personal Progress Library/);
+      assert.match(docs, /Private Progress Vault/);
+      assert.match(docs, /Progress Timeline/);
+      assert.match(docs, /not implemented in Demand 019 or Patch 019A/i);
+    });
+
+    it("4–8. Library item types", () => {
+      const types = [
+        "progress_photo",
+        "ai_future_visualization",
+        "measurement_record",
+        "body_analysis_report",
+        "user_note",
+        "reserved_future_item",
+      ] as const;
+      for (const t of types) {
+        assert.equal(typeof t, "string");
+      }
+      const caps = getPersonalProgressLibraryCapabilities();
+      assert.equal(caps.saveMeasurementRecord, false);
+      assert.equal(caps.saveBodyAnalysisReport, false);
+      assert.equal(caps.saveUserNote, false);
+    });
+
+    it("9–12. Privacy defaults", () => {
+      const image = createProgressImageMetadata({
+        imageId: "img-1",
+        ownerUserId: "owner-1",
+        createdAt: "2026-08-07T12:00:00.000Z",
+        source: "ai_generated_progress_visualization",
+        scenarioId: "balanced_recomposition_12w",
+        timelineDate: "2026-08-07",
+        privateStorageKey: "vault/owner-1/img-1",
+        mimeType: "image/jpeg",
+        byteLength: 1024,
+        aiGenerated: true,
+        transformationMetadataId: null,
+      });
+      const item = toPersonalProgressLibraryItem(image);
+      assert.equal(item.privacy.visibility, "private_owner_only");
+      assert.equal(item.privacy.shareable, false);
+      assert.equal(item.privacy.groupAccessible, false);
+      assert.equal(item.privacy.coachAccessible, false);
+      const caps = getPersonalProgressLibraryCapabilities();
+      assert.equal(caps.sharing, false);
+      assert.equal(caps.groupAccess, false);
+      assert.equal(caps.coachAccess, false);
+      assert.equal(caps.compareImages, false);
+      assert.equal(caps.timelineUi, false);
+    });
+
+    it("13–16. Authority and metadata safety", () => {
+      assert.equal(libraryItemRejectsBrowserOwnerAuthority(), true);
+      assert.equal(libraryMetadataMayContainDataUri(), false);
+      assert.equal(libraryMetadataMayContainProviderToken(), false);
+      assert.equal(libraryContractIncludesPublicObjectUrl(), false);
+      assert.throws(() =>
+        createProgressImageMetadata({
+          imageId: "bad",
+          ownerUserId: "o",
+          createdAt: "2026-08-07T12:00:00.000Z",
+          source: "user_progress_photo",
+          scenarioId: null,
+          timelineDate: "2026-08-07",
+          privateStorageKey: "https://cdn.example/public.jpg",
+          mimeType: "image/png",
+          byteLength: 10,
+          aiGenerated: false,
+          transformationMetadataId: null,
+        })
+      );
+      assert.equal(rejectPublicObjectUrl("https://x").rejected, true);
+    });
+
+    it("17–20. PersonalProgressImage adapter", () => {
+      const ai = createProgressImageMetadata({
+        imageId: "ai-1",
+        ownerUserId: "u1",
+        createdAt: "2026-08-07T12:00:00.000Z",
+        source: "ai_generated_progress_visualization",
+        scenarioId: "s1",
+        timelineDate: "2026-11-01",
+        privateStorageKey: "vault/u1/ai-1",
+        mimeType: "image/webp",
+        byteLength: 2048,
+        aiGenerated: true,
+        transformationMetadataId: "tm-1",
+      });
+      const photo = createProgressImageMetadata({
+        imageId: "ph-1",
+        ownerUserId: "u1",
+        createdAt: "2026-08-07T12:00:00.000Z",
+        source: "user_progress_photo",
+        scenarioId: null,
+        timelineDate: "2026-08-07",
+        privateStorageKey: "vault/u1/ph-1",
+        mimeType: "image/jpeg",
+        byteLength: 4096,
+        aiGenerated: false,
+        transformationMetadataId: null,
+      });
+      const aiItem = toPersonalProgressLibraryItem(ai);
+      const photoItem = toPersonalProgressLibraryItem(photo);
+      assert.equal(aiItem.itemType, "ai_future_visualization");
+      assert.equal(aiItem.provenance.source, "ai_generated");
+      assert.equal(photoItem.itemType, "progress_photo");
+      assert.equal(photoItem.provenance.source, "user_upload");
+      assert.equal(aiItem.lifecycle.deletionStatus, "active");
+      assert.equal(aiItem.lifecycle.deletedAt, null);
+      const deleted = markImageDeleted(ai, "u1", "2026-08-08T00:00:00.000Z");
+      const deletedItem = toPersonalProgressLibraryItem(deleted);
+      assert.equal(deletedItem.lifecycle.deletedAt, "2026-08-08T00:00:00.000Z");
+      assert.equal(deletedItem.lifecycle.deletionStatus, "completed");
+      assert.equal(deletedItem.itemId, "ai-1");
+      assert.equal(deletedItem.storage.mimeType, "image/webp");
+      assert.equal(deletedItem.provenance.disclaimerVersion, AI_VISUALIZATION_DISCLAIMER_VERSION);
+    });
+
+    it("21–23. Save opt-in and storage-unavailable", () => {
+      assert.equal(getDefaultPostGenerationChoice(), "discard");
+      assert.equal(DEFAULT_POST_GENERATION_CHOICE, "discard");
+      assert.equal(isSaveOptIn("discard"), false);
+      assert.equal(isSaveOptIn("save_privately"), true);
+      assert.match(LIBRARY_DISCARD_LABEL, /Discard after this session/);
+      assert.match(LIBRARY_SAVE_LABEL, /Personal Progress Library/);
+      const caps = getPersonalProgressLibraryCapabilities();
+      assert.equal(isApprovedPrivateStorageAvailable(), false);
+      assert.equal(caps.saveProgressPhoto, false);
+      assert.equal(caps.saveAiVisualization, false);
+      const blocked = evaluateVaultSaveRequest({
+        choice: "save_privately",
+        sensitiveDataConsentActive: true,
+        storageAvailable: false,
+        consentWithdrawnForFuture: false,
+      });
+      assert.equal(blocked.allowed, false);
+      assert.equal(blocked.code, "storage_unavailable");
+    });
+
+    it("24–25. Timeline and export contracts have no side effects", () => {
+      assert.equal(isPersonalProgressTimelineImplemented(), false);
+      assert.equal(isPersonalProgressDataExportImplemented(), false);
+      const query: import("../account-trust").PersonalProgressTimelineQuery = {
+        ownerUserId: "server-derived",
+        itemTypes: ["progress_photo"],
+        fromDate: null,
+        toDate: null,
+        limit: 10,
+        cursor: null,
+      };
+      void query;
+      const exportReq: import("../account-trust").PersonalProgressDataExportRequest = {
+        requestedByUserId: "server-derived",
+        scope: "library_metadata",
+        requestedAt: "2026-08-07T12:00:00.000Z",
+      };
+      void exportReq;
+    });
+
+    it("26–30. No Timeline / comparison / sharing / group / coach UI", () => {
+      const html = read("public/personal-account-trust.html");
+      assert.match(html, /Personal Progress Library/);
+      assert.equal(/timelineUi|compare two images|share publicly|coach access/i.test(html) && /implemented/i.test(html), false);
+      assert.match(html, /unavailable|disabled|not implemented/i);
+      assert.equal(getPersonalProgressLibraryCapabilities().timelineUi, false);
+      assert.equal(getPersonalProgressLibraryCapabilities().compareImages, false);
+      assert.equal(getPersonalProgressLibraryCapabilities().sharing, false);
+      assert.equal(getPersonalProgressLibraryCapabilities().groupAccess, false);
+      assert.equal(getPersonalProgressLibraryCapabilities().coachAccess, false);
+    });
+
+    it("31–34. No AI / provider / Control Room / production changes in this patch domain", () => {
+      assert.equal(existsSync(join(root, "src/ai/account-trust/PersonalProgressLibraryTypes.ts")), true);
+      const prod = read("api/generate-future-you.js");
+      assert.equal(/PersonalProgressLibrary|account-trust/i.test(prod), false);
+      const rep = read("lib/replicate.js");
+      assert.equal(/PersonalProgressLibrary/i.test(rep), false);
+      const cr = read("public/ai-os-control-room.js");
+      assert.equal(/PersonalProgressLibraryItem/i.test(cr), false);
+    });
+
+    it("35. Existing Demand 019 vault contracts still pass through adapter", () => {
+      assert.equal(VAULT_SECURITY_REQUIREMENTS.privateByDefault, true);
+      assert.equal(VAULT_SECURITY_REQUIREMENTS.noModelTrainingReuse, true);
+      const image = createProgressImageMetadata({
+        imageId: "legacy-1",
+        ownerUserId: "owner",
+        createdAt: "2026-08-07T12:00:00.000Z",
+        source: "user_progress_photo",
+        scenarioId: null,
+        timelineDate: "2026-08-07",
+        privateStorageKey: "vault/owner/legacy-1",
+        mimeType: "image/png",
+        byteLength: 99,
+        aiGenerated: false,
+        transformationMetadataId: null,
+      });
+      const item = toPersonalProgressLibraryItem(image);
+      assert.equal(item.schemaVersion, 1);
+      assert.equal(item.ownerUserId, "owner");
+      assert.equal(item.storage.privateStorageKey, "vault/owner/legacy-1");
     });
   });
 });

@@ -411,7 +411,7 @@ Permanent architectural rules:
 
 ## 23. Personal account trust and private progress
 
-Permanent product rules for Personal accounts and private progress images:
+Permanent product rules for Personal accounts and private progress:
 
 > A Personal account belongs to one adult account holder (minimum age 18).
 > Accounts must not be shared.
@@ -427,10 +427,13 @@ Permanent product rules for Personal accounts and private progress images:
 > AI-generated images are expected future visualizations, not medical
 > predictions, guaranteed outcomes, or promises.
 
-> Saving a progress image to a Personal Progress Vault is opt-in per image.
-> Default generation discards temporary results. Saved images remain private to
-> the Personal account. No model-training reuse without a separate future
-> optional consent.
+> The Personal Progress Library is the private, owner-only collection of
+> progress assets (including progress photos and AI visualizations). The
+> Private Progress Vault is the secure storage and authorization layer under
+> the Library. Saving to the Library is opt-in per item. Default generation
+> discards temporary results. No model-training reuse without a separate
+> future optional consent. Progress Timeline and comparison remain future UI
+> over Library items and must not be treated as implemented storage.
 
 > Misuse enforcement is warning-first by default. Severe or apparently unlawful
 > misuse may lock an account pending human review. No automatic fines, automatic

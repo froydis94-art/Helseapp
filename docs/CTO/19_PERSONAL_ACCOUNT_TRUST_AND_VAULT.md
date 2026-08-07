@@ -1,7 +1,8 @@
 # Personal Account Trust, Consent and Private Progress Vault
 
 Status:  
-Foundation — legal review and infrastructure gates required
+Foundation — legal review and infrastructure gates required  
+Patch 019A: Personal Progress Library domain generalization (no persistence activation)
 
 Authority: [HelseApp AI Constitution](./00_AI_CONSTITUTION.md)  
 Related: [Internal AI Image Preview](./17_INTERNAL_AI_IMAGE_PREVIEW.md)
@@ -61,40 +62,61 @@ Intended surfaces: first AI-use onboarding, beside first generated result, image
 
 ## Sensitive-data consent
 
-Separate from Terms. Explicit, withdrawable, and as easy to withdraw as to grant. Withdrawal blocks new Vault saves; deleting existing images is a separate informed choice (`future_processing_only` vs `withdraw_and_delete_vault`).
+Separate from Terms. Explicit, withdrawable, and as easy to withdraw as to grant. Withdrawal blocks new Personal Progress Library saves (via the Private Progress Vault); deleting existing items is a separate informed choice (`future_processing_only` vs `withdraw_and_delete_vault`).
 
-## Private Progress Vault
+## Personal Progress Library and Private Vault
 
-Opt-in private timeline for the account owner. Metadata contract: `PersonalProgressImage`.  
+**Personal Progress Library** — user-facing / domain collection of private, owner-owned progress assets. Intended item types include:
+
+- progress photographs
+- AI-generated future visualizations
+- future measurement records
+- future body-analysis reports
+- future user notes
+
+**Private Progress Vault** — secure storage and authorization layer underneath the Library (owner-only access, private object storage keys, deletion and export controls). The Vault concept is retained; it is not renamed away.
+
+**Progress Timeline** — future chronological UI over Library items. Not implemented in Demand 019 or Patch 019A.
+
+Specialized image metadata from Demand 019 (`PersonalProgressImage`) remains and adapts deterministically into `PersonalProgressLibraryItem` (`toPersonalProgressLibraryItem`). No database migration is claimed — this is a migration-safe domain foundation only.
+
 **Infrastructure status:** `blocked_pending_approved_private_storage`.  
 No local disk persistence on Vercel, no `public/` object storage, no `localStorage` / `sessionStorage` / cookie image persistence. Contracts and disabled UI only until an approved private-storage provider exists.
+
+Patch 019A does **not**:
+
+- activate persistence
+- build Timeline UI
+- build comparison
+- add groups
+- share images
 
 ## Image lifecycle
 
 Default after generation: **Discard after this session**.  
-Optional: **Save privately to my progress timeline** (requires sensitive-data consent + approved storage + per-image Save). Temporary generation remains available without permanent HelseApp storage.
+Optional: **Save privately to my Personal Progress Library** (requires sensitive-data consent + approved storage + per-image Save). Temporary generation remains available without permanent HelseApp storage. The Save option stays unavailable when approved private storage is missing.
 
 ## Comparison over time
 
-`ProgressComparisonReservation` reserves private two-image compare with dates, scenario, safe transformation metadata, and user notes. No body scoring, medical assessment, public share, or group share in this demand.
+`ProgressComparisonReservation` reserves private two-image compare with dates, scenario, safe transformation metadata, and user notes. No body scoring, medical assessment, public share, or group share in this demand. Image comparison remains capability `false` until a later demand.
 
 ## Data export
 
-User export of own timeline is a stated security requirement. Not implemented against real storage until a provider is approved.
+Reserved contract: `PersonalProgressDataExportRequest` (scopes: library metadata/images, agreements, complete account export). User export of own Library is a stated security requirement. Not implemented — no archives, no private image URLs. Actual export requires authenticated background processing and approved storage.
 
 ## Consent withdrawal
 
-Withdrawal always blocks new optional Vault saves. Modes:
+Withdrawal always blocks new optional Library / Vault saves. Modes:
 
 1. Withdraw future processing only  
 2. Withdraw and delete all Vault images  
 
-Existing images are not silently deleted without informing the user.
+Existing items are not silently deleted without informing the user.
 
 ## Account deletion
 
 Deletion states: `requested` → `scheduled` → `completed` | `partially_retained_for_legal_obligation`.  
-Offers account closure, Vault deletion, optional progress data deletion/anonymization, agreement retention only where legally necessary, subscription cancellation delegated to subscription rules. Do not claim immediate deletion from provider backups unless verified.
+Offers account closure, Vault / Library content deletion, optional progress data deletion/anonymization, agreement retention only where legally necessary, subscription cancellation delegated to subscription rules. Do not claim immediate deletion from provider backups unless verified.
 
 ## Misuse enforcement
 
@@ -226,7 +248,7 @@ Future rule: every participant has their own account and private identity; no sh
 - [ ] Feature flags default disabled
 - [ ] `npm run typecheck` / `test:ai` / `harness:ai` pass
 
-## Next milestone
+## Next milestones
 
 Demand 020 — Guided Progress Photo Capture
 
@@ -243,8 +265,14 @@ It will contain:
 - no long legal text
 - guidance only, not a judgment of the user
 
+Demand 021 — Personal Progress Timeline and Comparison  
+(after private storage is secure; Timeline query contract is reserved only)
+
+Demand 022 — Body Analysis / Body Simulator expansion
+
 ## Module map
 
-- `src/ai/account-trust/` — contracts, agreements, identity, packages, enforcement, vault, trust gate
-- `src/ai/__tests__/accountTrust.test.ts` — tests 1–50
+- `src/ai/account-trust/` — contracts, agreements, identity, packages, enforcement, vault, **Personal Progress Library types**, trust gate
+- `src/ai/account-trust/PersonalProgressLibraryTypes.ts` — Library item / capabilities / Timeline & export reservations / image adapter
+- `src/ai/__tests__/accountTrust.test.ts` — Demand 019 + Patch 019A tests
 - `public/personal-account-trust.html` — disabled UI scaffolding
