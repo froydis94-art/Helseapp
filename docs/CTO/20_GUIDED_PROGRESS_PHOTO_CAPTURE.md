@@ -136,6 +136,8 @@ Documentation only. Do not create buttons, UI, camera logic, body analysis, or c
 
 These capture modes are reserved for a future milestone.
 
+See also: [21_VISUAL_BODY_ANALYSIS_RESERVATIONS.md](./21_VISUAL_BODY_ANALYSIS_RESERVATIONS.md) — owner-approved multi-view analysis and visual body-fat estimation (contracts only).
+
 ## Permanent rule
 
 > Guided Progress Photo Capture helps users improve input consistency without judging or blocking their photograph.

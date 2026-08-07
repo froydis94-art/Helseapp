@@ -255,6 +255,10 @@ Demand 020 — Guided Progress Photo Capture — **implemented** on web `public/
 Demand 021 — Personal Progress Timeline and Comparison  
 (after private storage is secure; Timeline query contract is reserved only)
 
+Demand 021 preparation — Visual body analysis reservations:  
+[21_VISUAL_BODY_ANALYSIS_RESERVATIONS.md](./21_VISUAL_BODY_ANALYSIS_RESERVATIONS.md)  
+Visual body-fat estimation and front/side/back analysis are **approved future directions — not implemented**.
+
 Demand 022 — Body Analysis / Body Simulator expansion
 
 ## Module map
