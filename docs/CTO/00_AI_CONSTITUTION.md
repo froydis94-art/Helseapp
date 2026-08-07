@@ -408,3 +408,34 @@ Permanent architectural rules:
 
 > Future providers must consume the same Transformation Rules via their own
 > formatter; the inspector and comparison layers remain provider-independent.
+
+## 23. Personal account trust and private progress
+
+Permanent product rules for Personal accounts and private progress images:
+
+> A Personal account belongs to one adult account holder (minimum age 18).
+> Accounts must not be shared.
+
+> HelseApp must not estimate adulthood from appearance or body signals.
+> Preferred adulthood basis is identity-provider verification; account
+> attestation is a development fallback and must not be labelled verification.
+
+> Terms of Service, Privacy Notice acknowledgement, Responsible AI Use, and
+> Sensitive Data Consent are separate versioned records. Sensitive-data consent
+> is optional, explicit, and withdrawable, and must not be hidden inside Terms.
+
+> AI-generated images are expected future visualizations, not medical
+> predictions, guaranteed outcomes, or promises.
+
+> Saving a progress image to a Personal Progress Vault is opt-in per image.
+> Default generation discards temporary results. Saved images remain private to
+> the Personal account. No model-training reuse without a separate future
+> optional consent.
+
+> Misuse enforcement is warning-first by default. Severe or apparently unlawful
+> misuse may lock an account pending human review. No automatic fines, automatic
+> criminal determination, or automatic authority reporting.
+
+> Account-level acceptance may replace repeated adult/consent checkboxes only
+> after the server can prove the required trust state. Production enforcement
+> must not activate without real authentication and persistence.

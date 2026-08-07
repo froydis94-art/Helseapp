@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HelseApp — Personal Account Trust (foundation)</title>
+    <meta
+      name="description"
+      content="Feature-gated scaffolding for Personal account trust. Not production-ready."
+    />
+    <style>
+      :root {
+        --ink: #1c2430;
+        --muted: #5a6573;
+        --paper: #eef2f5;
+        --band: #d7e2ea;
+        --accent: #2f6f7e;
+        --warn: #8a4b12;
+        --badge: #6b3b12;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        color: var(--ink);
+        font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+        background:
+          radial-gradient(1200px 600px at 10% -10%, #dfeaf1 0%, transparent 55%),
+          linear-gradient(180deg, #f7fafc 0%, var(--paper) 100%);
+        line-height: 1.5;
+      }
+      main {
+        max-width: 42rem;
+        margin: 0 auto;
+        padding: 2.5rem 1.25rem 4rem;
+      }
+      h1 {
+        font-family: Georgia, "Times New Roman", serif;
+        font-weight: 600;
+        font-size: clamp(1.8rem, 4vw, 2.4rem);
+        margin: 0 0 0.5rem;
+      }
+      .lede {
+        color: var(--muted);
+        margin: 0 0 1.5rem;
+      }
+      .banner {
+        background: #fff6e8;
+        border-left: 4px solid var(--warn);
+        padding: 0.9rem 1rem;
+        margin-bottom: 1.75rem;
+      }
+      .banner strong {
+        color: var(--badge);
+      }
+      section {
+        margin: 0 0 1.5rem;
+        padding: 1rem 0;
+        border-top: 1px solid var(--band);
+      }
+      section h2 {
+        font-size: 1.05rem;
+        margin: 0 0 0.4rem;
+      }
+      .meta {
+        font-size: 0.85rem;
+        color: var(--muted);
+        margin: 0 0 0.6rem;
+      }
+      .badge {
+        display: inline-block;
+        font-size: 0.75rem;
+        letter-spacing: 0.02em;
+        color: #fff;
+        background: var(--badge);
+        padding: 0.15rem 0.45rem;
+      }
+      details {
+        margin-top: 0.5rem;
+      }
+      summary {
+        cursor: pointer;
+        color: var(--accent);
+      }
+      .disabled {
+        opacity: 0.72;
+      }
+      label {
+        display: flex;
+        gap: 0.55rem;
+        align-items: flex-start;
+        margin: 0.55rem 0;
+      }
+      input[type="checkbox"] {
+        margin-top: 0.25rem;
+      }
+      button {
+        margin-top: 0.75rem;
+        background: var(--band);
+        color: var(--muted);
+        border: 0;
+        padding: 0.65rem 1rem;
+        cursor: not-allowed;
+      }
+      .vault {
+        background: rgba(255, 255, 255, 0.55);
+        padding: 1rem;
+      }
+      footer {
+        margin-top: 2rem;
+        font-size: 0.85rem;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>HelseApp</h1>
+      <p class="lede">
+        Personal account trust foundation — agreements, adult model, and private
+        Progress Vault scaffolding.
+      </p>
+
+      <div class="banner">
+        <strong>Not production-ready.</strong>
+        Account enforcement and Vault persistence are disabled until approved
+        authentication and private storage exist. All legal copy is draft and
+        requires Norwegian/EU counsel review. This page does not replace Control
+        Room preview confirmations.
+      </div>
+
+      <p class="meta">
+        Feature flags (names only, default off): ACCOUNT_TRUST_FRAMEWORK_ENABLED,
+        PERSONAL_PROGRESS_VAULT_ENABLED, IDENTITY_VERIFICATION_REQUIRED
+      </p>
+
+      <section class="disabled" data-agreement="terms_of_service">
+        <h2>A. Terms of Service</h2>
+        <p class="meta">
+          Version 1.0-draft · Last updated 2026-08-07 ·
+          <span class="badge">Draft — requires legal review</span>
+        </p>
+        <p>
+          Contractual rules for using a Personal HelseApp account, to the extent
+          permitted by applicable law.
+        </p>
+        <details>
+          <summary>Expand full draft</summary>
+          <p>
+            This draft describes contractual account use for a Personal account.
+            It is not final legal advice and is not approved for public launch.
+            Account use is personal. Accounts must not be shared. Refund
+            eligibility following suspension is determined under the subscription
+            terms and applicable consumer law.
+          </p>
+        </details>
+        <label>
+          <input type="checkbox" disabled />
+          <span>I accept the Terms of Service (disabled — no account persistence)</span>
+        </label>
+      </section>
+
+      <section class="disabled" data-agreement="privacy_notice">
+        <h2>B. Privacy Notice acknowledgement</h2>
+        <p class="meta">
+          Version 1.0-draft · Last updated 2026-08-07 ·
+          <span class="badge">Draft — requires legal review</span>
+        </p>
+        <p>
+          Confirms receipt of the Privacy Notice. This is not consent to every
+          processing operation.
+        </p>
+        <details>
+          <summary>Expand full draft</summary>
+          <p>
+            Optional sensitive-data processing requires a separate consent. Final
+            privacy wording requires Norwegian/EU counsel review before launch.
+          </p>
+        </details>
+        <label>
+          <input type="checkbox" disabled />
+          <span>I acknowledge the Privacy Notice (disabled)</span>
+        </label>
+      </section>
+
+      <section class="disabled" data-agreement="responsible_ai_use">
+        <h2>C. Responsible AI Use Agreement</h2>
+        <p class="meta">
+          Version 1.0-draft · Last updated 2026-08-07 ·
+          <span class="badge">Draft — requires legal review</span>
+        </p>
+        <p>
+          Personal account and misuse rules. Misuse may result in a warning,
+          temporary restriction or permanent suspension. Severe cases may be
+          restricted immediately pending review.
+        </p>
+        <details>
+          <summary>Expand full draft</summary>
+          <p>
+            This account is personal and may only be used by its registered
+            account holder. I will upload only images of myself, or content I am
+            legally entitled and authorized to use. HelseApp may preserve relevant
+            records and cooperate with competent authorities where required or
+            permitted by applicable law.
+          </p>
+        </details>
+        <label>
+          <input type="checkbox" disabled />
+          <span>I accept Responsible AI Use (disabled)</span>
+        </label>
+      </section>
+
+      <section class="disabled" data-agreement="sensitive_data_consent">
+        <h2>D. Sensitive Data Consent (optional)</h2>
+        <p class="meta">
+          Version 1.0-draft · Last updated 2026-08-07 ·
+          <span class="badge">Draft — requires legal review</span>
+        </p>
+        <p>
+          Separate, withdrawable consent for optional Private Progress Vault
+          storage and longitudinal comparison. Not part of Terms of Service.
+        </p>
+        <details>
+          <summary>Expand full draft</summary>
+          <p>
+            Consent is as easy to withdraw as it is to grant. No model-training
+            reuse without a future separate optional consent.
+          </p>
+        </details>
+        <label>
+          <input type="checkbox" disabled />
+          <span>I consent to sensitive Vault processing (disabled)</span>
+        </label>
+      </section>
+
+      <section class="vault disabled">
+        <h2>Private Progress Vault</h2>
+        <p>
+          After each successful generation you may choose Discard (default) or
+          Save privately. Vault persistence is blocked pending an approved
+          private-storage provider. Images are never written to browser storage
+          from this page.
+        </p>
+        <label>
+          <input type="radio" name="vault-choice" checked disabled />
+          <span>Discard after this session (default)</span>
+        </label>
+        <label>
+          <input type="radio" name="vault-choice" disabled />
+          <span>Save privately to my progress timeline (unavailable)</span>
+        </label>
+        <p class="meta">
+          AI disclaimer (v1.0-draft): AI-generated images are expected future
+          visualizations based on the information and scenario provided. They are
+          not medical predictions, guaranteed outcomes or promises of actual
+          results.
+        </p>
+        <p class="meta">
+          Adulthood: preferred identity_provider_verified. Development fallback
+          is account attestation — not identity verification. Minimum age 18.
+          Appearance-based age estimation is not used.
+        </p>
+      </section>
+
+      <button type="button" disabled>
+        Continue (account framework disabled)
+      </button>
+
+      <footer>
+        Control Room remains a separate developer tool. Preview adult, consent,
+        and billing confirmations stay required until a real server-side trust
+        gate is proven. See docs/CTO/19_PERSONAL_ACCOUNT_TRUST_AND_VAULT.md.
+      </footer>
+    </main>
+  </body>
+</html>
