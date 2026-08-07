@@ -46,6 +46,257 @@ function createAiOsRuntimeDependencies(options) {
 // src/ai/runtime/AiOsRuntime.ts
 var import_node_crypto = require("node:crypto");
 
+// src/ai/body-simulator/BodySimulatorFormatterAdapter.ts
+var CANONICAL_BODY_TRANSFORMATION_SCHEMA_VERSION = 1;
+var CANONICAL_BODY_TRANSFORMATION_SOURCE = "body_simulator_v1";
+function intensityToVisibility(intensity) {
+  switch (intensity) {
+    case "conservative":
+      return "restrained";
+    case "ambitious":
+      return "pronounced";
+    case "realistic":
+    default:
+      return "clear";
+  }
+}
+function formatRange(label, range) {
+  const unit = range.unit === "percentage_points" ? " pp" : ` ${range.unit}`;
+  const lower = range.lower == null ? "n/a" : String(range.lower);
+  const expected = range.expected == null ? "n/a" : String(range.expected);
+  const upper = range.upper == null ? "n/a" : String(range.upper);
+  return `${label}: lower ${lower}${unit}, expected ${expected}${unit}, upper ${upper}${unit} (${range.origin})`;
+}
+function fatChangePhrase(change) {
+  switch (change) {
+    case "strong_decrease":
+      return "strong fat reduction";
+    case "moderate_decrease":
+      return "moderate fat reduction";
+    case "slight_decrease":
+      return "slight fat reduction";
+    case "stable":
+      return "stable fat";
+    case "slight_increase":
+      return "slight fat increase";
+    case "moderate_increase":
+      return "moderate fat increase";
+    case "unknown":
+    default:
+      return "unspecified fat change";
+  }
+}
+function muscleChangePhrase(change) {
+  switch (change) {
+    case "moderate_decrease":
+      return "moderate muscle decrease";
+    case "slight_decrease":
+      return "slight muscle decrease";
+    case "stable":
+      return "stable muscle";
+    case "slight_increase":
+      return "slight muscle increase";
+    case "moderate_increase":
+      return "moderate muscle increase";
+    case "strong_increase":
+      return "strong muscle increase";
+    case "unknown":
+    default:
+      return "unspecified muscle change";
+  }
+}
+function fatToRenderKind(change) {
+  if (change === "strong_decrease" || change === "moderate_decrease" || change === "slight_decrease") {
+    return "fat_reduction";
+  }
+  if (change === "slight_increase" || change === "moderate_increase") {
+    return "fat_increase";
+  }
+  return null;
+}
+function muscleToRenderKind(change) {
+  if (change === "slight_increase" || change === "moderate_increase" || change === "strong_increase") {
+    return "muscle_development";
+  }
+  return null;
+}
+function fatToDirection(change) {
+  if (change === "strong_decrease" || change === "moderate_decrease" || change === "slight_decrease") {
+    return "decrease";
+  }
+  if (change === "slight_increase" || change === "moderate_increase") {
+    return "increase";
+  }
+  return "maintain";
+}
+function muscleToDirection(change) {
+  if (change === "slight_increase" || change === "moderate_increase" || change === "strong_increase") {
+    return "increase";
+  }
+  if (change === "slight_decrease" || change === "moderate_decrease") {
+    return "decrease";
+  }
+  return "maintain";
+}
+function regionLabel(region) {
+  return region.replace(/_/g, " ");
+}
+function buildRegionalChange(rule, visibility) {
+  if (rule.region === "whole_body") {
+    return null;
+  }
+  if (rule.visibility === "not_visible" || rule.visibility === "not_assessable") {
+    return null;
+  }
+  if (rule.fatChange === "stable" && rule.muscleChange === "stable") {
+    return null;
+  }
+  if (rule.fatChange === "unknown" && rule.muscleChange === "unknown") {
+    return null;
+  }
+  const fatKind = fatToRenderKind(rule.fatChange);
+  const muscleKind = muscleToRenderKind(rule.muscleChange);
+  const kind = fatKind ?? muscleKind ?? "regional_change";
+  let direction = "refine";
+  if (fatKind != null) {
+    direction = fatToDirection(rule.fatChange);
+  } else if (muscleKind != null) {
+    direction = muscleToDirection(rule.muscleChange);
+  }
+  const parts = [
+    fatChangePhrase(rule.fatChange),
+    muscleChangePhrase(rule.muscleChange)
+  ];
+  const magnitude = rule.visualMagnitude.expected;
+  const description = `Apply Body Simulator regional rule for ${regionLabel(rule.region)}: ${parts.join("; ")} (expected visual magnitude ${magnitude}). Preserve natural proportions.`;
+  return {
+    id: `body-sim-region-${rule.region}`,
+    kind,
+    direction,
+    region: rule.region,
+    visibility,
+    description,
+    sourcePlanField: "bodySimulator.regions"
+  };
+}
+function buildWholeBodyChanges(rules, visibility) {
+  const changes = [];
+  const wb = rules.wholeBodyChange;
+  const goalType = rules.goal.effectiveType;
+  changes.push({
+    id: "body-sim-whole-body",
+    kind: "whole_body_recomposition",
+    direction: "refine",
+    visibility,
+    description: `Apply Body Simulator whole-body ${goalType.replace(/_/g, " ")} over ${rules.goal.timelineWeeks} weeks at ${rules.goal.intensity} intensity. ${formatRange("Weight", wb.weightChangeKg)}. ${formatRange("Body fat", wb.bodyFatChangePercentagePoints)}. ${formatRange("Muscle", wb.muscleChangeKg)}. Expected visualization is not a guarantee.`,
+    sourcePlanField: "bodySimulator.wholeBodyChange"
+  });
+  const fatExpected = wb.bodyFatChangePercentagePoints.expected;
+  if (typeof fatExpected === "number" && fatExpected < 0) {
+    changes.push({
+      id: "body-sim-fat-reduction",
+      kind: "fat_reduction",
+      direction: "decrease",
+      visibility,
+      description: `Reduce visible soft tissue consistent with Body Simulator body-fat change (expected ${fatExpected} percentage points). Preserve natural anatomy and source identity.`,
+      sourcePlanField: "bodySimulator.wholeBodyChange.bodyFatChangePercentagePoints"
+    });
+  } else if (typeof fatExpected === "number" && fatExpected > 0) {
+    changes.push({
+      id: "body-sim-fat-increase",
+      kind: "fat_increase",
+      direction: "increase",
+      visibility,
+      description: `Increase soft-tissue fullness modestly consistent with Body Simulator body-fat change (expected ${fatExpected} percentage points). Preserve natural anatomy and source identity.`,
+      sourcePlanField: "bodySimulator.wholeBodyChange.bodyFatChangePercentagePoints"
+    });
+  }
+  const muscleExpected = wb.muscleChangeKg.expected;
+  if (typeof muscleExpected === "number" && muscleExpected > 0) {
+    changes.push({
+      id: "body-sim-muscle-development",
+      kind: "muscle_development",
+      direction: "increase",
+      visibility,
+      description: `Add proportional muscle development consistent with Body Simulator muscle change (expected ${muscleExpected} kg). Preserve the original skeletal frame.`,
+      sourcePlanField: "bodySimulator.wholeBodyChange.muscleChangeKg"
+    });
+  }
+  return changes;
+}
+function adaptBodySimulatorRulesToFormatterInput(rules) {
+  const visibility = intensityToVisibility(rules.goal.intensity);
+  const approvedChanges = [
+    ...buildWholeBodyChanges(rules, visibility)
+  ];
+  const regionalSummaries = [];
+  for (const region of rules.regions) {
+    regionalSummaries.push(
+      `${regionLabel(region.region)}: ${fatChangePhrase(region.fatChange)}; ${muscleChangePhrase(region.muscleChange)}; magnitude expected ${region.visualMagnitude.expected}; visibility ${region.visibility}`
+    );
+    const regional = buildRegionalChange(region, visibility);
+    if (regional) {
+      approvedChanges.push(regional);
+    }
+  }
+  const wholeBodySummary = [
+    formatRange("Weight", rules.wholeBodyChange.weightChangeKg),
+    formatRange("Body fat", rules.wholeBodyChange.bodyFatChangePercentagePoints),
+    formatRange("Muscle", rules.wholeBodyChange.muscleChangeKg),
+    `confidence ${rules.wholeBodyChange.confidence}`
+  ].join(" | ");
+  return {
+    schemaVersion: CANONICAL_BODY_TRANSFORMATION_SCHEMA_VERSION,
+    source: CANONICAL_BODY_TRANSFORMATION_SOURCE,
+    rulesVersion: rules.rulesVersion,
+    simulationId: rules.simulationId,
+    goal: {
+      requestedType: rules.goal.requestedType,
+      effectiveType: rules.goal.effectiveType,
+      timelineWeeks: rules.goal.timelineWeeks,
+      intensity: rules.goal.intensity
+    },
+    visualIntensity: rules.goal.intensity,
+    changeVisibility: visibility,
+    approvedChanges,
+    preservation: structuredClone(rules.preservation),
+    wholeBodySummary,
+    regionalSummaries,
+    realism: {
+      requestedTargetModerated: rules.realism.requestedTargetModerated,
+      unrealisticChangePrevented: rules.realism.unrealisticChangePrevented,
+      expectedVisualizationNotGuarantee: true,
+      moderationReasons: [...rules.realism.moderationReasons]
+    },
+    confidenceOverall: rules.confidence.overall
+  };
+}
+function applyCanonicalBodyTransformation(renderPlan, canonical) {
+  const next = structuredClone(renderPlan);
+  next.transformation = {
+    visualIntensity: canonical.visualIntensity,
+    changeVisibility: canonical.changeVisibility,
+    approvedChanges: structuredClone(canonical.approvedChanges)
+  };
+  next.trace = {
+    ...next.trace,
+    transformationRulesVersion: canonical.rulesVersion
+  };
+  return next;
+}
+var CONTROL_ROOM_TO_BODY_SIMULATOR_SCENARIO = Object.freeze({
+  balanced_recomposition_12w: "body_recomposition_16w",
+  upper_body_definition_8w: "fat_loss_muscle_preservation",
+  gradual_fat_loss_16w: "realistic_weight_loss_12w",
+  athletic_strength_24w: "advanced_muscle_gain_24w"
+});
+function resolveBodySimulatorScenarioForPreview(controlRoomScenarioId, overrideScenarioId) {
+  if (typeof overrideScenarioId === "string" && overrideScenarioId.trim().length > 0) {
+    return overrideScenarioId.trim();
+  }
+  return CONTROL_ROOM_TO_BODY_SIMULATOR_SCENARIO[controlRoomScenarioId] ?? "realistic_weight_loss_12w";
+}
+
 // src/ai/formatters/ProviderFormatter.ts
 var SUPPORTED_FORMATTER_ASPECT_RATIOS = [
   "1:1",
@@ -3428,6 +3679,22 @@ function validateAiOsRuntimeInput(input) {
     errors.push("Runtime goal input is required.");
   }
   errors.push(...validateFormatterOptions(input.formatterOptions));
+  if (input.canonicalBodyTransformation !== void 0) {
+    const canonical = input.canonicalBodyTransformation;
+    if (canonical == null || typeof canonical !== "object" || Array.isArray(canonical)) {
+      errors.push("canonicalBodyTransformation must be an object when provided.");
+    } else if (canonical.source !== "body_simulator_v1") {
+      errors.push("canonicalBodyTransformation.source is invalid.");
+    } else if (!Array.isArray(canonical.approvedChanges) || canonical.approvedChanges.length === 0) {
+      errors.push(
+        "canonicalBodyTransformation.approvedChanges must be a non-empty array."
+      );
+    } else if (valueLooksSensitive(canonical)) {
+      errors.push(
+        "canonicalBodyTransformation contain forbidden sensitive content."
+      );
+    }
+  }
   if (input.mode === "dry_run") {
     if (input.validationEvidence !== void 0) {
       errors.push(
@@ -3479,6 +3746,9 @@ function validateAiOsRuntimeInput(input) {
   const scanTargets = [input.profile, input.goal];
   if (input.formatterOptions !== void 0) {
     scanTargets.push(input.formatterOptions);
+  }
+  if (input.canonicalBodyTransformation !== void 0) {
+    scanTargets.push(input.canonicalBodyTransformation);
   }
   if (input.validationEvidence !== void 0) {
     scanTargets.push(input.validationEvidence);
@@ -3613,8 +3883,18 @@ var AiOsRuntime = class {
       artifacts.visualDirection = direction;
       pushStage("visual_direction", true, visualStarted, [], []);
       const renderStarted = this.dependencies.now();
-      const renderPlan = buildRenderPlan(plan, direction);
+      let renderPlan = buildRenderPlan(plan, direction);
+      if (input.canonicalBodyTransformation !== void 0) {
+        renderPlan = applyCanonicalBodyTransformation(
+          renderPlan,
+          input.canonicalBodyTransformation
+        );
+        artifacts.canonicalBodyTransformation = structuredClone(
+          input.canonicalBodyTransformation
+        );
+      }
       versions.renderPlanRulesVersion = renderPlan.rulesVersion ?? RENDER_PLAN_RULES_VERSION;
+      versions.transformationRulesVersion = renderPlan.trace.transformationRulesVersion ?? versions.transformationRulesVersion;
       artifacts.renderPlan = renderPlan;
       pushStage("render_plan", true, renderStarted, [], []);
       const renderValidationStarted = this.dependencies.now();
@@ -4902,6 +5182,2262 @@ var ReplicateTransportAdapter = class {
   }
 };
 
+// src/ai/body-simulator/BodySimulatorTypes.ts
+var BODY_SIMULATOR_INPUT_SCHEMA_VERSION = 1;
+var BODY_SIMULATOR_RULES_SCHEMA_VERSION = 1;
+var BODY_SIMULATOR_RULES_VERSION = "1.0";
+var BODY_SIMULATION_GOAL_TYPES = Object.freeze([
+  "weight_loss",
+  "fat_loss_with_muscle_preservation",
+  "muscle_gain",
+  "body_recomposition",
+  "general_fitness_improvement"
+]);
+var BODY_SIMULATION_INTENSITIES = Object.freeze(["conservative", "realistic", "ambitious"]);
+var BODY_SIMULATOR_TIMELINE_MIN_WEEKS = 4;
+var BODY_SIMULATOR_TIMELINE_MAX_WEEKS = 52;
+var REPORTED_EFFECT_DIRECTIONS = Object.freeze([
+  "strong_decrease",
+  "moderate_decrease",
+  "slight_decrease",
+  "no_effect",
+  "slight_increase",
+  "moderate_increase",
+  "strong_increase",
+  "unknown"
+]);
+var BODY_SIMULATOR_REGIONS = Object.freeze([
+  "face_and_neck",
+  "shoulders",
+  "chest_and_upper_torso",
+  "upper_back",
+  "arms",
+  "waist_and_flanks",
+  "abdomen",
+  "hips",
+  "glutes",
+  "thighs",
+  "lower_legs",
+  "whole_body"
+]);
+var BODY_SIMULATOR_CONFIDENCE_REASONS = Object.freeze([
+  "user_declared_height_available",
+  "user_declared_weight_available",
+  "body_fat_measurement_available",
+  "body_fat_user_estimate_only",
+  "body_fat_not_provided",
+  "training_experience_available",
+  "training_experience_missing",
+  "whole_body_visible",
+  "front_view_available",
+  "side_view_available",
+  "back_view_available",
+  "single_view_only",
+  "body_region_visible",
+  "body_region_occluded",
+  "strong_backlight",
+  "timeline_within_supported_range",
+  "target_required_moderation",
+  "medication_effect_user_reported",
+  "medication_effect_unknown",
+  "limited_baseline_data"
+]);
+var BODY_SIMULATOR_FORBIDDEN_OUTPUTS = Object.freeze([
+  "beauty_score",
+  "attractiveness_score",
+  "body_ranking",
+  "ideal_body_ranking",
+  "shame_based_label",
+  "normal_versus_abnormal_judgment",
+  "medical_diagnosis",
+  "guaranteed_result",
+  "social_desirability_score"
+]);
+function createDefaultMedicationEffects() {
+  return {
+    medicationMayAffectWeight: false,
+    appetite: "no_effect",
+    energyLevel: "no_effect",
+    metabolismTendency: "no_effect",
+    muscleBuildingOrPreservation: "no_effect",
+    evidence: {
+      origin: "user_declared",
+      confidence: "not_applicable",
+      notes: []
+    }
+  };
+}
+function createReservedBodyAnalysisStub() {
+  return {
+    schemaVersion: 1,
+    status: "not_run",
+    observations: [],
+    confidence: "not_applicable",
+    confidenceReasons: [],
+    limitations: [
+      "Body Analysis is optional in Body Simulator v1 and is not executed."
+    ]
+  };
+}
+
+// src/ai/body-simulator/BodySimulatorRules.ts
+var BODY_SIM_WEEKS_PER_MONTH = 4.345;
+var BODY_SIM_TIMELINE_MAGNITUDE_SCALE = 1;
+var BODY_SIM_TIMELINE_MIN_RELATIVE_MAGNITUDE = 0.12;
+var BODY_SIM_INTENSITY_CONSERVATIVE_EXPECTED = 0.7;
+var BODY_SIM_INTENSITY_REALISTIC_EXPECTED = 1;
+var BODY_SIM_INTENSITY_AMBITIOUS_EXPECTED = 1.25;
+var BODY_SIM_INTENSITY_CONSERVATIVE_SPREAD = 0.15;
+var BODY_SIM_INTENSITY_REALISTIC_SPREAD = 0.25;
+var BODY_SIM_INTENSITY_AMBITIOUS_SPREAD = 0.3;
+var BODY_SIM_MAX_FAT_LOSS_PP_PER_WEEK = 0.35;
+var BODY_SIM_MAX_FAT_LOSS_PP_ABSOLUTE = 12;
+var BODY_SIM_MAX_MUSCLE_GAIN_KG_PER_WEEK = 0.12;
+var BODY_SIM_MAX_MUSCLE_GAIN_KG_ABSOLUTE = 6;
+var BODY_SIM_MAX_WEIGHT_LOSS_KG_PER_WEEK = 0.75;
+var BODY_SIM_MAX_WEIGHT_LOSS_KG_ABSOLUTE = 25;
+var BODY_SIM_MAX_WEIGHT_GAIN_KG_PER_WEEK = 0.35;
+var BODY_SIM_MAX_WEIGHT_GAIN_KG_ABSOLUTE = 12;
+var BODY_SIM_DEFAULT_FAT_LOSS_PP_PER_WEEK = 0.12;
+var BODY_SIM_DEFAULT_MUSCLE_GAIN_KG_PER_WEEK = 0.06;
+var BODY_SIM_DEFAULT_WEIGHT_LOSS_KG_PER_WEEK = 0.35;
+var BODY_SIM_GENERAL_FITNESS_FAT_LOSS_PP_PER_WEEK = 0.04;
+var BODY_SIM_GENERAL_FITNESS_MUSCLE_KG_PER_WEEK = 0.02;
+var BODY_SIM_GENERAL_FITNESS_WEIGHT_KG_PER_WEEK = 0.08;
+var BODY_SIM_RECOMP_FAT_LOSS_PP_PER_WEEK = 0.08;
+var BODY_SIM_RECOMP_MUSCLE_KG_PER_WEEK = 0.03;
+var BODY_SIM_MUSCLE_RATE_BEGINNER = 1;
+var BODY_SIM_MUSCLE_RATE_INTERMEDIATE = 0.75;
+var BODY_SIM_MUSCLE_RATE_ADVANCED = 0.5;
+var BODY_SIM_MUSCLE_RATE_NOT_PROVIDED = 0.7;
+var BODY_SIM_CONSISTENCY_HIGH = 1.1;
+var BODY_SIM_CONSISTENCY_MODERATE = 1;
+var BODY_SIM_CONSISTENCY_LOW = 0.85;
+var BODY_SIM_CONSISTENCY_NOT_PROVIDED = 0.9;
+var BODY_SIM_PROTEIN_HIGH = 1.08;
+var BODY_SIM_PROTEIN_ADEQUATE = 1;
+var BODY_SIM_PROTEIN_LOW = 0.88;
+var BODY_SIM_RECOVERY_STRONG = 1.08;
+var BODY_SIM_RECOVERY_MODERATE = 1;
+var BODY_SIM_RECOVERY_LIMITED = 0.88;
+var BODY_SIM_MED_MAX_WEIGHT_FAT_INFLUENCE = 0.12;
+var BODY_SIM_MED_MAX_MUSCLE_INFLUENCE = 0.1;
+var BODY_SIM_MED_APPETITE_SLIGHT_DECREASE = 0.04;
+var BODY_SIM_MED_APPETITE_MODERATE_DECREASE = 0.07;
+var BODY_SIM_MED_APPETITE_STRONG_DECREASE = 0.1;
+var BODY_SIM_MED_APPETITE_SLIGHT_INCREASE = -0.04;
+var BODY_SIM_MED_APPETITE_MODERATE_INCREASE = -0.07;
+var BODY_SIM_MED_APPETITE_STRONG_INCREASE = -0.1;
+var BODY_SIM_MED_ENERGY_SLIGHT_DECREASE = -0.03;
+var BODY_SIM_MED_ENERGY_MODERATE_DECREASE = -0.05;
+var BODY_SIM_MED_ENERGY_SLIGHT_INCREASE = 0.03;
+var BODY_SIM_MED_ENERGY_MODERATE_INCREASE = 0.05;
+var BODY_SIM_MED_METABOLISM_SCALE = 0.5;
+var BODY_SIM_MED_MUSCLE_SLIGHT_INCREASE = 0.04;
+var BODY_SIM_MED_MUSCLE_MODERATE_INCREASE = 0.07;
+var BODY_SIM_MED_MUSCLE_SLIGHT_DECREASE = -0.04;
+var BODY_SIM_MED_MUSCLE_MODERATE_DECREASE = -0.07;
+var BODY_SIM_REGION_FAT_WEIGHT = Object.freeze({
+  face_and_neck: 0.45,
+  shoulders: 0.35,
+  chest_and_upper_torso: 0.55,
+  upper_back: 0.4,
+  arms: 0.4,
+  waist_and_flanks: 1,
+  abdomen: 1,
+  hips: 0.75,
+  glutes: 0.65,
+  thighs: 0.7,
+  lower_legs: 0.3,
+  whole_body: 0.85
+});
+var BODY_SIM_REGION_MUSCLE_WEIGHT = Object.freeze({
+  face_and_neck: 0.15,
+  shoulders: 0.85,
+  chest_and_upper_torso: 0.9,
+  upper_back: 0.85,
+  arms: 0.8,
+  waist_and_flanks: 0.35,
+  abdomen: 0.45,
+  hips: 0.4,
+  glutes: 0.75,
+  thighs: 0.85,
+  lower_legs: 0.55,
+  whole_body: 0.8
+});
+var BODY_SIM_REGION_VISUAL_BASE = 0.55;
+var BODY_SIM_REGION_VISUAL_MAX = 1;
+function intensityExpectedMultiplier(intensity) {
+  switch (intensity) {
+    case "conservative":
+      return BODY_SIM_INTENSITY_CONSERVATIVE_EXPECTED;
+    case "ambitious":
+      return BODY_SIM_INTENSITY_AMBITIOUS_EXPECTED;
+    case "realistic":
+    default:
+      return BODY_SIM_INTENSITY_REALISTIC_EXPECTED;
+  }
+}
+function intensitySpread(intensity) {
+  switch (intensity) {
+    case "conservative":
+      return BODY_SIM_INTENSITY_CONSERVATIVE_SPREAD;
+    case "ambitious":
+      return BODY_SIM_INTENSITY_AMBITIOUS_SPREAD;
+    case "realistic":
+    default:
+      return BODY_SIM_INTENSITY_REALISTIC_SPREAD;
+  }
+}
+function muscleRateForExperience(experience) {
+  switch (experience) {
+    case "beginner":
+      return BODY_SIM_MUSCLE_RATE_BEGINNER;
+    case "intermediate":
+      return BODY_SIM_MUSCLE_RATE_INTERMEDIATE;
+    case "advanced":
+      return BODY_SIM_MUSCLE_RATE_ADVANCED;
+    case "not_provided":
+    default:
+      return BODY_SIM_MUSCLE_RATE_NOT_PROVIDED;
+  }
+}
+function consistencyFactor(consistency) {
+  switch (consistency) {
+    case "high":
+      return BODY_SIM_CONSISTENCY_HIGH;
+    case "moderate":
+      return BODY_SIM_CONSISTENCY_MODERATE;
+    case "low":
+      return BODY_SIM_CONSISTENCY_LOW;
+    case "not_provided":
+    default:
+      return BODY_SIM_CONSISTENCY_NOT_PROVIDED;
+  }
+}
+function proteinFactor(protein) {
+  switch (protein) {
+    case "likely_high":
+      return BODY_SIM_PROTEIN_HIGH;
+    case "likely_adequate":
+      return BODY_SIM_PROTEIN_ADEQUATE;
+    case "likely_low":
+      return BODY_SIM_PROTEIN_LOW;
+    case "not_provided":
+    default:
+      return 1;
+  }
+}
+function recoveryFactor(recovery) {
+  switch (recovery) {
+    case "strong":
+      return BODY_SIM_RECOVERY_STRONG;
+    case "moderate":
+      return BODY_SIM_RECOVERY_MODERATE;
+    case "limited":
+      return BODY_SIM_RECOVERY_LIMITED;
+    case "not_provided":
+    default:
+      return 1;
+  }
+}
+function appetiteModifier(direction) {
+  switch (direction) {
+    case "slight_decrease":
+      return BODY_SIM_MED_APPETITE_SLIGHT_DECREASE;
+    case "moderate_decrease":
+      return BODY_SIM_MED_APPETITE_MODERATE_DECREASE;
+    case "strong_decrease":
+      return BODY_SIM_MED_APPETITE_STRONG_DECREASE;
+    case "slight_increase":
+      return BODY_SIM_MED_APPETITE_SLIGHT_INCREASE;
+    case "moderate_increase":
+      return BODY_SIM_MED_APPETITE_MODERATE_INCREASE;
+    case "strong_increase":
+      return BODY_SIM_MED_APPETITE_STRONG_INCREASE;
+    case "no_effect":
+    case "unknown":
+    default:
+      return 0;
+  }
+}
+function energyModifier(direction) {
+  switch (direction) {
+    case "slight_decrease":
+      return BODY_SIM_MED_ENERGY_SLIGHT_DECREASE;
+    case "moderate_decrease":
+    case "strong_decrease":
+      return BODY_SIM_MED_ENERGY_MODERATE_DECREASE;
+    case "slight_increase":
+      return BODY_SIM_MED_ENERGY_SLIGHT_INCREASE;
+    case "moderate_increase":
+    case "strong_increase":
+      return BODY_SIM_MED_ENERGY_MODERATE_INCREASE;
+    case "no_effect":
+    case "unknown":
+    default:
+      return 0;
+  }
+}
+function metabolismModifier(direction) {
+  const raw = appetiteModifier(direction);
+  return raw * BODY_SIM_MED_METABOLISM_SCALE;
+}
+function muscleMedModifier(direction) {
+  switch (direction) {
+    case "slight_increase":
+      return BODY_SIM_MED_MUSCLE_SLIGHT_INCREASE;
+    case "moderate_increase":
+    case "strong_increase":
+      return BODY_SIM_MED_MUSCLE_MODERATE_INCREASE;
+    case "slight_decrease":
+      return BODY_SIM_MED_MUSCLE_SLIGHT_DECREASE;
+    case "moderate_decrease":
+    case "strong_decrease":
+      return BODY_SIM_MED_MUSCLE_MODERATE_DECREASE;
+    case "no_effect":
+    case "unknown":
+    default:
+      return 0;
+  }
+}
+function clamp2(n, min, max) {
+  return Math.min(max, Math.max(min, n));
+}
+function round3(n) {
+  return Math.round(n * 1e3) / 1e3;
+}
+function goalPrimaryFatDirection(goal) {
+  switch (goal) {
+    case "weight_loss":
+    case "fat_loss_with_muscle_preservation":
+    case "body_recomposition":
+      return "decrease";
+    case "muscle_gain":
+      return "stable_or_unknown";
+    case "general_fitness_improvement":
+      return "mixed";
+    default:
+      return "mixed";
+  }
+}
+function goalPrimaryMuscleDirection(goal) {
+  switch (goal) {
+    case "muscle_gain":
+    case "body_recomposition":
+      return "increase";
+    case "fat_loss_with_muscle_preservation":
+      return "stable";
+    case "weight_loss":
+    case "general_fitness_improvement":
+      return "mixed";
+    default:
+      return "mixed";
+  }
+}
+
+// src/ai/body-simulator/BodySimulatorValidation.ts
+var FORBIDDEN_SUBSTRINGS = [
+  "data:image",
+  "data:application",
+  "bearer ",
+  "authorization:",
+  "api_key",
+  "api-key",
+  "access_token",
+  "sk-",
+  "r8_",
+  "replicate.com",
+  "openai.com"
+];
+var PATH_LIKE = /(?:^|[\\/])(?:Users|home|var|tmp|Windows|Program Files)[\\/]|[A-Za-z]:\\|\.\.[\\/]/i;
+function isFiniteNumber2(n) {
+  return typeof n === "number" && Number.isFinite(n);
+}
+function push(errors, code, path, message) {
+  errors.push({ code, path, message });
+}
+function scanForbidden(value, path, errors) {
+  if (typeof value === "string") {
+    const lower = value.toLowerCase();
+    for (const frag of FORBIDDEN_SUBSTRINGS) {
+      if (lower.includes(frag)) {
+        push(errors, "forbidden_content", path, `Forbidden content detected near ${path}`);
+        return;
+      }
+    }
+    if (PATH_LIKE.test(value) && (value.includes("/") || value.includes("\\"))) {
+      push(errors, "forbidden_content", path, `Filesystem-like path not allowed at ${path}`);
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((v, i) => scanForbidden(v, `${path}[${i}]`, errors));
+    return;
+  }
+  if (value != null && typeof value === "object") {
+    for (const [k, v] of Object.entries(value)) {
+      const keyLower = k.toLowerCase();
+      if (keyLower.includes("prompt") || keyLower === "provider" || keyLower === "model" || keyLower === "modelid" || keyLower === "providerid" || keyLower.includes("apikey") || keyLower.includes("token")) {
+        if (path === "input" || path.startsWith("goal") || path.startsWith("options") || path.startsWith("profile") || path.startsWith("activity") || path.startsWith("medicationEffects") || path.startsWith("sourceImageContext")) {
+          push(
+            errors,
+            "forbidden_content",
+            `${path}.${k}`,
+            `Provider/prompt/token field not allowed: ${k}`
+          );
+        }
+      }
+      scanForbidden(v, `${path}.${k}`, errors);
+    }
+  }
+}
+function validateEffect(value, path, errors) {
+  if (typeof value !== "string" || !REPORTED_EFFECT_DIRECTIONS.includes(value)) {
+    push(errors, "invalid_effect_direction", path, `Invalid effect direction at ${path}`);
+  }
+}
+function validateBodySimulatorInput(input) {
+  const errors = [];
+  if (input == null || typeof input !== "object" || Array.isArray(input)) {
+    push(errors, "invalid_input_shape", "input", "Input must be an object");
+    return errors;
+  }
+  const i = input;
+  if (i.schemaVersion !== BODY_SIMULATOR_INPUT_SCHEMA_VERSION) {
+    push(
+      errors,
+      "unsupported_schema_version",
+      "schemaVersion",
+      `Unsupported schemaVersion: ${String(i.schemaVersion)}`
+    );
+  }
+  if (typeof i.simulationId !== "string" || i.simulationId.trim() === "") {
+    push(errors, "missing_simulation_id", "simulationId", "simulationId is required");
+  }
+  if (typeof i.createdAt !== "string" || i.createdAt.trim() === "") {
+    push(errors, "invalid_input_shape", "createdAt", "createdAt must be a non-empty string");
+  }
+  if (!i.goal || typeof i.goal !== "object") {
+    push(errors, "invalid_input_shape", "goal", "goal is required");
+  } else {
+    if (!BODY_SIMULATION_GOAL_TYPES.includes(
+      i.goal.type
+    )) {
+      push(errors, "unsupported_goal", "goal.type", `Unsupported goal: ${String(i.goal.type)}`);
+    }
+    const weeks = i.goal.timelineWeeks;
+    if (!isFiniteNumber2(weeks)) {
+      push(errors, "invalid_number", "goal.timelineWeeks", "timelineWeeks must be a finite number");
+    } else if (weeks < BODY_SIMULATOR_TIMELINE_MIN_WEEKS) {
+      push(
+        errors,
+        "timeline_below_minimum",
+        "goal.timelineWeeks",
+        `timelineWeeks must be >= ${BODY_SIMULATOR_TIMELINE_MIN_WEEKS}`
+      );
+    } else if (weeks > BODY_SIMULATOR_TIMELINE_MAX_WEEKS) {
+      push(
+        errors,
+        "timeline_above_maximum",
+        "goal.timelineWeeks",
+        `timelineWeeks must be <= ${BODY_SIMULATOR_TIMELINE_MAX_WEEKS}`
+      );
+    }
+    if (!BODY_SIMULATION_INTENSITIES.includes(
+      i.goal.intensity
+    )) {
+      push(
+        errors,
+        "invalid_intensity",
+        "goal.intensity",
+        `Invalid intensity: ${String(i.goal.intensity)}`
+      );
+    }
+    for (const key of [
+      "targetWeightChangeKg",
+      "targetBodyFatChangePercentagePoints",
+      "targetMuscleChangeKg"
+    ]) {
+      const v = i.goal[key];
+      if (v != null && !isFiniteNumber2(v)) {
+        push(errors, "invalid_number", `goal.${key}`, `${key} must be finite or null`);
+      }
+    }
+  }
+  if (!i.profile || typeof i.profile !== "object") {
+    push(errors, "invalid_input_shape", "profile", "profile is required");
+  } else {
+    const p = i.profile;
+    if (p.ageYears != null && !isFiniteNumber2(p.ageYears)) {
+      push(errors, "invalid_number", "profile.ageYears", "ageYears must be finite or null");
+    }
+    if (p.heightCm != null) {
+      if (!isFiniteNumber2(p.heightCm)) {
+        push(errors, "invalid_number", "profile.heightCm", "heightCm must be finite or null");
+      } else if (p.heightCm < 0) {
+        push(errors, "invalid_height", "profile.heightCm", "heightCm must not be negative");
+      }
+    }
+    if (p.currentWeightKg != null) {
+      if (!isFiniteNumber2(p.currentWeightKg)) {
+        push(errors, "invalid_number", "profile.currentWeightKg", "weight must be finite or null");
+      } else if (p.currentWeightKg <= 0) {
+        push(
+          errors,
+          "invalid_weight",
+          "profile.currentWeightKg",
+          "currentWeightKg must be > 0 when provided"
+        );
+      }
+    }
+    if (p.currentBodyFatPercent != null && !isFiniteNumber2(p.currentBodyFatPercent)) {
+      push(
+        errors,
+        "invalid_number",
+        "profile.currentBodyFatPercent",
+        "currentBodyFatPercent must be finite or null"
+      );
+    }
+  }
+  if (!i.activity || typeof i.activity !== "object") {
+    push(errors, "invalid_input_shape", "activity", "activity is required");
+  } else {
+    for (const key of [
+      "resistanceTrainingSessionsPerWeek",
+      "cardioSessionsPerWeek"
+    ]) {
+      const v = i.activity[key];
+      if (v != null && (!isFiniteNumber2(v) || v < 0)) {
+        push(errors, "invalid_number", `activity.${key}`, `${key} must be >= 0 or null`);
+      }
+    }
+  }
+  if (!i.medicationEffects || typeof i.medicationEffects !== "object") {
+    push(errors, "invalid_input_shape", "medicationEffects", "medicationEffects is required");
+  } else {
+    const m = i.medicationEffects;
+    if (typeof m.medicationMayAffectWeight !== "boolean") {
+      push(
+        errors,
+        "invalid_input_shape",
+        "medicationEffects.medicationMayAffectWeight",
+        "medicationMayAffectWeight must be boolean"
+      );
+    }
+    for (const key of [
+      "appetite",
+      "energyLevel",
+      "metabolismTendency",
+      "muscleBuildingOrPreservation"
+    ]) {
+      validateEffect(m[key], `medicationEffects.${key}`, errors);
+    }
+  }
+  if (!i.options || typeof i.options !== "object") {
+    push(errors, "invalid_options", "options", "options are required");
+  } else {
+    const o = i.options;
+    const requiredTrue = [
+      "preserveIdentity",
+      "preserveOriginalPresentation",
+      "preservePose",
+      "preserveCameraFraming",
+      "preserveClothing",
+      "preserveBackground",
+      "preserveLightingCharacter"
+    ];
+    for (const key of requiredTrue) {
+      if (o[key] !== true) {
+        push(errors, "invalid_options", `options.${key}`, `${key} must be true`);
+      }
+    }
+  }
+  if (!i.sourceImageContext || typeof i.sourceImageContext !== "object") {
+    push(errors, "invalid_input_shape", "sourceImageContext", "sourceImageContext is required");
+  }
+  scanForbidden(input, "input", errors);
+  return errors;
+}
+
+// src/ai/body-simulator/BodySimulatorReadiness.ts
+function assessBodySimulatorReadiness(input) {
+  const validationErrors = validateBodySimulatorInput(input);
+  const missingRequiredInputs = validationErrors.map(
+    (e) => `${e.path}: ${e.code}`
+  );
+  if (validationErrors.length > 0) {
+    return {
+      ready: false,
+      status: "insufficient_input",
+      missingRequiredInputs,
+      optionalMissingInputs: [],
+      limitations: [
+        "Simulation cannot run until required contract inputs are valid."
+      ]
+    };
+  }
+  const i = input;
+  const optionalMissingInputs = [];
+  const limitations = [];
+  if (i.profile.currentBodyFatPercent == null) {
+    optionalMissingInputs.push("profile.currentBodyFatPercent");
+    limitations.push(
+      "Body-fat percentage is optional; missing value lowers confidence."
+    );
+  }
+  if (i.profile.heightCm == null) {
+    optionalMissingInputs.push("profile.heightCm");
+  }
+  if (i.profile.currentWeightKg == null) {
+    optionalMissingInputs.push("profile.currentWeightKg");
+    limitations.push(
+      "Current weight is optional but improves baseline completeness."
+    );
+  }
+  if (i.profile.trainingExperience === "not_provided") {
+    optionalMissingInputs.push("profile.trainingExperience");
+    limitations.push(
+      "Training experience missing lowers confidence rather than assuming beginner."
+    );
+  }
+  if (i.profile.ageYears == null) {
+    optionalMissingInputs.push("profile.ageYears");
+  }
+  if (i.profile.sexForPhysiology === "not_provided") {
+    optionalMissingInputs.push("profile.sexForPhysiology");
+  }
+  if (!i.medicationEffects.medicationMayAffectWeight) {
+  } else {
+    for (const key of [
+      "appetite",
+      "energyLevel",
+      "metabolismTendency",
+      "muscleBuildingOrPreservation"
+    ]) {
+      if (i.medicationEffects[key] === "unknown") {
+        optionalMissingInputs.push(`medicationEffects.${key}`);
+        limitations.push(
+          "Some medication-effect directions are unknown; no direction is fabricated."
+        );
+      }
+    }
+  }
+  if (i.bodyAnalysis == null) {
+    optionalMissingInputs.push("bodyAnalysis");
+    limitations.push("Body Analysis is optional in v1 and was not supplied.");
+  }
+  if (!i.sourceImageContext.available) {
+    optionalMissingInputs.push("sourceImageContext.available");
+    limitations.push(
+      "Source image context unavailable; downstream visualization may need an image later."
+    );
+  } else if (i.sourceImageContext.progressPhotoView === "unknown") {
+    optionalMissingInputs.push("sourceImageContext.progressPhotoView");
+  }
+  const missingBaseline = i.profile.currentWeightKg == null && i.profile.currentBodyFatPercent == null && i.profile.heightCm == null;
+  if (missingBaseline) {
+    limitations.push("Limited baseline anthropometric data.");
+  }
+  const highUncertainty = optionalMissingInputs.length >= 4 || missingBaseline;
+  if (highUncertainty) {
+    return {
+      ready: true,
+      status: "ready_with_limitations",
+      missingRequiredInputs: [],
+      optionalMissingInputs,
+      limitations
+    };
+  }
+  if (limitations.length > 0) {
+    return {
+      ready: true,
+      status: "ready_with_limitations",
+      missingRequiredInputs: [],
+      optionalMissingInputs,
+      limitations
+    };
+  }
+  return {
+    ready: true,
+    status: "ready",
+    missingRequiredInputs: [],
+    optionalMissingInputs,
+    limitations: []
+  };
+}
+
+// src/ai/body-simulator/BodySimulatorEngine.ts
+function computeTimelineMagnitude(timelineWeeks) {
+  const months = timelineWeeks / BODY_SIM_WEEKS_PER_MONTH;
+  const progressFraction = transformProgress(months);
+  const relativeMagnitude = Math.max(
+    BODY_SIM_TIMELINE_MIN_RELATIVE_MAGNITUDE,
+    progressFraction * BODY_SIM_TIMELINE_MAGNITUDE_SCALE
+  );
+  return { relativeMagnitude, progressFraction, months };
+}
+function rangeFromExpected(expected, unit, origin, spreadFactor) {
+  if (expected == null || !Number.isFinite(expected)) {
+    return {
+      lower: null,
+      expected: null,
+      upper: null,
+      unit,
+      origin: "unknown"
+    };
+  }
+  const abs = Math.abs(expected);
+  const spread = abs * spreadFactor;
+  const sign = expected === 0 ? 1 : Math.sign(expected);
+  if (expected < 0) {
+    return {
+      lower: round3(expected - spread),
+      // more negative
+      expected: round3(expected),
+      upper: round3(Math.min(0, expected + spread)),
+      // less negative
+      unit,
+      origin
+    };
+  }
+  if (expected > 0) {
+    return {
+      lower: round3(Math.max(0, expected - spread)),
+      expected: round3(expected),
+      upper: round3(expected + spread),
+      unit,
+      origin
+    };
+  }
+  return {
+    lower: round3(-spread * sign),
+    expected: 0,
+    upper: round3(spread),
+    unit,
+    origin
+  };
+}
+function moderateLossMagnitude(requested, timelineWeeks, perWeekMax, absoluteMax, exceedReason = "fat_loss_target_exceeds_v1_boundary") {
+  const absRequested = Math.abs(requested);
+  const timelineCap = perWeekMax * timelineWeeks;
+  const cap = Math.min(timelineCap, absoluteMax);
+  if (absRequested <= cap) {
+    return { value: requested, moderated: false, reasons: [] };
+  }
+  const reasons = ["timeline_limits_requested_change"];
+  if (absRequested > cap) {
+    reasons.push(exceedReason);
+  }
+  return {
+    value: -cap,
+    moderated: true,
+    reasons
+  };
+}
+function moderateGainMagnitude(requested, timelineWeeks, perWeekMax, absoluteMax, reasonCode) {
+  const timelineCap = perWeekMax * timelineWeeks;
+  const cap = Math.min(timelineCap, absoluteMax);
+  if (requested <= cap) {
+    return { value: requested, moderated: false, reasons: [] };
+  }
+  const reasons = [
+    "timeline_limits_requested_change",
+    reasonCode
+  ];
+  return { value: cap, moderated: true, reasons };
+}
+function clampMed(influence, maxAbs) {
+  return clamp2(influence, -maxAbs, maxAbs);
+}
+function fatChangeLabel(goal, magnitude) {
+  const dir = goalPrimaryFatDirection(goal);
+  if (dir === "decrease") {
+    if (magnitude >= 0.75) return "strong_decrease";
+    if (magnitude >= 0.45) return "moderate_decrease";
+    if (magnitude >= 0.2) return "slight_decrease";
+    return "slight_decrease";
+  }
+  if (dir === "stable_or_unknown") {
+    return magnitude < 0.2 ? "stable" : "slight_increase";
+  }
+  if (magnitude >= 0.35) return "slight_decrease";
+  return "stable";
+}
+function muscleChangeLabel(goal, magnitude, muscleKg) {
+  const dir = goalPrimaryMuscleDirection(goal);
+  if (dir === "stable") {
+    return muscleKg != null && muscleKg > 0.15 ? "slight_increase" : "stable";
+  }
+  if (dir === "increase") {
+    if (magnitude >= 0.75) return "strong_increase";
+    if (magnitude >= 0.45) return "moderate_increase";
+    if (magnitude >= 0.2) return "slight_increase";
+    return "slight_increase";
+  }
+  if (muscleKg != null && muscleKg < -0.1) return "slight_decrease";
+  if (muscleKg != null && muscleKg > 0.15) return "slight_increase";
+  return "stable";
+}
+function regionVisibility(region, view, available) {
+  if (!available) return "not_assessable";
+  if (view === "unknown") return "unknown";
+  if (view === "back" && region === "face_and_neck") return "not_visible";
+  if (view === "front" && region === "upper_back") return "partially_visible";
+  if (region === "lower_legs") return "partially_visible";
+  if (region === "whole_body") {
+    return view === "three_quarter" ? "partially_visible" : "available";
+  }
+  return "available";
+}
+function buildConfidenceReasons(input) {
+  const reasons = [];
+  if (input.profile.heightCm != null) {
+    reasons.push("user_declared_height_available");
+  }
+  if (input.profile.currentWeightKg != null) {
+    reasons.push("user_declared_weight_available");
+  }
+  if (input.profile.currentBodyFatPercent == null) {
+    reasons.push("body_fat_not_provided");
+  } else if (input.profile.bodyFatBasis === "device_measurement" || input.profile.bodyFatBasis === "professional_measurement") {
+    reasons.push("body_fat_measurement_available");
+  } else if (input.profile.bodyFatBasis === "user_estimate") {
+    reasons.push("body_fat_user_estimate_only");
+  }
+  if (input.profile.trainingExperience === "not_provided") {
+    reasons.push("training_experience_missing");
+  } else {
+    reasons.push("training_experience_available");
+  }
+  reasons.push("timeline_within_supported_range");
+  const view = input.sourceImageContext.progressPhotoView;
+  if (view === "front") reasons.push("front_view_available");
+  if (view === "side") reasons.push("side_view_available");
+  if (view === "back") reasons.push("back_view_available");
+  if (input.sourceImageContext.available && (view === "front" || view === "side" || view === "back" || view === "three_quarter")) {
+    reasons.push("single_view_only");
+  }
+  if (input.medicationEffects.medicationMayAffectWeight) {
+    reasons.push("medication_effect_user_reported");
+    if (input.medicationEffects.appetite === "unknown" || input.medicationEffects.energyLevel === "unknown" || input.medicationEffects.metabolismTendency === "unknown" || input.medicationEffects.muscleBuildingOrPreservation === "unknown") {
+      reasons.push("medication_effect_unknown");
+    }
+  }
+  if (input.bodyAnalysis?.confidenceReasons?.includes("strong_backlight")) {
+    reasons.push("strong_backlight");
+  }
+  if (input.bodyAnalysis?.confidenceReasons?.includes("whole_body_visible")) {
+    reasons.push("whole_body_visible");
+  }
+  return reasons;
+}
+function overallConfidence(reasons, missingInputs) {
+  if (missingInputs.length >= 4 || reasons.includes("limited_baseline_data")) {
+    return "low";
+  }
+  if (reasons.includes("body_fat_not_provided") || reasons.includes("training_experience_missing") || reasons.includes("target_required_moderation")) {
+    return "medium";
+  }
+  if (reasons.includes("body_fat_measurement_available") && reasons.includes("user_declared_weight_available") && reasons.includes("training_experience_available")) {
+    return "high";
+  }
+  return "medium";
+}
+function buildBodySimulatorTransformationRules(input) {
+  const provenance = [];
+  const moderationReasons = [];
+  const limitations = [];
+  const warnings = [];
+  const timelineWeeks = input.goal.timelineWeeks;
+  const intensity = input.goal.intensity;
+  const goalType = input.goal.type;
+  provenance.push({
+    rulePath: "goal.effectiveType",
+    source: "goal",
+    sourcePath: "goal.type"
+  });
+  provenance.push({
+    rulePath: "goal.timelineWeeks",
+    source: "timeline",
+    sourcePath: "goal.timelineWeeks"
+  });
+  const { relativeMagnitude } = computeTimelineMagnitude(timelineWeeks);
+  const intensityMul = intensityExpectedMultiplier(intensity);
+  const spread = intensitySpread(intensity);
+  if (intensity === "ambitious") {
+    limitations.push(
+      "Ambitious intensity is an upper-bound expected visualization within v1 realism constraints, not a guarantee."
+    );
+    moderationReasons.push("ambitious_intensity_bounded");
+  }
+  provenance.push({
+    rulePath: "preservation.identity",
+    source: "realism_constraint",
+    sourcePath: "options.preserveIdentity"
+  });
+  moderationReasons.push("identity_preservation_boundary");
+  moderationReasons.push("natural_proportion_boundary");
+  const experienceRate = muscleRateForExperience(input.profile.trainingExperience);
+  const consist = consistencyFactor(input.activity.trainingConsistency);
+  const protein = proteinFactor(input.activity.proteinIntakeSupport);
+  const recovery = recoveryFactor(input.activity.recoverySupport);
+  const muscleSupport = experienceRate * consist * protein * recovery;
+  provenance.push({
+    rulePath: "wholeBodyChange.muscleChangeKg",
+    source: "activity",
+    sourcePath: "activity.trainingConsistency"
+  });
+  provenance.push({
+    rulePath: "wholeBodyChange.muscleChangeKg",
+    source: "profile",
+    sourcePath: "profile.trainingExperience"
+  });
+  let medFatMod = 0;
+  let medMuscleMod = 0;
+  let medEnergyMod = 0;
+  if (input.medicationEffects.medicationMayAffectWeight) {
+    medFatMod = clampMed(
+      appetiteModifier(input.medicationEffects.appetite) + metabolismModifier(input.medicationEffects.metabolismTendency),
+      BODY_SIM_MED_MAX_WEIGHT_FAT_INFLUENCE
+    );
+    medEnergyMod = clampMed(
+      energyModifier(input.medicationEffects.energyLevel),
+      BODY_SIM_MED_MAX_WEIGHT_FAT_INFLUENCE
+    );
+    medMuscleMod = clampMed(
+      muscleMedModifier(input.medicationEffects.muscleBuildingOrPreservation) + medEnergyMod * 0.5,
+      BODY_SIM_MED_MAX_MUSCLE_INFLUENCE
+    );
+    if (medFatMod !== 0) {
+      provenance.push({
+        rulePath: "wholeBodyChange.weightChangeKg",
+        source: "medication_effect",
+        sourcePath: "medicationEffects.appetite"
+      });
+      provenance.push({
+        rulePath: "wholeBodyChange.bodyFatChangePercentagePoints",
+        source: "medication_effect",
+        sourcePath: "medicationEffects.metabolismTendency"
+      });
+    }
+    if (medMuscleMod !== 0) {
+      provenance.push({
+        rulePath: "wholeBodyChange.muscleChangeKg",
+        source: "medication_effect",
+        sourcePath: "medicationEffects.muscleBuildingOrPreservation"
+      });
+    }
+    if (medEnergyMod !== 0) {
+      provenance.push({
+        rulePath: "wholeBodyChange.muscleChangeKg",
+        source: "medication_effect",
+        sourcePath: "medicationEffects.energyLevel"
+      });
+    }
+    warnings.push(
+      "Medication-related effects are user-reported bounded modifiers, not verified medical facts."
+    );
+  }
+  const medFatFactor = 1 + medFatMod + medEnergyMod * 0.25;
+  const medMuscleFactor = 1 + medMuscleMod;
+  let expectedWeight = null;
+  let expectedFatPp = null;
+  let expectedMuscle = null;
+  let weightOrigin = "deterministic_simulation";
+  let fatOrigin = "deterministic_simulation";
+  let muscleOrigin = "deterministic_simulation";
+  let targetModerated = false;
+  const applyFatLossTarget = (raw) => {
+    const signed = raw > 0 ? -raw : raw;
+    const mod = moderateLossMagnitude(
+      signed,
+      timelineWeeks,
+      BODY_SIM_MAX_FAT_LOSS_PP_PER_WEEK,
+      BODY_SIM_MAX_FAT_LOSS_PP_ABSOLUTE
+    );
+    if (mod.moderated) {
+      targetModerated = true;
+      for (const r of mod.reasons) {
+        if (!moderationReasons.includes(r)) moderationReasons.push(r);
+      }
+      fatOrigin = "bounded_user_target";
+    } else {
+      fatOrigin = "user_target";
+    }
+    return mod.value * intensityMul * medFatFactor;
+  };
+  const applyMuscleGainTarget = (raw) => {
+    const signed = Math.abs(raw);
+    const mod = moderateGainMagnitude(
+      signed,
+      timelineWeeks,
+      BODY_SIM_MAX_MUSCLE_GAIN_KG_PER_WEEK,
+      BODY_SIM_MAX_MUSCLE_GAIN_KG_ABSOLUTE,
+      "muscle_gain_target_exceeds_v1_boundary"
+    );
+    if (mod.moderated) {
+      targetModerated = true;
+      for (const r of mod.reasons) {
+        if (!moderationReasons.includes(r)) moderationReasons.push(r);
+      }
+      muscleOrigin = "bounded_user_target";
+    } else {
+      muscleOrigin = "user_target";
+    }
+    return mod.value * intensityMul * muscleSupport * medMuscleFactor;
+  };
+  const applyWeightLossTarget = (raw) => {
+    const signed = raw > 0 ? -raw : raw;
+    const mod = moderateLossMagnitude(
+      signed,
+      timelineWeeks,
+      BODY_SIM_MAX_WEIGHT_LOSS_KG_PER_WEEK,
+      BODY_SIM_MAX_WEIGHT_LOSS_KG_ABSOLUTE
+    );
+    if (mod.moderated) {
+      targetModerated = true;
+      for (const r of mod.reasons) {
+        if (!moderationReasons.includes(r)) moderationReasons.push(r);
+      }
+      weightOrigin = "bounded_user_target";
+    } else {
+      weightOrigin = "user_target";
+    }
+    return mod.value * intensityMul * medFatFactor;
+  };
+  const applyWeightGainTarget = (raw) => {
+    const signed = Math.abs(raw);
+    const mod = moderateGainMagnitude(
+      signed,
+      timelineWeeks,
+      BODY_SIM_MAX_WEIGHT_GAIN_KG_PER_WEEK,
+      BODY_SIM_MAX_WEIGHT_GAIN_KG_ABSOLUTE,
+      "muscle_gain_target_exceeds_v1_boundary"
+    );
+    if (mod.moderated) {
+      targetModerated = true;
+      for (const r of mod.reasons) {
+        if (!moderationReasons.includes(r)) moderationReasons.push(r);
+      }
+      weightOrigin = "bounded_user_target";
+    } else {
+      weightOrigin = "user_target";
+    }
+    return mod.value * intensityMul;
+  };
+  const timelineScale = relativeMagnitude;
+  switch (goalType) {
+    case "weight_loss": {
+      if (input.goal.targetWeightChangeKg != null) {
+        expectedWeight = applyWeightLossTarget(input.goal.targetWeightChangeKg);
+      } else {
+        expectedWeight = -BODY_SIM_DEFAULT_WEIGHT_LOSS_KG_PER_WEEK * timelineWeeks * timelineScale * intensityMul * medFatFactor;
+        weightOrigin = "deterministic_simulation";
+      }
+      if (input.goal.targetBodyFatChangePercentagePoints != null) {
+        expectedFatPp = applyFatLossTarget(
+          input.goal.targetBodyFatChangePercentagePoints
+        );
+      } else {
+        expectedFatPp = -BODY_SIM_DEFAULT_FAT_LOSS_PP_PER_WEEK * timelineWeeks * timelineScale * intensityMul * medFatFactor;
+        fatOrigin = "deterministic_simulation";
+      }
+      if (input.goal.targetMuscleChangeKg != null) {
+        expectedMuscle = input.goal.targetMuscleChangeKg * intensityMul * muscleSupport * medMuscleFactor;
+        if (expectedMuscle < -2) {
+          expectedMuscle = -2;
+          targetModerated = true;
+          moderationReasons.push("natural_proportion_boundary");
+        }
+        muscleOrigin = "bounded_user_target";
+      } else {
+        expectedMuscle = round3(
+          -0.05 * timelineScale * (1 / muscleSupport) * intensityMul
+        );
+        muscleOrigin = "deterministic_simulation";
+        warnings.push(
+          "Muscle change under weight loss is uncertain; preservation is not guaranteed."
+        );
+      }
+      break;
+    }
+    case "fat_loss_with_muscle_preservation": {
+      if (input.goal.targetBodyFatChangePercentagePoints != null) {
+        expectedFatPp = applyFatLossTarget(
+          input.goal.targetBodyFatChangePercentagePoints
+        );
+      } else {
+        expectedFatPp = -BODY_SIM_DEFAULT_FAT_LOSS_PP_PER_WEEK * timelineWeeks * timelineScale * intensityMul * medFatFactor;
+      }
+      if (input.goal.targetWeightChangeKg != null) {
+        expectedWeight = applyWeightLossTarget(input.goal.targetWeightChangeKg);
+      } else {
+        expectedWeight = -BODY_SIM_DEFAULT_WEIGHT_LOSS_KG_PER_WEEK * 0.85 * timelineWeeks * timelineScale * intensityMul * medFatFactor;
+      }
+      if (input.goal.targetMuscleChangeKg != null) {
+        expectedMuscle = applyMuscleGainTarget(
+          Math.max(0, input.goal.targetMuscleChangeKg)
+        );
+      } else {
+        expectedMuscle = round3(
+          0.02 * timelineWeeks * timelineScale * intensityMul * muscleSupport * medMuscleFactor
+        );
+        if (muscleSupport < 0.9) {
+          expectedMuscle = 0;
+          warnings.push(
+            "Limited training/recovery evidence reduces confidence in muscle preservation."
+          );
+        }
+      }
+      break;
+    }
+    case "muscle_gain": {
+      if (input.goal.targetMuscleChangeKg != null) {
+        expectedMuscle = applyMuscleGainTarget(input.goal.targetMuscleChangeKg);
+      } else {
+        expectedMuscle = BODY_SIM_DEFAULT_MUSCLE_GAIN_KG_PER_WEEK * timelineWeeks * timelineScale * intensityMul * muscleSupport * medMuscleFactor;
+      }
+      if (input.goal.targetWeightChangeKg != null) {
+        expectedWeight = applyWeightGainTarget(input.goal.targetWeightChangeKg);
+      } else {
+        expectedWeight = round3(expectedMuscle * 1.15);
+        weightOrigin = "deterministic_simulation";
+      }
+      if (input.goal.targetBodyFatChangePercentagePoints != null) {
+        const bf = input.goal.targetBodyFatChangePercentagePoints;
+        expectedFatPp = bf * intensityMul;
+        fatOrigin = "user_target";
+      } else {
+        expectedFatPp = round3(0.3 * timelineScale * intensityMul);
+        fatOrigin = "deterministic_simulation";
+      }
+      break;
+    }
+    case "body_recomposition": {
+      if (input.goal.targetBodyFatChangePercentagePoints != null) {
+        expectedFatPp = applyFatLossTarget(
+          input.goal.targetBodyFatChangePercentagePoints
+        );
+      } else {
+        expectedFatPp = -BODY_SIM_RECOMP_FAT_LOSS_PP_PER_WEEK * timelineWeeks * timelineScale * intensityMul * medFatFactor;
+      }
+      if (input.goal.targetMuscleChangeKg != null) {
+        expectedMuscle = applyMuscleGainTarget(input.goal.targetMuscleChangeKg);
+      } else {
+        expectedMuscle = BODY_SIM_RECOMP_MUSCLE_KG_PER_WEEK * timelineWeeks * timelineScale * intensityMul * muscleSupport * medMuscleFactor;
+      }
+      if (input.goal.targetWeightChangeKg != null) {
+        const raw = input.goal.targetWeightChangeKg;
+        if (raw < 0) {
+          expectedWeight = applyWeightLossTarget(raw);
+        } else if (raw > 0) {
+          expectedWeight = applyWeightGainTarget(raw);
+        } else {
+          expectedWeight = 0;
+          weightOrigin = "user_target";
+        }
+      } else {
+        expectedWeight = round3(
+          (expectedFatPp ?? 0) * 0.4 + (expectedMuscle ?? 0) * 0.5
+        );
+        weightOrigin = "deterministic_simulation";
+      }
+      limitations.push(
+        "Recomposition focuses on composition and shape, not scale weight alone."
+      );
+      break;
+    }
+    case "general_fitness_improvement": {
+      if (input.goal.targetBodyFatChangePercentagePoints != null) {
+        expectedFatPp = applyFatLossTarget(
+          input.goal.targetBodyFatChangePercentagePoints
+        );
+      } else {
+        expectedFatPp = -BODY_SIM_GENERAL_FITNESS_FAT_LOSS_PP_PER_WEEK * timelineWeeks * timelineScale * intensityMul * medFatFactor;
+      }
+      if (input.goal.targetMuscleChangeKg != null) {
+        expectedMuscle = applyMuscleGainTarget(input.goal.targetMuscleChangeKg);
+      } else {
+        expectedMuscle = BODY_SIM_GENERAL_FITNESS_MUSCLE_KG_PER_WEEK * timelineWeeks * timelineScale * intensityMul * muscleSupport * medMuscleFactor;
+      }
+      if (input.goal.targetWeightChangeKg != null) {
+        expectedWeight = input.goal.targetWeightChangeKg < 0 ? applyWeightLossTarget(input.goal.targetWeightChangeKg) : applyWeightGainTarget(input.goal.targetWeightChangeKg);
+      } else {
+        expectedWeight = -BODY_SIM_GENERAL_FITNESS_WEIGHT_KG_PER_WEEK * timelineWeeks * timelineScale * intensityMul * medFatFactor;
+      }
+      limitations.push(
+        "General fitness uses modest visual changes when targets are incomplete."
+      );
+      break;
+    }
+  }
+  if (expectedWeight != null) expectedWeight = round3(expectedWeight);
+  if (expectedFatPp != null) expectedFatPp = round3(expectedFatPp);
+  if (expectedMuscle != null) expectedMuscle = round3(expectedMuscle);
+  if (intensity === "ambitious") {
+    if (expectedFatPp != null && expectedFatPp < -BODY_SIM_MAX_FAT_LOSS_PP_ABSOLUTE) {
+      expectedFatPp = -BODY_SIM_MAX_FAT_LOSS_PP_ABSOLUTE;
+      targetModerated = true;
+    }
+    if (expectedMuscle != null && expectedMuscle > BODY_SIM_MAX_MUSCLE_GAIN_KG_ABSOLUTE) {
+      expectedMuscle = BODY_SIM_MAX_MUSCLE_GAIN_KG_ABSOLUTE;
+      targetModerated = true;
+    }
+  }
+  const missingInputs = [];
+  if (input.profile.currentWeightKg == null) missingInputs.push("currentWeightKg");
+  if (input.profile.currentBodyFatPercent == null) {
+    missingInputs.push("currentBodyFatPercent");
+  }
+  if (input.profile.heightCm == null) missingInputs.push("heightCm");
+  if (input.profile.trainingExperience === "not_provided") {
+    missingInputs.push("trainingExperience");
+  }
+  if (input.profile.ageYears == null) missingInputs.push("ageYears");
+  if (missingInputs.length >= 3) {
+    if (!moderationReasons.includes("insufficient_baseline_information")) {
+      moderationReasons.push("insufficient_baseline_information");
+    }
+  }
+  let sourceCompleteness = "medium";
+  if (missingInputs.length === 0) sourceCompleteness = "high";
+  else if (missingInputs.length >= 3) sourceCompleteness = "low";
+  const confidenceReasons = buildConfidenceReasons(input);
+  if (targetModerated) {
+    confidenceReasons.push("target_required_moderation");
+  }
+  if (sourceCompleteness === "low") {
+    confidenceReasons.push("limited_baseline_data");
+  }
+  const actionableModeration = [];
+  for (const r of moderationReasons) {
+    if (r === "identity_preservation_boundary" || r === "natural_proportion_boundary") {
+      continue;
+    }
+    if (r === "ambitious_intensity_bounded" && intensity === "ambitious") {
+      actionableModeration.push(r);
+      continue;
+    }
+    if (!actionableModeration.includes(r)) actionableModeration.push(r);
+  }
+  if (targetModerated) {
+    if (!actionableModeration.includes("identity_preservation_boundary")) {
+      actionableModeration.push("identity_preservation_boundary");
+    }
+    if (!actionableModeration.includes("natural_proportion_boundary")) {
+      actionableModeration.push("natural_proportion_boundary");
+    }
+  }
+  const wbConfidence = overallConfidence(confidenceReasons, missingInputs);
+  const weightRange = rangeFromExpected(
+    expectedWeight,
+    "kg",
+    weightOrigin,
+    spread
+  );
+  const fatRange = rangeFromExpected(
+    expectedFatPp,
+    "percentage_points",
+    fatOrigin,
+    spread
+  );
+  const muscleRange = rangeFromExpected(
+    expectedMuscle,
+    "kg",
+    muscleOrigin,
+    spread
+  );
+  const fatDir = goalPrimaryFatDirection(goalType);
+  const muscleDir = goalPrimaryMuscleDirection(goalType);
+  const regions = BODY_SIMULATOR_REGIONS.map(
+    (region) => {
+      const fatW = BODY_SIM_REGION_FAT_WEIGHT[region];
+      const musW = BODY_SIM_REGION_MUSCLE_WEIGHT[region];
+      let visualExpected = BODY_SIM_REGION_VISUAL_BASE * timelineScale * intensityMul;
+      if (fatDir === "decrease") {
+        visualExpected *= 0.55 * fatW + 0.45 * (muscleDir === "increase" ? musW : 0.5);
+      } else if (muscleDir === "increase") {
+        visualExpected *= 0.7 * musW + 0.3 * fatW;
+      } else {
+        visualExpected *= 0.5 * (fatW + musW);
+      }
+      visualExpected = clamp2(
+        round3(visualExpected),
+        0.05,
+        BODY_SIM_REGION_VISUAL_MAX
+      );
+      const visSpread = visualExpected * spread;
+      const visibility = regionVisibility(
+        region,
+        input.sourceImageContext.progressPhotoView,
+        input.sourceImageContext.available
+      );
+      const regionReasons = [];
+      let conf = wbConfidence;
+      if (visibility === "available") {
+        regionReasons.push("body_region_visible");
+      } else if (visibility === "partially_visible" || visibility === "not_visible") {
+        regionReasons.push("body_region_occluded");
+        conf = conf === "high" ? "medium" : "low";
+      } else {
+        regionReasons.push("body_region_occluded");
+        conf = "low";
+      }
+      return {
+        region,
+        fatChange: fatChangeLabel(goalType, fatW * timelineScale),
+        muscleChange: muscleChangeLabel(
+          goalType,
+          musW * timelineScale,
+          expectedMuscle
+        ),
+        visualMagnitude: {
+          lower: round3(Math.max(0, visualExpected - visSpread)),
+          expected: visualExpected,
+          upper: round3(
+            Math.min(BODY_SIM_REGION_VISUAL_MAX, visualExpected + visSpread)
+          )
+        },
+        preserveNaturalProportions: true,
+        visibility,
+        confidence: conf,
+        confidenceReasons: regionReasons,
+        provenanceSourcePaths: [
+          "goal.type",
+          "goal.timelineWeeks",
+          "goal.intensity"
+        ]
+      };
+    }
+  );
+  limitations.push(
+    "Individual fat distribution varies; regional magnitudes are conservative planning estimates."
+  );
+  limitations.push(
+    "Body Simulator output is an expected visualization, not a medical prediction or guaranteed outcome."
+  );
+  if (input.bodyAnalysis == null) {
+    limitations.push("Body Analysis was not supplied and remains optional in v1.");
+  } else if (input.bodyAnalysis.status !== "not_run") {
+    provenance.push({
+      rulePath: "confidence.overall",
+      source: "body_analysis",
+      sourcePath: "bodyAnalysis.status"
+    });
+  }
+  return {
+    schemaVersion: BODY_SIMULATOR_RULES_SCHEMA_VERSION,
+    simulationId: input.simulationId,
+    generatedAt: input.createdAt,
+    rulesVersion: BODY_SIMULATOR_RULES_VERSION,
+    goal: {
+      requestedType: goalType,
+      effectiveType: goalType,
+      timelineWeeks,
+      intensity
+    },
+    baseline: {
+      sourceCompleteness,
+      bodyFatBasis: input.profile.bodyFatBasis,
+      missingInputs
+    },
+    wholeBodyChange: {
+      weightChangeKg: weightRange,
+      bodyFatChangePercentagePoints: fatRange,
+      muscleChangeKg: muscleRange,
+      confidence: wbConfidence,
+      confidenceReasons: [...confidenceReasons]
+    },
+    regions,
+    preservation: {
+      identity: "preserve",
+      originalPresentation: "preserve",
+      pose: "preserve",
+      cameraFraming: "preserve",
+      clothing: "preserve",
+      clothingCoverage: "preserve",
+      background: "preserve",
+      lightingCharacter: "preserve",
+      ageAppearance: "preserve",
+      ethnicityAppearance: "preserve",
+      personalStyle: "preserve",
+      faceGeometry: "preserve",
+      skinTone: "preserve",
+      hairstyle: "preserve",
+      bodyHeight: "preserve",
+      handAndFootScale: "preserve",
+      skeletalProportions: "preserve"
+    },
+    realism: {
+      requestedTargetModerated: targetModerated,
+      moderationReasons: targetModerated ? actionableModeration.filter((r) => r !== "ambitious_intensity_bounded").length > 0 ? actionableModeration : [...actionableModeration] : actionableModeration.filter(
+        (r) => r === "ambitious_intensity_bounded" || r === "insufficient_baseline_information"
+      ),
+      unrealisticChangePrevented: targetModerated,
+      expectedVisualizationNotGuarantee: true
+    },
+    provenance,
+    confidence: {
+      overall: wbConfidence,
+      reasons: confidenceReasons
+    },
+    limitations,
+    warnings
+  };
+}
+function simulateBodyTransformation(input) {
+  const errors = validateBodySimulatorInput(input);
+  if (errors.length > 0) {
+    return { ok: false, errors };
+  }
+  const rules = buildBodySimulatorTransformationRules(input);
+  return { ok: true, rules };
+}
+
+// src/ai/body-simulator/BodySimulatorProjection.ts
+function projectBodySimulatorRules(rules) {
+  return {
+    schemaVersion: rules.schemaVersion,
+    rulesVersion: String(rules.rulesVersion),
+    simulationId: rules.simulationId,
+    generatedAt: rules.generatedAt,
+    goal: {
+      requestedType: rules.goal.requestedType,
+      effectiveType: rules.goal.effectiveType,
+      timelineWeeks: rules.goal.timelineWeeks,
+      intensity: rules.goal.intensity
+    },
+    timelineWeeks: rules.goal.timelineWeeks,
+    wholeBodyChange: {
+      weightChangeKg: { ...rules.wholeBodyChange.weightChangeKg },
+      bodyFatChangePercentagePoints: {
+        ...rules.wholeBodyChange.bodyFatChangePercentagePoints
+      },
+      muscleChangeKg: { ...rules.wholeBodyChange.muscleChangeKg },
+      confidence: rules.wholeBodyChange.confidence,
+      confidenceReasons: [...rules.wholeBodyChange.confidenceReasons]
+    },
+    regions: rules.regions.map((r) => ({
+      ...r,
+      visualMagnitude: { ...r.visualMagnitude },
+      confidenceReasons: [...r.confidenceReasons],
+      provenanceSourcePaths: [...r.provenanceSourcePaths]
+    })),
+    preservation: { ...rules.preservation },
+    realism: {
+      ...rules.realism,
+      moderationReasons: [...rules.realism.moderationReasons]
+    },
+    confidence: {
+      overall: rules.confidence.overall,
+      reasons: [...rules.confidence.reasons]
+    },
+    limitations: [...rules.limitations],
+    warnings: [...rules.warnings],
+    provenance: rules.provenance.map((p) => ({ ...p })),
+    baseline: {
+      ...rules.baseline,
+      missingInputs: [...rules.baseline.missingInputs]
+    }
+  };
+}
+
+// src/ai/body-analysis/types.ts
+var ALLOWED_CONFIDENCE_REASONS = Object.freeze([
+  "whole_body_visible",
+  "front_view_available",
+  "side_view_available",
+  "back_view_available",
+  "even_lighting",
+  "known_camera_view",
+  "feet_outside_frame",
+  "strong_backlight",
+  "body_region_occluded",
+  "single_view_only"
+]);
+function createEmptyBodyAnalysisEvidence(view = "unknown") {
+  return {
+    schemaVersion: 1,
+    view,
+    sourceIds: [],
+    confidence: "not_applicable",
+    confidenceReasons: [],
+    notes: ["Body analysis evidence is reserved but not implemented."]
+  };
+}
+var BODY_ANALYSIS_MAY_SUPPORT = Object.freeze([
+  "better TransformationPlan inputs",
+  "better body-region planning",
+  "better identity and proportion preservation",
+  "more consistent comparisons over time",
+  "confidence-aware simulation decisions"
+]);
+var BODY_ANALYSIS_FORBIDDEN_OUTPUTS = Object.freeze([
+  "beauty_score",
+  "attractiveness_score",
+  "body_ranking",
+  "ideal_body_ranking",
+  "shame_based_label",
+  "normal_versus_abnormal_judgment",
+  "value_judgment_height_weight_shape",
+  "competitive_user_ranking"
+]);
+
+// src/ai/body-simulator/BodySimulatorFixtures.ts
+function baseInput(overrides) {
+  const goalType = overrides.goal?.type ?? "weight_loss";
+  const timelineWeeks = overrides.goal?.timelineWeeks ?? 12;
+  const goalOverride = overrides.goal;
+  return {
+    schemaVersion: BODY_SIMULATOR_INPUT_SCHEMA_VERSION,
+    simulationId: overrides.simulationId,
+    createdAt: overrides.createdAt ?? "2026-01-15T12:00:00.000Z",
+    goal: {
+      type: goalType,
+      timelineWeeks,
+      // Use undefined-check so explicit null targets stay null (?? would replace null).
+      targetWeightChangeKg: goalOverride && "targetWeightChangeKg" in goalOverride ? goalOverride.targetWeightChangeKg ?? null : -6,
+      targetBodyFatChangePercentagePoints: goalOverride && "targetBodyFatChangePercentagePoints" in goalOverride ? goalOverride.targetBodyFatChangePercentagePoints ?? null : -3,
+      targetMuscleChangeKg: goalOverride && "targetMuscleChangeKg" in goalOverride ? goalOverride.targetMuscleChangeKg ?? null : null,
+      intensity: goalOverride?.intensity ?? "realistic"
+    },
+    profile: overrides.profile ?? {
+      ageYears: 34,
+      sexForPhysiology: "female",
+      heightCm: 168,
+      currentWeightKg: 78,
+      currentBodyFatPercent: 32,
+      bodyFatBasis: "user_estimate",
+      trainingExperience: "intermediate",
+      evidence: {
+        profile: createEmptyBodyAnalysisEvidence("unknown")
+      }
+    },
+    activity: overrides.activity ?? {
+      generalActivity: "moderate",
+      resistanceTrainingSessionsPerWeek: 3,
+      cardioSessionsPerWeek: 2,
+      trainingConsistency: "moderate",
+      proteinIntakeSupport: "likely_adequate",
+      recoverySupport: "moderate",
+      evidence: {
+        activity: createEmptyBodyAnalysisEvidence("unknown")
+      }
+    },
+    medicationEffects: overrides.medicationEffects ?? createDefaultMedicationEffects(),
+    bodyAnalysis: overrides.bodyAnalysis === void 0 ? null : overrides.bodyAnalysis,
+    sourceImageContext: overrides.sourceImageContext ?? {
+      available: true,
+      progressPhotoView: "front"
+    },
+    options: overrides.options ?? {
+      preserveIdentity: true,
+      preserveOriginalPresentation: true,
+      preservePose: true,
+      preserveCameraFraming: true,
+      preserveClothing: true,
+      preserveBackground: true,
+      preserveLightingCharacter: true
+    }
+  };
+}
+function med(directionField, direction) {
+  const m = createDefaultMedicationEffects();
+  m.medicationMayAffectWeight = true;
+  m.appetite = "no_effect";
+  m.energyLevel = "no_effect";
+  m.metabolismTendency = "no_effect";
+  m.muscleBuildingOrPreservation = "no_effect";
+  m[directionField] = direction;
+  m.evidence = {
+    origin: "user_declared",
+    confidence: "low",
+    notes: ["User-reported physiological tendency only."]
+  };
+  return m;
+}
+function fixtureRealisticWeightLoss12w() {
+  return baseInput({
+    simulationId: "fixture-realistic-wl-12w",
+    goal: {
+      type: "weight_loss",
+      timelineWeeks: 12,
+      intensity: "realistic",
+      targetWeightChangeKg: -6,
+      targetBodyFatChangePercentagePoints: -3,
+      targetMuscleChangeKg: null
+    }
+  });
+}
+function fixtureConservativeWeightLoss12w() {
+  return baseInput({
+    simulationId: "fixture-conservative-wl-12w",
+    goal: {
+      type: "weight_loss",
+      timelineWeeks: 12,
+      intensity: "conservative",
+      targetWeightChangeKg: -6,
+      targetBodyFatChangePercentagePoints: -3,
+      targetMuscleChangeKg: null
+    }
+  });
+}
+function fixtureAmbitiousWeightLoss12w() {
+  return baseInput({
+    simulationId: "fixture-ambitious-wl-12w",
+    goal: {
+      type: "weight_loss",
+      timelineWeeks: 12,
+      intensity: "ambitious",
+      targetWeightChangeKg: -20,
+      targetBodyFatChangePercentagePoints: -12,
+      targetMuscleChangeKg: null
+    }
+  });
+}
+function fixtureFatLossMusclePreservation() {
+  return baseInput({
+    simulationId: "fixture-fl-preserve",
+    goal: {
+      type: "fat_loss_with_muscle_preservation",
+      timelineWeeks: 16,
+      intensity: "realistic",
+      targetWeightChangeKg: -5,
+      targetBodyFatChangePercentagePoints: -4,
+      targetMuscleChangeKg: 0.5
+    }
+  });
+}
+function fixtureBeginnerMuscleGain24w() {
+  return baseInput({
+    simulationId: "fixture-beginner-mg-24w",
+    goal: {
+      type: "muscle_gain",
+      timelineWeeks: 24,
+      intensity: "realistic",
+      targetWeightChangeKg: 4,
+      targetBodyFatChangePercentagePoints: 1,
+      targetMuscleChangeKg: 3
+    },
+    profile: {
+      ageYears: 28,
+      sexForPhysiology: "male",
+      heightCm: 178,
+      currentWeightKg: 72,
+      currentBodyFatPercent: 18,
+      bodyFatBasis: "user_estimate",
+      trainingExperience: "beginner",
+      evidence: { profile: createEmptyBodyAnalysisEvidence("unknown") }
+    }
+  });
+}
+function fixtureAdvancedMuscleGain24w() {
+  const f = fixtureBeginnerMuscleGain24w();
+  f.simulationId = "fixture-advanced-mg-24w";
+  f.profile = {
+    ...f.profile,
+    trainingExperience: "advanced",
+    currentWeightKg: 85,
+    currentBodyFatPercent: 14
+  };
+  return f;
+}
+function fixtureRecomposition16w() {
+  return baseInput({
+    simulationId: "fixture-recomp-16w",
+    goal: {
+      type: "body_recomposition",
+      timelineWeeks: 16,
+      intensity: "realistic",
+      targetWeightChangeKg: -1,
+      targetBodyFatChangePercentagePoints: -3,
+      targetMuscleChangeKg: 1.5
+    }
+  });
+}
+function fixtureGeneralFitnessLimitedBaseline() {
+  return baseInput({
+    simulationId: "fixture-fitness-limited",
+    goal: {
+      type: "general_fitness_improvement",
+      timelineWeeks: 12,
+      intensity: "realistic",
+      targetWeightChangeKg: null,
+      targetBodyFatChangePercentagePoints: null,
+      targetMuscleChangeKg: null
+    },
+    profile: {
+      ageYears: null,
+      sexForPhysiology: "not_provided",
+      heightCm: null,
+      currentWeightKg: null,
+      currentBodyFatPercent: null,
+      bodyFatBasis: "not_provided",
+      trainingExperience: "not_provided",
+      evidence: {}
+    },
+    activity: {
+      generalActivity: "not_provided",
+      resistanceTrainingSessionsPerWeek: null,
+      cardioSessionsPerWeek: null,
+      trainingConsistency: "not_provided",
+      proteinIntakeSupport: "not_provided",
+      recoverySupport: "not_provided",
+      evidence: {}
+    }
+  });
+}
+function fixtureMedAppetiteDecrease() {
+  return baseInput({
+    simulationId: "fixture-med-appetite-dec",
+    medicationEffects: med("appetite", "moderate_decrease")
+  });
+}
+function fixtureMedAppetiteIncrease() {
+  return baseInput({
+    simulationId: "fixture-med-appetite-inc",
+    medicationEffects: med("appetite", "moderate_increase")
+  });
+}
+function fixtureMedEnergyDecrease() {
+  return baseInput({
+    simulationId: "fixture-med-energy-dec",
+    medicationEffects: med("energyLevel", "moderate_decrease")
+  });
+}
+function fixtureMedEnergyIncrease() {
+  return baseInput({
+    simulationId: "fixture-med-energy-inc",
+    medicationEffects: med("energyLevel", "moderate_increase")
+  });
+}
+function fixtureMedMetabolismDecrease() {
+  return baseInput({
+    simulationId: "fixture-med-metab-dec",
+    medicationEffects: med("metabolismTendency", "moderate_decrease")
+  });
+}
+function fixtureMedMetabolismIncrease() {
+  return baseInput({
+    simulationId: "fixture-med-metab-inc",
+    medicationEffects: med("metabolismTendency", "moderate_increase")
+  });
+}
+function fixtureMedMusclePreservation() {
+  return baseInput({
+    simulationId: "fixture-med-muscle-pres",
+    goal: {
+      type: "fat_loss_with_muscle_preservation",
+      timelineWeeks: 12,
+      intensity: "realistic",
+      targetWeightChangeKg: -5,
+      targetBodyFatChangePercentagePoints: -3,
+      targetMuscleChangeKg: null
+    },
+    medicationEffects: med("muscleBuildingOrPreservation", "moderate_increase")
+  });
+}
+function fixtureNoMedicationEffect() {
+  return baseInput({
+    simulationId: "fixture-no-med",
+    medicationEffects: createDefaultMedicationEffects()
+  });
+}
+function fixtureMissingBodyFat() {
+  const f = baseInput({ simulationId: "fixture-missing-bf" });
+  f.profile = {
+    ...f.profile,
+    currentBodyFatPercent: null,
+    bodyFatBasis: "not_provided"
+  };
+  return f;
+}
+function fixtureDeviceMeasuredBodyFat() {
+  const f = baseInput({ simulationId: "fixture-device-bf" });
+  f.profile = {
+    ...f.profile,
+    currentBodyFatPercent: 28.5,
+    bodyFatBasis: "device_measurement"
+  };
+  return f;
+}
+function fixtureFutureVisualBodyFatReserved() {
+  const f = baseInput({ simulationId: "fixture-visual-bf-reserved" });
+  f.profile = {
+    ...f.profile,
+    currentBodyFatPercent: 30,
+    bodyFatBasis: "future_visual_estimate"
+  };
+  f.bodyAnalysis = createReservedBodyAnalysisStub();
+  return f;
+}
+function fixtureSingleFrontView() {
+  return baseInput({
+    simulationId: "fixture-single-front",
+    sourceImageContext: { available: true, progressPhotoView: "front" }
+  });
+}
+function fixtureMultiViewReservation() {
+  return baseInput({
+    simulationId: "fixture-multiview-reserved",
+    bodyAnalysis: {
+      schemaVersion: 1,
+      status: "reserved_not_implemented",
+      observations: [],
+      confidence: "not_applicable",
+      confidenceReasons: ["front_view_available", "side_view_available"],
+      limitations: [
+        "Multi-view analysis is approved as a future capability but is not implemented."
+      ]
+    },
+    sourceImageContext: { available: true, progressPhotoView: "front" }
+  });
+}
+function fixturePartialBodyVisibility() {
+  return baseInput({
+    simulationId: "fixture-partial-visibility",
+    sourceImageContext: {
+      available: true,
+      progressPhotoView: "three_quarter"
+    }
+  });
+}
+function fixtureNonStandardPose() {
+  return baseInput({
+    simulationId: "fixture-nonstandard-pose",
+    sourceImageContext: { available: true, progressPhotoView: "unknown" }
+  });
+}
+function fixtureUnusualProportions() {
+  return baseInput({
+    simulationId: "fixture-unusual-proportions",
+    profile: {
+      ageYears: 41,
+      sexForPhysiology: "intersex_or_other",
+      heightCm: 145,
+      currentWeightKg: 110,
+      currentBodyFatPercent: 42,
+      bodyFatBasis: "user_estimate",
+      trainingExperience: "beginner",
+      evidence: { profile: createEmptyBodyAnalysisEvidence("unknown") }
+    }
+  });
+}
+function fixtureUnrealisticTargetModerated() {
+  return baseInput({
+    simulationId: "fixture-unrealistic-moderated",
+    goal: {
+      type: "muscle_gain",
+      timelineWeeks: 4,
+      intensity: "ambitious",
+      targetWeightChangeKg: 20,
+      targetBodyFatChangePercentagePoints: -15,
+      targetMuscleChangeKg: 15
+    }
+  });
+}
+var BODY_SIMULATOR_FIXTURE_BUILDERS = Object.freeze([
+  fixtureRealisticWeightLoss12w,
+  fixtureConservativeWeightLoss12w,
+  fixtureAmbitiousWeightLoss12w,
+  fixtureFatLossMusclePreservation,
+  fixtureBeginnerMuscleGain24w,
+  fixtureAdvancedMuscleGain24w,
+  fixtureRecomposition16w,
+  fixtureGeneralFitnessLimitedBaseline,
+  fixtureMedAppetiteDecrease,
+  fixtureMedAppetiteIncrease,
+  fixtureMedEnergyDecrease,
+  fixtureMedEnergyIncrease,
+  fixtureMedMetabolismDecrease,
+  fixtureMedMetabolismIncrease,
+  fixtureMedMusclePreservation,
+  fixtureNoMedicationEffect,
+  fixtureMissingBodyFat,
+  fixtureDeviceMeasuredBodyFat,
+  fixtureFutureVisualBodyFatReserved,
+  fixtureSingleFrontView,
+  fixtureMultiViewReservation,
+  fixturePartialBodyVisibility,
+  fixtureNonStandardPose,
+  fixtureUnusualProportions,
+  fixtureUnrealisticTargetModerated
+]);
+
+// src/ai/shadow/BodySimulatorShadowIntegration.ts
+var SHADOW_SCENARIO_REGISTRY = Object.freeze([
+  {
+    id: "realistic_weight_loss_12w",
+    title: "Realistic weight loss (12 weeks)",
+    description: "Fixture-only realistic intensity weight-loss simulation.",
+    build: fixtureRealisticWeightLoss12w
+  },
+  {
+    id: "conservative_weight_loss_12w",
+    title: "Conservative weight loss (12 weeks)",
+    description: "Fixture-only conservative intensity weight-loss simulation.",
+    build: fixtureConservativeWeightLoss12w
+  },
+  {
+    id: "ambitious_weight_loss_12w",
+    title: "Ambitious bounded weight loss (12 weeks)",
+    description: "Fixture-only ambitious intensity with realism bounds.",
+    build: fixtureAmbitiousWeightLoss12w
+  },
+  {
+    id: "fat_loss_muscle_preservation",
+    title: "Fat loss with muscle preservation",
+    description: "Fixture-only fat loss with muscle preservation goal.",
+    build: fixtureFatLossMusclePreservation
+  },
+  {
+    id: "beginner_muscle_gain_24w",
+    title: "Beginner muscle gain (24 weeks)",
+    description: "Fixture-only beginner muscle-gain simulation.",
+    build: fixtureBeginnerMuscleGain24w
+  },
+  {
+    id: "advanced_muscle_gain_24w",
+    title: "Advanced muscle gain (24 weeks)",
+    description: "Fixture-only advanced muscle-gain simulation.",
+    build: fixtureAdvancedMuscleGain24w
+  },
+  {
+    id: "body_recomposition_16w",
+    title: "Body recomposition (16 weeks)",
+    description: "Fixture-only body recomposition simulation.",
+    build: fixtureRecomposition16w
+  },
+  {
+    id: "general_fitness_limited_baseline",
+    title: "General fitness (limited data)",
+    description: "Fixture-only general fitness with limited baseline inputs.",
+    build: fixtureGeneralFitnessLimitedBaseline
+  },
+  {
+    id: "med_appetite_decrease",
+    title: "Appetite decrease modifier",
+    description: "Fixture-only user-reported appetite decrease modifier.",
+    build: fixtureMedAppetiteDecrease
+  },
+  {
+    id: "med_appetite_increase",
+    title: "Appetite increase modifier",
+    description: "Fixture-only user-reported appetite increase modifier.",
+    build: fixtureMedAppetiteIncrease
+  },
+  {
+    id: "med_energy_decrease",
+    title: "Energy decrease modifier",
+    description: "Fixture-only user-reported energy decrease modifier.",
+    build: fixtureMedEnergyDecrease
+  },
+  {
+    id: "no_medication_modifier",
+    title: "No medication modifier",
+    description: "Fixture-only simulation with medicationMayAffectWeight false.",
+    build: fixtureNoMedicationEffect
+  },
+  {
+    id: "missing_body_fat",
+    title: "Missing body-fat input",
+    description: "Fixture-only simulation without body-fat percentage.",
+    build: fixtureMissingBodyFat
+  },
+  {
+    id: "partial_body_visibility",
+    title: "Partial-body visibility",
+    description: "Fixture-only partial visibility source-image context.",
+    build: fixturePartialBodyVisibility
+  },
+  {
+    id: "unrealistic_target_moderated",
+    title: "Unrealistic target moderated",
+    description: "Fixture-only extreme targets moderated by realism bounds.",
+    build: fixtureUnrealisticTargetModerated
+  }
+]);
+var SCENARIO_BY_ID = new Map(
+  SHADOW_SCENARIO_REGISTRY.map((entry) => [entry.id, entry])
+);
+var DEFAULT_BODY_SIMULATOR_SHADOW_SCENARIO_ID = "realistic_weight_loss_12w";
+function isAllowlistedBodySimulatorShadowScenarioId(scenarioId) {
+  return SCENARIO_BY_ID.has(scenarioId);
+}
+function getBodySimulatorShadowFixture(scenarioId) {
+  const entry = SCENARIO_BY_ID.get(scenarioId);
+  if (!entry) return null;
+  return structuredClone(entry.build());
+}
+function availabilityLabel(value) {
+  if (value === void 0) return "Not provided";
+  if (value === null) return "Unavailable";
+  if (value === "not_provided" || value === "unknown") {
+    return value === "unknown" ? "Unknown" : "Not provided";
+  }
+  return "Available";
+}
+function adaptBodySimulatorShadowInput(fixture) {
+  if (fixture == null || typeof fixture !== "object") {
+    return {
+      input: null,
+      status: "adapter_failed",
+      missingInputs: ["fixture"],
+      limitations: [],
+      diagnostics: ["body_simulator_adapter_missing_fixture"]
+    };
+  }
+  try {
+    const input = structuredClone(fixture);
+    const missingInputs = [];
+    const limitations = [];
+    const diagnostics = ["body_simulator_adapter_fixture_only"];
+    if (input.profile.currentBodyFatPercent == null) {
+      missingInputs.push("profile.currentBodyFatPercent");
+      limitations.push("Body-fat percentage not provided in fixture.");
+    }
+    if (input.profile.trainingExperience === "not_provided") {
+      missingInputs.push("profile.trainingExperience");
+      limitations.push("Training experience not provided in fixture.");
+    }
+    if (input.medicationEffects == null || typeof input.medicationEffects.medicationMayAffectWeight !== "boolean") {
+      limitations.push("Medication effect information not provided.");
+      diagnostics.push("medication_effect_not_provided");
+    } else if (input.medicationEffects.medicationMayAffectWeight === false) {
+      diagnostics.push("medication_may_affect_weight_false");
+    }
+    if (input.bodyAnalysis == null) {
+      diagnostics.push("body_analysis_null");
+    } else {
+      diagnostics.push("body_analysis_fixture_present");
+    }
+    const readiness = assessBodySimulatorReadiness(input);
+    const status = readiness.status === "insufficient_input" ? "insufficient_input" : readiness.status === "ready_with_limitations" || limitations.length > 0 ? "ready_with_limitations" : "ready";
+    return {
+      input,
+      status,
+      missingInputs: [
+        .../* @__PURE__ */ new Set([...missingInputs, ...readiness.missingRequiredInputs])
+      ],
+      limitations: [
+        .../* @__PURE__ */ new Set([...limitations, ...readiness.limitations])
+      ],
+      diagnostics
+    };
+  } catch {
+    return {
+      input: null,
+      status: "adapter_failed",
+      missingInputs: [],
+      limitations: [],
+      diagnostics: ["body_simulator_adapter_failed"]
+    };
+  }
+}
+function buildBodySimulatorInputSummary(input) {
+  if (input == null) return null;
+  const med2 = input.medicationEffects;
+  return {
+    goalType: input.goal?.type ?? null,
+    timelineWeeks: typeof input.goal?.timelineWeeks === "number" ? input.goal.timelineWeeks : null,
+    intensity: input.goal?.intensity ?? null,
+    ageAvailable: availabilityLabel(input.profile?.ageYears),
+    heightAvailable: availabilityLabel(input.profile?.heightCm),
+    weightAvailable: availabilityLabel(input.profile?.currentWeightKg),
+    bodyFatBasis: input.profile?.bodyFatBasis ?? null,
+    trainingExperience: input.profile?.trainingExperience ?? null,
+    generalActivity: input.activity?.generalActivity ?? null,
+    resistanceSessions: typeof input.activity?.resistanceTrainingSessionsPerWeek === "number" ? input.activity.resistanceTrainingSessionsPerWeek : null,
+    cardioSessions: typeof input.activity?.cardioSessionsPerWeek === "number" ? input.activity.cardioSessionsPerWeek : null,
+    medicationMayAffectWeight: typeof med2?.medicationMayAffectWeight === "boolean" ? med2.medicationMayAffectWeight : null,
+    sourcePhotoView: input.sourceImageContext?.progressPhotoView ?? null,
+    bodyAnalysisAvailable: input.bodyAnalysis != null,
+    medication: med2 ? {
+      medicationMayAffectWeight: typeof med2.medicationMayAffectWeight === "boolean" ? med2.medicationMayAffectWeight : null,
+      appetite: med2.appetite ?? null,
+      energyLevel: med2.energyLevel ?? null,
+      metabolismTendency: med2.metabolismTendency ?? null,
+      muscleBuildingOrPreservation: med2.muscleBuildingOrPreservation ?? null,
+      evidenceOrigin: med2.evidence?.origin ?? null,
+      evidenceConfidence: med2.evidence?.confidence ?? null
+    } : null
+  };
+}
+function disabledView(diagnostics = ["body_simulator_disabled"]) {
+  return {
+    enabled: false,
+    scenarioId: null,
+    status: "disabled",
+    inputSummary: null,
+    readiness: null,
+    rules: null,
+    projection: null,
+    diagnostics,
+    errorCode: "body_simulator_disabled"
+  };
+}
+function toShadowResult(view) {
+  if (!view.enabled) {
+    return {
+      executed: false,
+      status: "not_run",
+      inputSchemaVersion: null,
+      rulesSchemaVersion: null,
+      readiness: null,
+      rules: null,
+      projection: null,
+      diagnostics: [...view.diagnostics]
+    };
+  }
+  const status = view.status === "disabled" || view.status === "not_run" ? view.status === "not_run" ? "not_run" : "not_run" : view.status;
+  return {
+    executed: view.status !== "not_run" && view.status !== "disabled",
+    status,
+    inputSchemaVersion: view.rules?.schemaVersion ?? null,
+    rulesSchemaVersion: view.rules?.schemaVersion ?? null,
+    readiness: view.readiness,
+    rules: view.rules,
+    projection: view.projection,
+    diagnostics: [...view.diagnostics]
+  };
+}
+function runBodySimulatorShadowPhase(options) {
+  const enabled = options.enabled === true;
+  if (!enabled) {
+    const view2 = disabledView();
+    return { view: view2, shadow: toShadowResult(view2) };
+  }
+  const requested = typeof options?.scenarioId === "string" && options.scenarioId.length > 0 ? options.scenarioId : DEFAULT_BODY_SIMULATOR_SHADOW_SCENARIO_ID;
+  if (!isAllowlistedBodySimulatorShadowScenarioId(requested)) {
+    const view2 = {
+      enabled: true,
+      scenarioId: requested,
+      status: "failed",
+      inputSummary: null,
+      readiness: null,
+      rules: null,
+      projection: null,
+      diagnostics: ["body_simulator_scenario_not_allowlisted"],
+      errorCode: "body_simulator_validation_failed"
+    };
+    return { view: view2, shadow: toShadowResult(view2) };
+  }
+  const fixture = getBodySimulatorShadowFixture(requested);
+  const adapted = adaptBodySimulatorShadowInput(fixture);
+  if (adapted.status === "adapter_failed" || adapted.input == null) {
+    const view2 = {
+      enabled: true,
+      scenarioId: requested,
+      status: "failed",
+      inputSummary: null,
+      readiness: null,
+      rules: null,
+      projection: null,
+      diagnostics: [
+        ...adapted.diagnostics,
+        "body_simulator_execution_failed"
+      ],
+      errorCode: "body_simulator_execution_failed"
+    };
+    return { view: view2, shadow: toShadowResult(view2) };
+  }
+  const readiness = assessBodySimulatorReadiness(adapted.input);
+  const inputSummary = buildBodySimulatorInputSummary(adapted.input);
+  if (!readiness.ready || readiness.status === "insufficient_input") {
+    const view2 = {
+      enabled: true,
+      scenarioId: requested,
+      status: "insufficient_input",
+      inputSummary,
+      readiness,
+      rules: null,
+      projection: null,
+      diagnostics: [
+        ...adapted.diagnostics,
+        "body_simulator_insufficient_input"
+      ],
+      errorCode: "body_simulator_insufficient_input"
+    };
+    return { view: view2, shadow: toShadowResult(view2) };
+  }
+  let simResult;
+  try {
+    simResult = simulateBodyTransformation(adapted.input);
+  } catch {
+    const view2 = {
+      enabled: true,
+      scenarioId: requested,
+      status: "failed",
+      inputSummary,
+      readiness,
+      rules: null,
+      projection: null,
+      diagnostics: [
+        ...adapted.diagnostics,
+        "body_simulator_execution_failed"
+      ],
+      errorCode: "body_simulator_execution_failed"
+    };
+    return { view: view2, shadow: toShadowResult(view2) };
+  }
+  if (!simResult.ok) {
+    const view2 = {
+      enabled: true,
+      scenarioId: requested,
+      status: "failed",
+      inputSummary,
+      readiness,
+      rules: null,
+      projection: null,
+      diagnostics: [
+        ...adapted.diagnostics,
+        "body_simulator_validation_failed",
+        ...simResult.errors.map((e) => `${e.path}:${e.code}`)
+      ],
+      errorCode: "body_simulator_validation_failed"
+    };
+    return { view: view2, shadow: toShadowResult(view2) };
+  }
+  let projection = null;
+  try {
+    projection = projectBodySimulatorRules(simResult.rules);
+  } catch {
+    const view2 = {
+      enabled: true,
+      scenarioId: requested,
+      status: "failed",
+      inputSummary,
+      readiness,
+      rules: structuredClone(simResult.rules),
+      projection: null,
+      diagnostics: [
+        ...adapted.diagnostics,
+        "body_simulator_projection_failed"
+      ],
+      errorCode: "body_simulator_projection_failed"
+    };
+    return { view: view2, shadow: toShadowResult(view2) };
+  }
+  const status = readiness.status === "ready_with_limitations" || adapted.status === "ready_with_limitations" ? "ready_with_limitations" : "succeeded";
+  const view = {
+    enabled: true,
+    scenarioId: requested,
+    status,
+    inputSummary,
+    readiness,
+    rules: structuredClone(simResult.rules),
+    projection,
+    diagnostics: [
+      ...adapted.diagnostics,
+      "body_simulator_executed_once",
+      status
+    ],
+    errorCode: null
+  };
+  return { view, shadow: toShadowResult(view) };
+}
+
 // src/ai/control-room/ControlRoomFixtures.ts
 var SCENARIOS = [
   {
@@ -5854,6 +8390,32 @@ var ImagePreviewService = class {
         "Invalid prompt isolation variant."
       );
     }
+    const bodySimScenarioId = resolveBodySimulatorScenarioForPreview(
+      scenarioId,
+      typeof input.bodySimulatorScenarioId === "string" ? input.bodySimulatorScenarioId : null
+    );
+    let bodySimPhase;
+    try {
+      bodySimPhase = runBodySimulatorShadowPhase({
+        enabled: true,
+        scenarioId: bodySimScenarioId
+      });
+    } catch {
+      throw new ImagePreviewServiceError(
+        "body_simulator_failed",
+        "Body Simulator preview phase failed."
+      );
+    }
+    const bodySimView = bodySimPhase.view;
+    if (bodySimView.rules == null || bodySimView.status !== "succeeded" && bodySimView.status !== "ready_with_limitations") {
+      throw new ImagePreviewServiceError(
+        "body_simulator_failed",
+        "Body Simulator did not produce transformation rules for preview."
+      );
+    }
+    const canonicalBodyTransformation = adaptBodySimulatorRulesToFormatterInput(
+      bodySimView.rules
+    );
     const source = validatePreviewSourceImage(input.sourceImageDataUri);
     const env = this.deps.env ?? process.env;
     const model = resolvePreviewModel(env);
@@ -5895,6 +8457,7 @@ var ImagePreviewService = class {
       profile: resolved.runtimeInput.profile,
       goal: resolved.runtimeInput.goal,
       formatterOptions,
+      canonicalBodyTransformation,
       sourceImage: {
         kind: "data_uri",
         value: source.dataUri,

@@ -7,6 +7,10 @@
 
 import type { AiOsRuntimeResult, AiOsRuntimeStage } from "../runtime/AiOsRuntimeTypes";
 import type { FormattedImageRequest } from "../formatters/ProviderFormatter";
+import type {
+  FormatterInputInspectionView,
+  FormatterPreviewView,
+} from "../body-simulator/BodySimulatorFormatterAdapter";
 import {
   buildBodySimulatorShadowPlaceholder,
   type ControlRoomBodySimulatorView,
@@ -146,7 +150,9 @@ function projectFormattedRequest(
 export function projectControlRoomResult(
   scenario: ControlRoomScenarioSummary,
   runtimeResult: AiOsRuntimeResult,
-  bodySimulator?: ControlRoomBodySimulatorView
+  bodySimulator?: ControlRoomBodySimulatorView,
+  formatterInput?: FormatterInputInspectionView | null,
+  formatterPreview?: FormatterPreviewView | null
 ): ControlRoomRunResult {
   if (runtimeResult.mode !== "dry_run") {
     throw new ControlRoomProjectionError(
@@ -215,6 +221,10 @@ export function projectControlRoomResult(
     bodySimulator: structuredClone(
       bodySimulator ?? buildBodySimulatorShadowPlaceholder()
     ),
+    formatterInput:
+      formatterInput == null ? null : structuredClone(formatterInput),
+    formatterPreview:
+      formatterPreview == null ? null : structuredClone(formatterPreview),
     warnings: [...runtimeResult.warnings],
     errors: [...runtimeResult.errors],
   };
@@ -324,6 +334,8 @@ export function sanitizeControlRoomProjection(
     artifacts: null,
     safety: { ...CONTROL_ROOM_SAFETY_STATUS },
     bodySimulator: buildBodySimulatorShadowPlaceholder(),
+    formatterInput: null,
+    formatterPreview: null,
     warnings: [],
     errors: [CONTROL_ROOM_FORBIDDEN_CONTENT_ERROR],
   };

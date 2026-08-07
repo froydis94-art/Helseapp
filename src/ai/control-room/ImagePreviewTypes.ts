@@ -182,7 +182,8 @@ export interface ImagePreviewApiFailure {
     | "provider_network_error"
     | "token_missing"
     | "validation_failed"
-    | "projection_failed";
+    | "projection_failed"
+    | "body_simulator_failed";
   /** Selected Prompt Isolation Lab variant when relevant (never secrets). */
   promptIsolation?: Pick<PromptIsolationSummary, "variant" | "radioLabel" | "promptSource">;
 }

@@ -4,6 +4,7 @@
  * No image bytes, tokens, raw provider payloads, or physiology ownership.
  */
 
+import type { CanonicalBodyTransformation } from "../body-simulator/BodySimulatorFormatterAdapter";
 import type { FormatterOptions, FormattedImageRequest } from "../formatters/ProviderFormatter";
 import type { RenderPlan } from "../render/RenderPlan";
 import type { RetryAttemptState, RetryOrchestratorDecision } from "../retry/RetryOrchestratorTypes";
@@ -50,6 +51,13 @@ export interface AiOsRuntimeInput {
 
   formatterOptions?: FormatterOptions;
 
+  /**
+   * Demand 022B — optional Body Simulator canonical transformation.
+   * When present, replaces RenderPlan.transformation before formatting.
+   * Internal preview / Control Room only; not a production cutover switch.
+   */
+  canonicalBodyTransformation?: CanonicalBodyTransformation;
+
   sourceImage?: ReplicateSourceImage;
 
   validationEvidence?: ValidationEvidence;
@@ -94,6 +102,8 @@ export interface AiOsRuntimeArtifacts {
   transformationPlan?: TransformationPlan;
   visualDirection?: VisualDirection;
   renderPlan?: RenderPlan;
+  /** Present when canonicalBodyTransformation was applied (Demand 022B). */
+  canonicalBodyTransformation?: CanonicalBodyTransformation;
   formattedRequest?: FormattedImageRequest;
   transportResult?: ReplicateTransportResult;
   validationDecision?: ValidationDecision;

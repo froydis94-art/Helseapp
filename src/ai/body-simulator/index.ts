@@ -1,8 +1,8 @@
 /**
- * Body Simulator v1 — public barrel (Demand 022).
+ * Body Simulator v1 — public barrel (Demand 022 / 022B).
  *
  * Deterministic provider-independent Transformation Engine.
- * Not wired into production generation, formatters, or providers.
+ * Formatter adapter (022B) is internal-preview only — not production cutover.
  */
 
 export {
@@ -86,6 +86,23 @@ export {
   serializeBodySimulatorProjection,
 } from "./BodySimulatorProjection";
 export type { BodySimulatorSafeProjection } from "./BodySimulatorProjection";
+
+export {
+  CANONICAL_BODY_TRANSFORMATION_SCHEMA_VERSION,
+  CANONICAL_BODY_TRANSFORMATION_SOURCE,
+  CONTROL_ROOM_TO_BODY_SIMULATOR_SCENARIO,
+  adaptBodySimulatorRulesToFormatterInput,
+  applyCanonicalBodyTransformation,
+  buildFormatterInputInspectionView,
+  buildFormatterPreviewView,
+  resolveBodySimulatorScenarioForPreview,
+} from "./BodySimulatorFormatterAdapter";
+export type {
+  CanonicalBodyTransformation,
+  CanonicalChangeVisibility,
+  FormatterInputInspectionView,
+  FormatterPreviewView,
+} from "./BodySimulatorFormatterAdapter";
 
 export {
   BODY_SIMULATOR_FIXTURE_BUILDERS,

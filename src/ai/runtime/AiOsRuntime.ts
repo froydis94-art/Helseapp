@@ -8,6 +8,9 @@
 import { createHash } from "node:crypto";
 
 import {
+  applyCanonicalBodyTransformation,
+} from "../body-simulator/BodySimulatorFormatterAdapter";
+import {
   FLUX_FORMATTER_VERSION,
   FluxFormatter,
   validateFormattedImageRequest,
@@ -167,6 +170,30 @@ export function validateAiOsRuntimeInput(
 
   errors.push(...validateFormatterOptions(input.formatterOptions));
 
+  if (input.canonicalBodyTransformation !== undefined) {
+    const canonical = input.canonicalBodyTransformation;
+    if (
+      canonical == null ||
+      typeof canonical !== "object" ||
+      Array.isArray(canonical)
+    ) {
+      errors.push("canonicalBodyTransformation must be an object when provided.");
+    } else if (canonical.source !== "body_simulator_v1") {
+      errors.push("canonicalBodyTransformation.source is invalid.");
+    } else if (
+      !Array.isArray(canonical.approvedChanges) ||
+      canonical.approvedChanges.length === 0
+    ) {
+      errors.push(
+        "canonicalBodyTransformation.approvedChanges must be a non-empty array."
+      );
+    } else if (valueLooksSensitive(canonical)) {
+      errors.push(
+        "canonicalBodyTransformation contain forbidden sensitive content."
+      );
+    }
+  }
+
   if (input.mode === "dry_run") {
     if (input.validationEvidence !== undefined) {
       errors.push(
@@ -242,6 +269,9 @@ export function validateAiOsRuntimeInput(
   const scanTargets: unknown[] = [input.profile, input.goal];
   if (input.formatterOptions !== undefined) {
     scanTargets.push(input.formatterOptions);
+  }
+  if (input.canonicalBodyTransformation !== undefined) {
+    scanTargets.push(input.canonicalBodyTransformation);
   }
   if (input.validationEvidence !== undefined) {
     scanTargets.push(input.validationEvidence);
@@ -429,9 +459,23 @@ export class AiOsRuntime {
 
       // 4. RenderPlan
       const renderStarted = this.dependencies.now();
-      const renderPlan = buildRenderPlan(plan, direction);
+      let renderPlan = buildRenderPlan(plan, direction);
+      // Demand 022B: Body Simulator canonical rules replace legacy transformation
+      // intent on the formatter path when supplied (internal preview / Control Room).
+      if (input.canonicalBodyTransformation !== undefined) {
+        renderPlan = applyCanonicalBodyTransformation(
+          renderPlan,
+          input.canonicalBodyTransformation
+        );
+        artifacts.canonicalBodyTransformation = structuredClone(
+          input.canonicalBodyTransformation
+        );
+      }
       versions.renderPlanRulesVersion =
         renderPlan.rulesVersion ?? RENDER_PLAN_RULES_VERSION;
+      versions.transformationRulesVersion =
+        renderPlan.trace.transformationRulesVersion ??
+        versions.transformationRulesVersion;
       artifacts.renderPlan = renderPlan;
       pushStage("render_plan", true, renderStarted, [], []);
 

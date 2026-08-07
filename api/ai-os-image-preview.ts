@@ -477,6 +477,13 @@ function mapServiceErrorCode(code: string): {
         code: "scenario_not_found",
         message: "Scenario was not found.",
       };
+    case "body_simulator_failed":
+      return {
+        status: 500,
+        code: "runtime_failure",
+        message: "Body Simulator preview phase failed.",
+        diagnostic: "body_simulator_failed",
+      };
     case "provider_failure":
       return {
         status: 502,

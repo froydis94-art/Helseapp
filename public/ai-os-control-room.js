@@ -76,6 +76,19 @@
     "bodySimulatorLimitationsBody"
   );
   var bodySimulatorJsonView = document.getElementById("bodySimulatorJsonView");
+  var formatterInputReceivedBody = document.getElementById(
+    "formatterInputReceivedBody"
+  );
+  var formatterInputGeneratedBody = document.getElementById(
+    "formatterInputGeneratedBody"
+  );
+  var formatterInputPreservationBody = document.getElementById(
+    "formatterInputPreservationBody"
+  );
+  var formatterInputSummaryBody = document.getElementById(
+    "formatterInputSummaryBody"
+  );
+  var formatterPreviewBody = document.getElementById("formatterPreviewBody");
   var resultPanel = document.getElementById("resultPanel");
   var stageList = document.getElementById("stageList");
   var transformationPlanView = document.getElementById("transformationPlanView");
@@ -277,6 +290,9 @@
     "Goal",
     "Transformation Plan",
     "Transformation Rules",
+    "Body Simulator",
+    "Formatter Input",
+    "Formatter Preview",
     "Rule Provenance",
     "Formatter",
     "Prompts",
@@ -2486,6 +2502,7 @@
     setText(negativePromptView, "");
     setText(rawProjectionView, "");
     clearBodySimulatorViews();
+    clearFormatterBridgeViews();
     if (promptDetails) promptDetails.open = false;
   }
 
@@ -2886,6 +2903,162 @@
     });
     setText(bodySimulatorJsonView, "");
     setBodySimulatorStatusChip("not_run");
+  }
+
+  function clearFormatterBridgeViews() {
+    [
+      formatterInputReceivedBody,
+      formatterInputGeneratedBody,
+      formatterInputPreservationBody,
+      formatterInputSummaryBody,
+      formatterPreviewBody,
+    ].forEach(function (el) {
+      clearChildren(el);
+    });
+  }
+
+  function renderFormatterInputInspector(formatterInput) {
+    clearFormatterBridgeViews();
+    if (!formatterInput || typeof formatterInput !== "object") {
+      appendKv(
+        formatterInputSummaryBody,
+        "status",
+        "Not available — enable Body Simulator shadow and run a scenario"
+      );
+      return;
+    }
+    var received = formatterInput.receivedCanonicalRules || {};
+    appendKv(
+      formatterInputReceivedBody,
+      "simulationId",
+      received.simulationId || "—"
+    );
+    appendKv(
+      formatterInputReceivedBody,
+      "rulesVersion",
+      received.rulesVersion || "—"
+    );
+    appendKv(formatterInputReceivedBody, "goalType", received.goalType || "—");
+    appendKv(
+      formatterInputReceivedBody,
+      "timelineWeeks",
+      received.timelineWeeks == null ? "—" : String(received.timelineWeeks)
+    );
+    appendKv(
+      formatterInputReceivedBody,
+      "intensity",
+      received.intensity || "—"
+    );
+    appendKv(
+      formatterInputReceivedBody,
+      "regionCount",
+      received.regionCount == null ? "—" : String(received.regionCount)
+    );
+
+    var generated = formatterInput.generatedFormatterObject || {};
+    appendKv(formatterInputGeneratedBody, "source", generated.source || "—");
+    appendKv(
+      formatterInputGeneratedBody,
+      "schemaVersion",
+      generated.schemaVersion == null ? "—" : String(generated.schemaVersion)
+    );
+    appendKv(
+      formatterInputGeneratedBody,
+      "visualIntensity",
+      generated.visualIntensity || "—"
+    );
+    appendKv(
+      formatterInputGeneratedBody,
+      "changeVisibility",
+      generated.changeVisibility || "—"
+    );
+    appendKv(
+      formatterInputGeneratedBody,
+      "approvedChangeCount",
+      generated.approvedChangeCount == null
+        ? "—"
+        : String(generated.approvedChangeCount)
+    );
+    appendKv(
+      formatterInputGeneratedBody,
+      "approvedChangeIds",
+      Array.isArray(generated.approvedChangeIds)
+        ? generated.approvedChangeIds.join(", ")
+        : "—"
+    );
+
+    var preservation = formatterInput.preservationMetadata || {};
+    Object.keys(preservation).forEach(function (key) {
+      appendKv(formatterInputPreservationBody, key, String(preservation[key]));
+    });
+
+    appendKv(
+      formatterInputSummaryBody,
+      "summary",
+      formatterInput.summary || "—"
+    );
+  }
+
+  function renderFormatterPreviewInspector(formatterPreview) {
+    if (!formatterPreviewBody) return;
+    // Received/generated grids were cleared by renderFormatterInputInspector;
+    // only refresh the preview panel here.
+    clearChildren(formatterPreviewBody);
+    if (!formatterPreview || typeof formatterPreview !== "object") {
+      appendKv(
+        formatterPreviewBody,
+        "status",
+        "Not available — enable Body Simulator shadow and run a scenario"
+      );
+      return;
+    }
+    appendKv(formatterPreviewBody, "Goal", formatterPreview.goal || "—");
+    appendKv(
+      formatterPreviewBody,
+      "Timeline",
+      formatterPreview.timelineWeeks == null
+        ? "—"
+        : String(formatterPreview.timelineWeeks) + " weeks"
+    );
+    appendKv(
+      formatterPreviewBody,
+      "Intensity",
+      formatterPreview.intensity || "—"
+    );
+    appendKv(
+      formatterPreviewBody,
+      "Whole body summary",
+      formatterPreview.wholeBodySummary || "—"
+    );
+    appendKv(
+      formatterPreviewBody,
+      "Regional summaries",
+      Array.isArray(formatterPreview.regionalSummaries)
+        ? formatterPreview.regionalSummaries.join(" | ")
+        : "—"
+    );
+    appendKv(
+      formatterPreviewBody,
+      "Preservation summary",
+      formatterPreview.preservationSummary || "—"
+    );
+    appendKv(
+      formatterPreviewBody,
+      "Prompt length",
+      formatterPreview.promptLength == null
+        ? "—"
+        : String(formatterPreview.promptLength)
+    );
+    appendKv(
+      formatterPreviewBody,
+      "Formatter",
+      formatterPreview.formatterName || "—"
+    );
+    appendKv(
+      formatterPreviewBody,
+      "Formatter version",
+      formatterPreview.formatterVersion || "—"
+    );
   }
 
   function renderBodySimulatorScenarioSelector() {
@@ -3335,6 +3508,8 @@
     renderFormatter(result.artifacts && result.artifacts.formattedRequest);
     renderVersions(result.runtime && result.runtime.versions);
     renderBodySimulatorInspector(result.bodySimulator);
+    renderFormatterInputInspector(result.formatterInput);
+    renderFormatterPreviewInspector(result.formatterPreview);
     setText(rawProjectionView, pretty(result));
   }
 

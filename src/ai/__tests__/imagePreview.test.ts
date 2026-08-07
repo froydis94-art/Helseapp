@@ -3130,7 +3130,6 @@ describe("imagePreview — DEMAND_017", () => {
     const constitutionPath = join(repoRoot, "docs/CTO/00_AI_CONSTITUTION.md");
     const transportDir = join(repoRoot, "src/ai/transport");
     const providerDir = join(repoRoot, "src/ai/provider");
-    const runtimeDir = join(repoRoot, "src/ai/runtime");
     const retryDir = join(repoRoot, "src/ai/retry");
     const formattersDir = join(repoRoot, "src/ai/formatters");
 
@@ -3216,6 +3215,9 @@ describe("imagePreview — DEMAND_017", () => {
         "Goal",
         "Transformation Plan",
         "Transformation Rules",
+        "Body Simulator",
+        "Formatter Input",
+        "Formatter Preview",
         "Rule Provenance",
         "Formatter",
         "Prompts",
@@ -3226,12 +3228,17 @@ describe("imagePreview — DEMAND_017", () => {
       const goalIdx = html.indexOf("aiPipelineSectionGoal");
       const planIdx = html.indexOf("aiPipelineSectionPlan");
       const rulesIdx = html.indexOf("aiPipelineSectionRules");
+      const bodySimIdx = html.indexOf("aiPipelineSectionBodySimulator");
+      const fmtInputIdx = html.indexOf("aiPipelineSectionFormatterInput");
+      const fmtPreviewIdx = html.indexOf("aiPipelineSectionFormatterPreview");
       const provIdx = html.indexOf("aiPipelineSectionProvenance");
-      const fmtIdx = html.indexOf("aiPipelineSectionFormatter");
+      const fmtIdx = html.indexOf('id="aiPipelineSectionFormatter"');
       const promptsIdx = html.indexOf("aiPipelineSectionPrompts");
       const providerIdx = html.indexOf("aiPipelineSectionProvider");
       const resultIdx = html.indexOf("aiPipelineSectionResult");
-      assert.ok(goalIdx < planIdx && planIdx < rulesIdx && rulesIdx < provIdx);
+      assert.ok(goalIdx < planIdx && planIdx < rulesIdx);
+      assert.ok(rulesIdx < bodySimIdx && bodySimIdx < fmtInputIdx);
+      assert.ok(fmtInputIdx < fmtPreviewIdx && fmtPreviewIdx < provIdx);
       assert.ok(provIdx < fmtIdx && fmtIdx < promptsIdx);
       assert.ok(promptsIdx < providerIdx && providerIdx < resultIdx);
     });
@@ -3708,13 +3715,19 @@ describe("imagePreview — DEMAND_017", () => {
       assert.equal(existsSync(providerDir) || existsSync(join(repoRoot, "src/ai/model")), true);
     });
 
-    it("53. No runtime behavior changes", () => {
-      const dirty = execSync(`git status --porcelain -- "src/ai/runtime"`, {
-        encoding: "utf8",
-        cwd: repoRoot,
-      }).trim();
-      assert.equal(dirty, "");
-      assert.ok(existsSync(runtimeDir));
+    it("53. Runtime may accept canonicalBodyTransformation for Demand 022B only", () => {
+      const runtimeTypes = read(
+        join(repoRoot, "src/ai/runtime/AiOsRuntimeTypes.ts")
+      );
+      assert.match(runtimeTypes, /canonicalBodyTransformation/);
+      const runtime = read(join(repoRoot, "src/ai/runtime/AiOsRuntime.ts"));
+      assert.match(runtime, /applyCanonicalBodyTransformation/);
+      // Transport / retry remain sealed against unrelated churn.
+      const dirtyTransport = execSync(
+        `git status --porcelain -- "src/ai/transport"`,
+        { encoding: "utf8", cwd: repoRoot }
+      ).trim();
+      assert.equal(dirtyTransport, "");
     });
 
     it("54. No retry behavior changes", () => {

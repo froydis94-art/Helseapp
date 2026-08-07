@@ -3,8 +3,20 @@
  *
  * Constructs AiOsRuntime without transport, env, or network dependencies.
  * Invokes runtime exactly once per scenario run.
+ *
+ * Demand 022B: when Body Simulator shadow succeeds, canonical transformation
+ * rules are applied to the formatter path (no legacy transformation fallback
+ * for that dry-run). Provider traffic remains off.
  */
 
+import {
+  adaptBodySimulatorRulesToFormatterInput,
+  buildFormatterInputInspectionView,
+  buildFormatterPreviewView,
+  resolveBodySimulatorScenarioForPreview,
+  type FormatterInputInspectionView,
+  type FormatterPreviewView,
+} from "../body-simulator/BodySimulatorFormatterAdapter";
 import {
   AiOsRuntime,
   createAiOsRuntimeDependencies,
@@ -13,6 +25,7 @@ import {
   buildBodySimulatorShadowPlaceholder,
   isBodySimulatorShadowEnabled,
   runBodySimulatorShadowPhase,
+  type ControlRoomBodySimulatorView,
 } from "../shadow/BodySimulatorShadowIntegration";
 import { getControlRoomScenario, listControlRoomScenarios } from "./ControlRoomFixtures";
 import {
@@ -91,6 +104,88 @@ function assertDryRunInputShape(input: {
   }
 }
 
+function runBodySimulatorForControlRoom(
+  controlRoomScenarioId: string,
+  options?: { bodySimulatorScenarioId?: string | null }
+): ControlRoomBodySimulatorView {
+  const bodySimEnabled = isBodySimulatorShadowEnabled(process.env);
+  const resolvedScenarioId = resolveBodySimulatorScenarioForPreview(
+    controlRoomScenarioId,
+    options?.bodySimulatorScenarioId ?? null
+  );
+
+  try {
+    return runBodySimulatorShadowPhase({
+      enabled: bodySimEnabled,
+      scenarioId: resolvedScenarioId,
+    }).view;
+  } catch {
+    const placeholder = buildBodySimulatorShadowPlaceholder({
+      enabled: bodySimEnabled,
+      scenarioId: resolvedScenarioId,
+    });
+    return {
+      ...placeholder,
+      status: placeholder.enabled ? ("failed" as const) : ("disabled" as const),
+      diagnostics: [
+        ...placeholder.diagnostics,
+        "body_simulator_execution_failed",
+      ],
+      errorCode: placeholder.enabled
+        ? ("body_simulator_execution_failed" as const)
+        : ("body_simulator_disabled" as const),
+    };
+  }
+}
+
+function buildFormatterBridgeViews(
+  bodySimulator: ControlRoomBodySimulatorView,
+  formattedRequest: {
+    positivePrompt?: string;
+    negativePrompt?: string;
+    formatterName?: string;
+    formatterVersion?: string;
+  } | null
+): {
+  formatterInput: FormatterInputInspectionView | null;
+  formatterPreview: FormatterPreviewView | null;
+} {
+  if (
+    bodySimulator.rules == null ||
+    (bodySimulator.status !== "succeeded" &&
+      bodySimulator.status !== "ready_with_limitations")
+  ) {
+    return { formatterInput: null, formatterPreview: null };
+  }
+
+  const canonical = adaptBodySimulatorRulesToFormatterInput(
+    bodySimulator.rules
+  );
+  const positiveLen =
+    typeof formattedRequest?.positivePrompt === "string"
+      ? formattedRequest.positivePrompt.length
+      : 0;
+  const negativeLen =
+    typeof formattedRequest?.negativePrompt === "string"
+      ? formattedRequest.negativePrompt.length
+      : 0;
+  const promptLength =
+    formattedRequest == null ? null : positiveLen + negativeLen;
+
+  return {
+    formatterInput: buildFormatterInputInspectionView(
+      bodySimulator.rules,
+      canonical
+    ),
+    formatterPreview: buildFormatterPreviewView({
+      canonical,
+      promptLength,
+      formatterName: formattedRequest?.formatterName ?? null,
+      formatterVersion: formattedRequest?.formatterVersion ?? null,
+    }),
+  };
+}
+
 export class ControlRoomService {
   listScenarios(): ControlRoomScenarioSummary[] {
     return listControlRoomScenarios();
@@ -108,12 +203,25 @@ export class ControlRoomService {
       );
     }
 
+    // Body Simulator first (Demand 022B pipeline order for formatter path).
+    const bodySimulator = runBodySimulatorForControlRoom(scenarioId, options);
+
+    let canonical =
+      bodySimulator.rules != null &&
+      (bodySimulator.status === "succeeded" ||
+        bodySimulator.status === "ready_with_limitations")
+        ? adaptBodySimulatorRulesToFormatterInput(bodySimulator.rules)
+        : null;
+
     const runtimeInput = {
       mode: "dry_run" as const,
       profile: resolved.runtimeInput.profile,
       goal: resolved.runtimeInput.goal,
       ...(resolved.runtimeInput.formatterOptions !== undefined
         ? { formatterOptions: resolved.runtimeInput.formatterOptions }
+        : {}),
+      ...(canonical != null
+        ? { canonicalBodyTransformation: canonical }
         : {}),
     };
 
@@ -147,39 +255,27 @@ export class ControlRoomService {
       );
     }
 
-    // Body Simulator shadow phase — isolated; failure must not break dry run.
-    // Flag is read only in this Control Room service (not inside ShadowRuntime).
-    const bodySimEnabled = isBodySimulatorShadowEnabled(process.env);
-    let bodySimulator;
-    try {
-      bodySimulator = runBodySimulatorShadowPhase({
-        enabled: bodySimEnabled,
-        scenarioId: options?.bodySimulatorScenarioId ?? null,
-      }).view;
-    } catch {
-      const placeholder = buildBodySimulatorShadowPlaceholder({
-        enabled: bodySimEnabled,
-        scenarioId: options?.bodySimulatorScenarioId ?? null,
-      });
-      bodySimulator = {
-        ...placeholder,
-        status: placeholder.enabled ? ("failed" as const) : ("disabled" as const),
-        diagnostics: [
-          ...placeholder.diagnostics,
-          "body_simulator_execution_failed",
-        ],
-        errorCode: placeholder.enabled
-          ? ("body_simulator_execution_failed" as const)
-          : ("body_simulator_disabled" as const),
-      };
-    }
+    const formatted = runtimeResult.artifacts.formattedRequest;
+    const bridge = buildFormatterBridgeViews(
+      bodySimulator,
+      formatted
+        ? {
+            positivePrompt: formatted.prompt,
+            negativePrompt: formatted.negativePrompt ?? "",
+            formatterName: formatted.metadata.formatterName,
+            formatterVersion: formatted.metadata.formatterVersion,
+          }
+        : null
+    );
 
     let projected: ControlRoomRunResult;
     try {
       projected = projectControlRoomResult(
         resolved.summary,
         runtimeResult,
-        bodySimulator
+        bodySimulator,
+        bridge.formatterInput,
+        bridge.formatterPreview
       );
     } catch (error) {
       if (error instanceof ControlRoomProjectionError) {
@@ -224,6 +320,8 @@ export function buildControlRoomFailureShell(
     artifacts: null,
     safety: { ...CONTROL_ROOM_SAFETY_STATUS },
     bodySimulator: buildBodySimulatorShadowPlaceholder(),
+    formatterInput: null,
+    formatterPreview: null,
     warnings: [],
     errors: [CONTROL_ROOM_FORBIDDEN_CONTENT_ERROR],
   };

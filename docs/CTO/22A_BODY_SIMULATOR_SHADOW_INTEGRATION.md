@@ -317,18 +317,11 @@ Control Room deploys with the Vercel web app. Recommend setting the flag on **Pr
 
 ## Next milestone
 
-**Demand 022B — First End-to-End Body Simulator Preview**
+**Demand 022B — First End-to-End Body Simulator Preview** — completed.
 
-May:
+See [22B — First End-to-End Body Simulator Preview](./22B_FIRST_END_TO_END_PREVIEW.md) for the Body Simulator → Formatter → Internal Preview bridge (no production cutover).
 
-- connect canonical Body Simulator rules to the existing formatter path
-- generate one manually confirmed internal preview
-- compare legacy/current formatter path with Body Simulator input
-- remain internal-only
-- require explicit paid-request confirmation
-- avoid production cutover
-
-Do not implement Demand 022B in this demand.
+Further work remains out of scope: calibration, visual BF estimation, multi-view, Personal Library, production rollout, prompt optimisation, AI retraining.
 
 ---
 

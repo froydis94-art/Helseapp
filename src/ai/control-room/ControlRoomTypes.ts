@@ -6,6 +6,10 @@
  */
 
 import type { AiOsRuntimeStage } from "../runtime/AiOsRuntimeTypes";
+import type {
+  FormatterInputInspectionView,
+  FormatterPreviewView,
+} from "../body-simulator/BodySimulatorFormatterAdapter";
 import type { ControlRoomBodySimulatorView } from "../shadow/BodySimulatorShadowIntegration";
 
 export const CONTROL_ROOM_SCHEMA_VERSION = 1 as const;
@@ -93,6 +97,18 @@ export interface ControlRoomRunResult {
    * Always present; status is "disabled" when flag is off.
    */
   bodySimulator: ControlRoomBodySimulatorView;
+
+  /**
+   * Demand 022B — Formatter Input inspector (read-only).
+   * Null when Body Simulator did not produce rules for this dry-run.
+   */
+  formatterInput: FormatterInputInspectionView | null;
+
+  /**
+   * Demand 022B — Formatter Preview summary (read-only).
+   * Null when Body Simulator did not produce rules for this dry-run.
+   */
+  formatterPreview: FormatterPreviewView | null;
 
   warnings: string[];
   errors: string[];

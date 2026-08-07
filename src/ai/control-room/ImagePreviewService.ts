@@ -33,6 +33,11 @@ import {
 const PREVIEW_CREATE_TIMEOUT_MS = 60_000;
 /** Allow one Flux create+poll cycle inside the Vercel maxDuration budget. */
 const PREVIEW_TOTAL_TIMEOUT_MS = 120_000;
+import {
+  adaptBodySimulatorRulesToFormatterInput,
+  resolveBodySimulatorScenarioForPreview,
+} from "../body-simulator/BodySimulatorFormatterAdapter";
+import { runBodySimulatorShadowPhase } from "../shadow/BodySimulatorShadowIntegration";
 import { getControlRoomScenario } from "./ControlRoomFixtures";
 import {
   ImagePreviewProjectionError,
@@ -67,6 +72,7 @@ export class ImagePreviewServiceError extends Error {
     | "adult_confirmation_required"
     | "consent_confirmation_required"
     | "billing_confirmation_required"
+    | "body_simulator_failed"
     | "runtime_failure"
     | "provider_failure"
     | "provider_timeout"
@@ -105,6 +111,8 @@ export interface ImagePreviewRunInput {
   requestId?: string;
   /** Prompt Isolation Lab variant — browser allowlist only. */
   promptIsolationVariant?: unknown;
+  /** Optional allowlisted Body Simulator fixture override (Demand 022B). */
+  bodySimulatorScenarioId?: unknown;
 }
 
 export interface ImagePreviewServiceDependencies {
@@ -507,6 +515,41 @@ export class ImagePreviewService {
       );
     }
 
+    // Demand 022B — Body Simulator is authoritative for transformation intent.
+    // No legacy TransformationEngine fallback on the internal preview path.
+    const bodySimScenarioId = resolveBodySimulatorScenarioForPreview(
+      scenarioId,
+      typeof input.bodySimulatorScenarioId === "string"
+        ? input.bodySimulatorScenarioId
+        : null
+    );
+    let bodySimPhase;
+    try {
+      bodySimPhase = runBodySimulatorShadowPhase({
+        enabled: true,
+        scenarioId: bodySimScenarioId,
+      });
+    } catch {
+      throw new ImagePreviewServiceError(
+        "body_simulator_failed",
+        "Body Simulator preview phase failed."
+      );
+    }
+    const bodySimView = bodySimPhase.view;
+    if (
+      bodySimView.rules == null ||
+      (bodySimView.status !== "succeeded" &&
+        bodySimView.status !== "ready_with_limitations")
+    ) {
+      throw new ImagePreviewServiceError(
+        "body_simulator_failed",
+        "Body Simulator did not produce transformation rules for preview."
+      );
+    }
+    const canonicalBodyTransformation = adaptBodySimulatorRulesToFormatterInput(
+      bodySimView.rules
+    );
+
     const source = validatePreviewSourceImage(input.sourceImageDataUri);
     const env = this.deps.env ?? process.env;
     const model = resolvePreviewModel(env);
@@ -559,6 +602,7 @@ export class ImagePreviewService {
       profile: resolved.runtimeInput.profile,
       goal: resolved.runtimeInput.goal,
       formatterOptions,
+      canonicalBodyTransformation,
       sourceImage: {
         kind: "data_uri" as const,
         value: source.dataUri,
