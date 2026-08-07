@@ -628,6 +628,12 @@
         line-height: 1.4;
       }
       .photo-guide-rules li { margin: 0 0 8px; }
+      .photo-guide-footnote {
+        margin: 0 0 14px;
+        color: var(--muted);
+        font-size: 0.75rem;
+        line-height: 1.4;
+      }
       .photo-guide-light-row {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -999,7 +1005,7 @@
           aria-haspopup="dialog"
           aria-controls="photoGuide"
         >
-          📷 How to take the perfect progress photo
+          📷 Get the best progress photo
         </button>
 
         <button class="primary" id="run" type="button" data-i18n="btnGenerate">Generer visualisering</button>
@@ -1230,7 +1236,7 @@
     >
       <div class="photo-guide-card">
         <div class="photo-guide-close-row" style="margin-bottom: 8px">
-          <h2 id="photoGuideTitle" style="flex:1;margin:0">How to take the perfect progress photo</h2>
+          <h2 id="photoGuideTitle" style="flex:1;margin:0">📷 Get the best progress photo</h2>
           <button type="button" class="photo-guide-x" id="photoGuideCloseX" aria-label="Close guide">×</button>
         </div>
         <p class="photo-guide-sub">
@@ -1256,12 +1262,15 @@
           <circle cx="100" cy="232" r="2.5" fill="#c6f26d" />
         </svg>
         <ol class="photo-guide-rules" id="photoGuideRules">
-          <li>Show your full body from head to feet.</li>
+          <li>Keep your whole body visible from head to feet.</li>
           <li>Stand naturally with your arms slightly away from your body.</li>
           <li>Keep the camera straight and around waist or chest height.</li>
           <li>Use even light from the front — avoid strong shadows.</li>
-          <li>Choose a simple background and keep the camera at a comfortable distance.</li>
+          <li>Keep yourself clearly visible.</li>
         </ol>
+        <p class="photo-guide-footnote" id="photoGuideFootnote">
+          Using a similar position and camera angle each time makes it easier to see your progress over time.
+        </p>
         <div class="photo-guide-light-row">
           <div class="photo-guide-light-card">
             <strong>Good light</strong>

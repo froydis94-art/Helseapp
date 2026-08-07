@@ -23,12 +23,14 @@ function read(rel: string): string {
 describe("DEMAND_020 Guided Progress Photo Capture", () => {
   const html = read("public/index.html");
   const content = getGuidedProgressPhotoContent();
+  const docs = read("docs/CTO/20_GUIDED_PROGRESS_PHOTO_CAPTURE.md");
 
   it("1–2. Guide button exists with exact title text", () => {
     assert.match(html, /id="photoGuideOpen"/);
-    assert.match(html, /How to take the perfect progress photo/);
-    assert.equal(content.buttonLabel, "How to take the perfect progress photo");
-    assert.match(html, /📷\s*How to take the perfect progress photo/);
+    assert.match(html, /Get the best progress photo/);
+    assert.equal(content.buttonLabel, "Get the best progress photo");
+    assert.equal(content.title, "Get the best progress photo");
+    assert.match(html, /📷\s*Get the best progress photo/);
   });
 
   it("3–5. Guide stays closed until user opens; closes via user action", () => {
@@ -58,11 +60,34 @@ describe("DEMAND_020 Guided Progress Photo Capture", () => {
     const rulesBlock = html.match(/id="photoGuideRules"[^>]*>([\s\S]*?)<\/ol>/)?.[1] || "";
     const items = [...rulesBlock.matchAll(/<li>([\s\S]*?)<\/li>/g)].map((m) => m[1].trim());
     assert.equal(items.length, 5);
-    assert.match(items[0], /full body from head to feet/i);
+    assert.match(items[0], /whole body visible from head to feet/i);
     assert.match(items[1], /arms slightly away/i);
     assert.match(items[2], /camera straight/i);
     assert.match(items[3], /even light from the front/i);
-    assert.match(items[4], /simple background/i);
+    assert.match(items[4], /Keep yourself clearly visible/i);
+    assert.equal(/simple background/i.test(items[4]), false);
+  });
+
+  it("PATCH_020A. Footnote exists and is not a sixth rule", () => {
+    assert.match(html, /id="photoGuideFootnote"/);
+    assert.match(
+      html,
+      /similar position and camera angle each time makes it easier to see your progress/i
+    );
+    assert.equal(content.footnote.includes("similar position and camera angle"), true);
+    const rulesBlock = html.match(/id="photoGuideRules"[^>]*>([\s\S]*?)<\/ol>/)?.[1] || "";
+    const items = [...rulesBlock.matchAll(/<li>([\s\S]*?)<\/li>/g)];
+    assert.equal(items.length, 5);
+    assert.equal(/photoGuideFootnote[\s\S]*?<li>/i.test(html), false);
+  });
+
+  it("PATCH_020A. Future capture modes are documentation-only", () => {
+    assert.match(docs, /Front Progress Photo/);
+    assert.match(docs, /Side Progress Photo/);
+    assert.match(docs, /Back Progress Photo/);
+    assert.match(docs, /Reserved/);
+    assert.equal(/id="frontProgressPhoto"|Side Progress Photo|Back Progress Photo/.test(html), false);
+    assert.equal(html.includes("Front Progress Photo"), false);
   });
 
   it("15–17. Good and poor light examples; educational wording", () => {
