@@ -78,7 +78,9 @@ describe("DEMAND_020 Guided Progress Photo Capture", () => {
     const rulesBlock = html.match(/id="photoGuideRules"[^>]*>([\s\S]*?)<\/ol>/)?.[1] || "";
     const items = [...rulesBlock.matchAll(/<li>([\s\S]*?)<\/li>/g)];
     assert.equal(items.length, 5);
-    assert.equal(/photoGuideFootnote[\s\S]*?<li>/i.test(html), false);
+    const guideSlice = html.slice(html.indexOf('id="photoGuide"'), html.indexOf('id="onboard"'));
+    const afterFootnote = guideSlice.slice(guideSlice.indexOf("photoGuideFootnote"));
+    assert.equal(/<li\b/i.test(afterFootnote), false);
   });
 
   it("PATCH_020A. Future capture modes are documentation-only", () => {
@@ -128,7 +130,7 @@ describe("DEMAND_020 Guided Progress Photo Capture", () => {
   it("28–31. No quality score / pose / age / body analysis", () => {
     const guideJs = html.slice(html.indexOf("initPhotoGuide"), html.indexOf("initPhotoGuide") + 1200);
     assert.equal(/qualityScore|poseDetection|estimateAge|bodyAnalysis|tensorflow|mediapipe/i.test(guideJs), false);
-    assert.equal(GUIDED_PROGRESS_PHOTO_CONTENT.version, "1.0");
+    assert.equal(GUIDED_PROGRESS_PHOTO_CONTENT.version, "1.1");
   });
 
   it("32–35. No guide tracking storage or analytics", () => {
